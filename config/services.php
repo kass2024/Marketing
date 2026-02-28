@@ -7,7 +7,6 @@ return [
     | Global API Settings
     |--------------------------------------------------------------------------
     */
-
     'api' => [
         'timeout' => (int) env('API_TIMEOUT', 30),
         'retry'   => (int) env('API_RETRY_ATTEMPTS', 2),
@@ -15,33 +14,9 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Mail Services
+    | Facebook Login (User Auth Only)
     |--------------------------------------------------------------------------
     */
-
-    'mailgun' => [
-        'domain'   => env('MAILGUN_DOMAIN'),
-        'secret'   => env('MAILGUN_SECRET'),
-        'endpoint' => env('MAILGUN_ENDPOINT', 'api.mailgun.net'),
-        'scheme'   => 'https',
-    ],
-
-    'postmark' => [
-        'token' => env('POSTMARK_TOKEN'),
-    ],
-
-    'ses' => [
-        'key'    => env('AWS_ACCESS_KEY_ID'),
-        'secret' => env('AWS_SECRET_ACCESS_KEY'),
-        'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Facebook Login (User Authentication Only)
-    |--------------------------------------------------------------------------
-    */
-
     'facebook_login' => [
         'client_id'     => env('FB_APP_ID'),
         'client_secret' => env('FB_APP_SECRET'),
@@ -54,16 +29,9 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Meta Business Platform App (MASTER APP)
-    |--------------------------------------------------------------------------
-    | Used for:
-    | - Ads API
-    | - Business Manager
-    | - WhatsApp Business
-    | - Platform SaaS connections
+    | META PLATFORM APP (Master Business)
     |--------------------------------------------------------------------------
     */
-
     'meta' => [
 
         'app_id'       => env('META_APP_ID'),
@@ -76,20 +44,9 @@ return [
 
         /*
         |--------------------------------------------------------------------------
-        | OAuth Settings
+        | Required Permissions
         |--------------------------------------------------------------------------
         */
-
-        'oauth' => [
-            'response_type' => 'code',
-        ],
-
-        /*
-        |--------------------------------------------------------------------------
-        | Required Permissions (Platform Enforcement)
-        |--------------------------------------------------------------------------
-        */
-
         'required_permissions' => [
             'ads_management',
             'business_management',
@@ -102,7 +59,6 @@ return [
         | Token Management
         |--------------------------------------------------------------------------
         */
-
         'token_refresh_before_days' => (int) env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
 
         'long_lived_exchange_url' => env(
@@ -113,40 +69,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | WhatsApp Cloud API (Platform Default Fallback)
+    | WhatsApp Cloud API
     |--------------------------------------------------------------------------
-    | IMPORTANT:
-    | In SaaS mode → client tokens must come from database.
+    | In SaaS mode → token comes from DB (PlatformMetaConnection)
     |--------------------------------------------------------------------------
     */
-
     'whatsapp' => [
-
-        'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
-        'access_token'    => env('WHATSAPP_ACCESS_TOKEN'),
-        'business_id'     => env('WHATSAPP_BUSINESS_ID'),
 
         'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
         'graph_url'     => env('META_GRAPH_URL', 'https://graph.facebook.com'),
 
-        /*
-        |--------------------------------------------------------------------------
-        | Performance
-        |--------------------------------------------------------------------------
-        */
-
-        'max_batch_size' => (int) env('WHATSAPP_MAX_BATCH_SIZE', 50),
-
-        'request_timeout' => (int) env('WHATSAPP_TIMEOUT', 30),
+        'timeout' => (int) env('WHATSAPP_TIMEOUT', 30),
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | Webhook Security (Meta & WhatsApp)
+    | WhatsApp Webhook Security
     |--------------------------------------------------------------------------
     */
-
-    'webhook' => [
+    'whatsapp_webhook' => [
 
         'verify_token' => env('WHATSAPP_VERIFY_TOKEN'),
         'app_secret'   => env('WHATSAPP_APP_SECRET'),
@@ -161,10 +102,9 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Meta Ads Defaults
+    | Ads Defaults
     |--------------------------------------------------------------------------
     */
-
     'ads' => [
 
         'default_currency' => env('ADS_DEFAULT_CURRENCY', 'USD'),
@@ -175,15 +115,8 @@ return [
             'OUTCOME_TRAFFIC'
         ),
 
-        /*
-        |--------------------------------------------------------------------------
-        | Budget in cents
-        |--------------------------------------------------------------------------
-        */
-
-        'min_daily_budget' => (int) env('ADS_MIN_DAILY_BUDGET', 100),
-
-        'min_lifetime_budget' => (int) env('ADS_MIN_LIFETIME_BUDGET', 1000),
+        'min_daily_budget'     => (int) env('ADS_MIN_DAILY_BUDGET', 100),
+        'min_lifetime_budget'  => (int) env('ADS_MIN_LIFETIME_BUDGET', 1000),
     ],
 
 ];

@@ -3,18 +3,19 @@
 namespace App\Http\Controllers\Webhooks;
 
 use App\Http\Controllers\Controller;
-use App\Models\Client;
-use App\Services\ChatbotEngineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Bus;
+use App\Services\Chatbot\ChatbotProcessor;
+use App\Models\PlatformMetaConnection;
 
 class MetaWebhookController extends Controller
 {
-    protected ChatbotEngineService $engine;
+    protected ChatbotProcessor $processor;
 
-    public function __construct(ChatbotEngineService $engine)
+    public function __construct(ChatbotProcessor $processor)
     {
-        $this->engine = $engine;
+        $this->processor = $processor;
     }
 
     /*
@@ -24,7 +25,7 @@ class MetaWebhookController extends Controller
     */
     public function verify(Request $request)
     {
-        $verifyToken = config('services.whatsapp_webhook.verify_token');
+        $verifyToken = config('services.meta.verify_token');
 
         if (
             $request->get('hub_mode') === 'subscribe' &&
@@ -43,7 +44,7 @@ class MetaWebhookController extends Controller
     */
     public function handle(Request $request)
     {
-        // 🔐 Validate Meta signature (Enterprise Security)
+        // 🔐 Enterprise signature validation
         if (!$this->isValidSignature($request)) {
             Log::warning('Invalid Meta webhook signature');
             return response()->json(['error' => 'Unauthorized'], 403);
@@ -53,69 +54,80 @@ class MetaWebhookController extends Controller
 
         Log::info('Meta Webhook Received', $payload);
 
-        // Validate structure safely
-        if (
-            !isset($payload['entry'][0]['changes'][0]['value'])
-        ) {
+        // Basic structure validation
+        if (!isset($payload['entry'][0]['changes'][0]['value'])) {
             return response()->json(['status' => 'ignored']);
         }
 
         $value = $payload['entry'][0]['changes'][0]['value'];
 
-        // Only process actual incoming messages
-        if (!isset($value['messages'][0])) {
-            return response()->json(['status' => 'no_message']);
-        }
+        /*
+        |--------------------------------------------------------------------------
+        | A️⃣ MESSAGE EVENTS
+        |--------------------------------------------------------------------------
+        */
+        if (isset($value['messages'][0])) {
 
-        $incoming = $value['messages'][0];
+            $incoming = $value['messages'][0];
 
-        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
-        $from          = $incoming['from'] ?? null;
-        $messageType   = $incoming['type'] ?? null;
+            $from = $incoming['from'] ?? null;
+            $type = $incoming['type'] ?? null;
 
-        if (!$phoneNumberId || !$from) {
-            return response()->json(['status' => 'invalid_payload']);
-        }
+            if (!$from) {
+                return response()->json(['status' => 'invalid_sender']);
+            }
 
-        // Extract message content safely
-        $text = null;
+            $text = $this->extractMessageText($incoming);
 
-        if ($messageType === 'text') {
-            $text = $incoming['text']['body'] ?? null;
-        }
+            if (!$text) {
+                return response()->json(['status' => 'unsupported_type']);
+            }
 
-        if (!$text) {
-            return response()->json(['status' => 'unsupported_type']);
+            // Ensure platform is connected
+            if (!PlatformMetaConnection::exists()) {
+                Log::warning('No platform connected but message received.');
+                return response()->json(['status' => 'no_platform']);
+            }
+
+            // Queue processing (scalable)
+            dispatch(function () use ($from, $text) {
+                $this->processor->process([
+                    'from' => $from,
+                    'text' => $text,
+                ]);
+            });
+
+            return response()->json(['status' => 'processed']);
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Multi-Tenant: Identify Client by phone_number_id
+        | B️⃣ STATUS UPDATES (Delivered, Read, Failed)
         |--------------------------------------------------------------------------
         */
-
-        $client = Client::whereHas('metaConnection', function ($query) use ($phoneNumberId) {
-            $query->where('phone_number_id', $phoneNumberId);
-        })->first();
-
-        if (!$client) {
-            Log::warning("Client not found for phone_number_id: {$phoneNumberId}");
-            return response()->json(['status' => 'client_not_found']);
+        if (isset($value['statuses'])) {
+            Log::info('Meta Status Update', $value['statuses']);
+            return response()->json(['status' => 'status_received']);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Run Chatbot Engine (Hybrid Bot System)
-        |--------------------------------------------------------------------------
-        */
+        return response()->json(['status' => 'ignored']);
+    }
 
-        $this->engine->handleIncoming(
-            phone: $from,
-            message: $text,
-            clientId: $client->id
-        );
-
-        return response()->json(['status' => 'processed'], 200);
+    /*
+    |--------------------------------------------------------------------------
+    | Extract message content (supports multiple types)
+    |--------------------------------------------------------------------------
+    */
+    protected function extractMessageText(array $incoming): ?string
+    {
+        return match ($incoming['type'] ?? null) {
+            'text'      => $incoming['text']['body'] ?? null,
+            'button'    => $incoming['button']['text'] ?? null,
+            'interactive' => $incoming['interactive']['button_reply']['title']
+                                ?? $incoming['interactive']['list_reply']['title']
+                                ?? null,
+            default     => null,
+        };
     }
 
     /*
@@ -134,7 +146,7 @@ class MetaWebhookController extends Controller
         $expected = 'sha256=' . hash_hmac(
             'sha256',
             $request->getContent(),
-            config('services.whatsapp_webhook.app_secret')
+            config('services.meta.app_secret')
         );
 
         return hash_equals($expected, $signature);

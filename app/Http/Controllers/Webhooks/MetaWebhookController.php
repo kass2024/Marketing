@@ -25,10 +25,27 @@ class MetaWebhookController extends Controller
     */
 public function verify(Request $request): Response
 {
-    Log::critical('VERIFY DEBUG - QUERY:', $request->query());
-    Log::critical('VERIFY DEBUG - ALL:', $request->all());
+    // Apache converts dots to underscores
+    $mode      = $request->input('hub_mode') ?? $request->input('hub.mode');
+    $token     = $request->input('hub_verify_token') ?? $request->input('hub.verify_token');
+    $challenge = $request->input('hub_challenge') ?? $request->input('hub.challenge');
 
-    return response('debug', 200);
+    if (
+        $mode === 'subscribe' &&
+        hash_equals(
+            (string) config('services.whatsapp_webhook.verify_token'),
+            (string) $token
+        )
+    ) {
+        return response($challenge, 200);
+    }
+
+    Log::warning('Webhook verification failed.', [
+        'mode' => $mode,
+        'token_received' => $token,
+    ]);
+
+    return response('Forbidden', 403);
 }
 
     /*

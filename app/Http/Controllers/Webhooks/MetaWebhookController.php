@@ -6,38 +6,37 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use Symfony\Component\HttpFoundation\Response;
 use App\Models\PlatformMetaConnection;
 use App\Services\Chatbot\ChatbotProcessor;
 use App\Services\Chatbot\MessageDispatcher;
 
 class MetaWebhookController extends Controller
 {
-    protected ChatbotProcessor $processor;
-    protected MessageDispatcher $dispatcher;
-
     public function __construct(
-        ChatbotProcessor $processor,
-        MessageDispatcher $dispatcher
-    ) {
-        $this->processor  = $processor;
-        $this->dispatcher = $dispatcher;
-    }
+        protected ChatbotProcessor $processor,
+        protected MessageDispatcher $dispatcher
+    ) {}
 
     /*
     |--------------------------------------------------------------------------
     | 1️⃣ Webhook Verification (Meta Setup)
     |--------------------------------------------------------------------------
     */
-    public function verify(Request $request)
+    public function verify(Request $request): Response
     {
-        if (
-            $request->get('hub.mode') === 'subscribe' &&
-            $request->get('hub.verify_token') === config('services.whatsapp_webhook.verify_token')
+        $mode      = $request->query('hub.mode');
+        $token     = $request->query('hub.verify_token');
+        $challenge = $request->query('hub.challenge');
+
+        if ($mode === 'subscribe' &&
+            hash_equals(config('services.whatsapp_webhook.verify_token'), $token)
         ) {
-            return response($request->get('hub.challenge'), 200);
+            return response($challenge, 200);
         }
 
-        return response('Invalid verification token', 403);
+        Log::warning('Webhook verification failed.');
+        return response('Forbidden', 403);
     }
 
     /*
@@ -45,63 +44,58 @@ class MetaWebhookController extends Controller
     | 2️⃣ Handle Incoming Webhook
     |--------------------------------------------------------------------------
     */
-    public function handle(Request $request)
+    public function handle(Request $request): Response
     {
-        // 🔐 Validate Signature
+        // 🔐 Validate signature
         if (!$this->isValidSignature($request)) {
-            Log::warning('Webhook signature validation failed.');
+            Log::warning('Invalid webhook signature.');
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $payload = $request->all();
+        $payload = $request->json()->all();
 
         if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
-            return response()->json(['status' => 'ignored']);
+            return response()->json(['status' => 'ignored'], 200);
         }
 
         foreach ($payload['entry'] ?? [] as $entry) {
-
             foreach ($entry['changes'] ?? [] as $change) {
-
                 $value = $change['value'] ?? [];
 
-                // 📩 Incoming messages
                 if (!empty($value['messages'])) {
-                    $this->handleMessages($value);
+                    $this->processMessages($value);
                 }
 
-                // 📊 Status updates
                 if (!empty($value['statuses'])) {
-                    $this->handleStatuses($value['statuses']);
+                    $this->processStatuses($value['statuses']);
                 }
             }
         }
 
-        return response()->json(['status' => 'processed']);
+        return response()->json(['status' => 'ok'], 200);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Handle Incoming Messages
+    | Process Incoming Messages
     |--------------------------------------------------------------------------
     */
-    protected function handleMessages(array $value): void
+    protected function processMessages(array $value): void
     {
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Webhook missing phone_number_id.');
+            Log::warning('Missing phone_number_id in webhook.');
             return;
         }
 
-        // ✅ CORRECT COLUMN NAME
         $platform = PlatformMetaConnection::where(
             'whatsapp_phone_number_id',
             $phoneNumberId
         )->first();
 
         if (!$platform) {
-            Log::warning('No platform found for this phone_number_id.', [
+            Log::warning('Platform not found.', [
                 'phone_number_id' => $phoneNumberId
             ]);
             return;
@@ -109,47 +103,49 @@ class MetaWebhookController extends Controller
 
         foreach ($value['messages'] as $incoming) {
 
-            $from      = $incoming['from'] ?? null;     // user phone
+            $from      = $incoming['from'] ?? null;
             $messageId = $incoming['id'] ?? null;
 
             if (!$from || !$messageId) {
                 continue;
             }
 
-            // 🚫 Prevent duplicate processing
-            if (Cache::has('wa_msg_' . $messageId)) {
-                continue;
+            // Idempotency protection
+            if (Cache::has("wa_msg_$messageId")) {
+                return;
             }
 
-            Cache::put('wa_msg_' . $messageId, true, now()->addMinutes(5));
+            Cache::put("wa_msg_$messageId", true, now()->addMinutes(10));
 
             $text = $this->extractMessageText($incoming);
 
             if (!$text) {
-                Log::info('Unsupported message type received.', [
+                Log::info('Unsupported message type.', [
                     'type' => $incoming['type'] ?? 'unknown'
                 ]);
-                continue;
+                return;
             }
 
             try {
-
-                // 🧠 Process chatbot
                 $reply = $this->processor->process([
                     'from'        => $from,
                     'text'        => $text,
                     'platform_id' => $platform->id,
                 ]);
 
-                // 🚀 Send reply
                 if ($reply) {
-                    $this->dispatcher->send($from, $reply);
+                    $this->dispatcher->send(
+                        platform: $platform,
+                        to: $from,
+                        message: $reply
+                    );
                 }
 
             } catch (\Throwable $e) {
 
-                Log::error('Webhook processing failed', [
+                Log::error('Message processing failed.', [
                     'error' => $e->getMessage(),
+                    'platform_id' => $platform->id,
                 ]);
             }
         }
@@ -157,20 +153,20 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Handle Message Status Updates
+    | Process Status Updates
     |--------------------------------------------------------------------------
     */
-    protected function handleStatuses(array $statuses): void
+    protected function processStatuses(array $statuses): void
     {
         foreach ($statuses as $status) {
 
-            Log::info('WhatsApp Status Update', [
+            Log::info('WhatsApp message status update.', [
                 'message_id' => $status['id'] ?? null,
                 'status'     => $status['status'] ?? null,
                 'recipient'  => $status['recipient_id'] ?? null,
             ]);
 
-            // Optional: update message status in DB
+            // Optional: Update DB message record
         }
     }
 
@@ -202,7 +198,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Validate Webhook Signature
+    | Validate Meta Webhook Signature
     |--------------------------------------------------------------------------
     */
     protected function isValidSignature(Request $request): bool
@@ -213,10 +209,17 @@ class MetaWebhookController extends Controller
             return false;
         }
 
+        $appSecret = config('services.whatsapp_webhook.app_secret');
+
+        if (!$appSecret) {
+            Log::critical('WhatsApp app_secret missing.');
+            return false;
+        }
+
         $expected = 'sha256=' . hash_hmac(
             'sha256',
             $request->getContent(),
-            config('services.whatsapp_webhook.app_secret')
+            $appSecret
         );
 
         return hash_equals($expected, $signature);

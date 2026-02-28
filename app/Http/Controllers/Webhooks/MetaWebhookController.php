@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 use App\Models\PlatformMetaConnection;
+use App\Models\Client;
 use App\Services\Chatbot\ChatbotProcessor;
 use App\Services\Chatbot\MessageDispatcher;
 
@@ -20,7 +21,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 1️⃣ Webhook Verification
+    | 1️⃣ Webhook Verification (Meta Setup)
     |--------------------------------------------------------------------------
     */
     public function verify(Request $request): Response
@@ -92,28 +93,35 @@ class MetaWebhookController extends Controller
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Webhook missing phone_number_id');
+            Log::warning('Missing phone_number_id in webhook');
             return;
         }
 
-        // Find platform using WhatsApp phone_number_id
         $platform = PlatformMetaConnection::where(
             'whatsapp_phone_number_id',
             $phoneNumberId
         )->first();
 
         if (!$platform) {
-            Log::warning('No platform found for phone_number_id', [
+            Log::warning('Platform not found', [
                 'phone_number_id' => $phoneNumberId
             ]);
             return;
         }
 
-        // IMPORTANT: client_id is actually stored as connected_by
-        $clientId = $platform->connected_by;
+        /*
+         |--------------------------------------------------------------------------
+         | Resolve Client Properly (users → clients mapping)
+         |--------------------------------------------------------------------------
+         */
+
+        $userId = $platform->connected_by;
+
+        $clientId = Client::where('user_id', $userId)->value('id');
 
         if (!$clientId) {
-            Log::error('Platform missing connected_by (client)', [
+            Log::error('Client not found for platform user', [
+                'user_id' => $userId,
                 'platform_id' => $platform->id
             ]);
             return;
@@ -128,7 +136,12 @@ class MetaWebhookController extends Controller
                 continue;
             }
 
-            // Idempotency protection
+            /*
+             |--------------------------------------------------------------------------
+             | Idempotency Protection
+             |--------------------------------------------------------------------------
+             */
+
             $cacheKey = "wa_msg_{$messageId}";
 
             if (Cache::has($cacheKey)) {
@@ -147,6 +160,12 @@ class MetaWebhookController extends Controller
             }
 
             try {
+                Log::info('Processing message', [
+                    'client_id' => $clientId,
+                    'phone'     => $from,
+                    'text'      => $text,
+                ]);
+
                 $reply = $this->processor->process([
                     'from'      => $from,
                     'text'      => $text,
@@ -219,9 +238,7 @@ class MetaWebhookController extends Controller
     */
     protected function isValidSignature(Request $request): bool
     {
-        $signature = $request->header(
-            config('services.whatsapp_webhook.signature_header', 'X-Hub-Signature-256')
-        );
+        $signature = $request->header('X-Hub-Signature-256');
 
         if (!$signature) {
             Log::error('Missing signature header');
@@ -242,10 +259,7 @@ class MetaWebhookController extends Controller
         );
 
         if (!hash_equals($expected, $signature)) {
-            Log::error('Signature mismatch', [
-                'expected' => $expected,
-                'received' => $signature,
-            ]);
+            Log::error('Signature mismatch');
             return false;
         }
 

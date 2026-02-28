@@ -42,14 +42,14 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 2️⃣ Handle Incoming Events
+    | 2️⃣ Handle Incoming Webhook
     |--------------------------------------------------------------------------
     */
     public function handle(Request $request)
     {
-        // 🔐 Signature validation
+        // 🔐 Validate Signature
         if (!$this->isValidSignature($request)) {
-            Log::warning('Invalid webhook signature.');
+            Log::warning('Webhook signature validation failed.');
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -65,12 +65,12 @@ class MetaWebhookController extends Controller
 
                 $value = $change['value'] ?? [];
 
-                // 🔵 Handle incoming messages
+                // 📩 Incoming messages
                 if (!empty($value['messages'])) {
                     $this->handleMessages($value);
                 }
 
-                // 🟢 Handle message status updates
+                // 📊 Status updates
                 if (!empty($value['statuses'])) {
                     $this->handleStatuses($value['statuses']);
                 }
@@ -90,14 +90,18 @@ class MetaWebhookController extends Controller
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Missing phone_number_id in webhook.');
+            Log::warning('Webhook missing phone_number_id.');
             return;
         }
 
-        $platform = PlatformMetaConnection::where('phone_number_id', $phoneNumberId)->first();
+        // ✅ CORRECT COLUMN NAME
+        $platform = PlatformMetaConnection::where(
+            'whatsapp_phone_number_id',
+            $phoneNumberId
+        )->first();
 
         if (!$platform) {
-            Log::warning('No platform found for phone_number_id.', [
+            Log::warning('No platform found for this phone_number_id.', [
                 'phone_number_id' => $phoneNumberId
             ]);
             return;
@@ -105,9 +109,8 @@ class MetaWebhookController extends Controller
 
         foreach ($value['messages'] as $incoming) {
 
-            $from       = $incoming['from'] ?? null;
-            $messageId  = $incoming['id'] ?? null;
-            $timestamp  = $incoming['timestamp'] ?? null;
+            $from      = $incoming['from'] ?? null;     // user phone
+            $messageId = $incoming['id'] ?? null;
 
             if (!$from || !$messageId) {
                 continue;
@@ -115,8 +118,9 @@ class MetaWebhookController extends Controller
 
             // 🚫 Prevent duplicate processing
             if (Cache::has('wa_msg_' . $messageId)) {
-                return;
+                continue;
             }
+
             Cache::put('wa_msg_' . $messageId, true, now()->addMinutes(5));
 
             $text = $this->extractMessageText($incoming);
@@ -125,19 +129,19 @@ class MetaWebhookController extends Controller
                 Log::info('Unsupported message type received.', [
                     'type' => $incoming['type'] ?? 'unknown'
                 ]);
-                return;
+                continue;
             }
 
             try {
 
+                // 🧠 Process chatbot
                 $reply = $this->processor->process([
-                    'from'        => $from,   // phone_number
+                    'from'        => $from,
                     'text'        => $text,
                     'platform_id' => $platform->id,
-                    'message_id'  => $messageId,
-                    'timestamp'   => $timestamp,
                 ]);
 
+                // 🚀 Send reply
                 if ($reply) {
                     $this->dispatcher->send($from, $reply);
                 }
@@ -146,7 +150,6 @@ class MetaWebhookController extends Controller
 
                 Log::error('Webhook processing failed', [
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                 ]);
             }
         }
@@ -154,7 +157,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Handle Status Updates
+    | Handle Message Status Updates
     |--------------------------------------------------------------------------
     */
     protected function handleStatuses(array $statuses): void
@@ -167,14 +170,13 @@ class MetaWebhookController extends Controller
                 'recipient'  => $status['recipient_id'] ?? null,
             ]);
 
-            // Optional:
-            // Update message status table here if you store outgoing messages
+            // Optional: update message status in DB
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Extract Text From Message
+    | Extract Message Text
     |--------------------------------------------------------------------------
     */
     protected function extractMessageText(array $incoming): ?string
@@ -200,7 +202,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Validate Meta Signature
+    | Validate Webhook Signature
     |--------------------------------------------------------------------------
     */
     protected function isValidSignature(Request $request): bool

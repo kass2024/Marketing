@@ -1,3 +1,5 @@
+<?php
+
 namespace App\Services\Chatbot;
 
 use App\Models\ChatbotNode;
@@ -21,7 +23,15 @@ class FlowEngine
             ->latest()
             ->first();
 
+        if (!$state) {
+            return null;
+        }
+
         $currentNode = ChatbotNode::find($state->node_id);
+
+        if (!$currentNode) {
+            return null;
+        }
 
         $nextNode = ChatbotNode::where('parent_node_id', $currentNode->id)
             ->first();
@@ -29,25 +39,27 @@ class FlowEngine
         return $this->executeNode($conversation, $nextNode);
     }
 
-    protected function executeNode($conversation, $node)
+    protected function executeNode($conversation, $node): ?string
     {
         if (!$node) {
             $conversation->update(['status' => 'completed']);
-            return;
+            return null;
         }
 
+        // Save outgoing message
         Message::create([
             'conversation_id' => $conversation->id,
-            'direction' => 'outgoing',
-            'content' => $node->message,
+            'direction'       => 'outgoing',
+            'content'         => $node->message,
         ]);
 
+        // Save conversation state
         ConversationState::create([
             'conversation_id' => $conversation->id,
-            'node_id' => $node->id,
+            'node_id'         => $node->id,
         ]);
 
-        app(MessageDispatcher::class)
-            ->send($conversation->meta_user_id, $node->message);
+        // IMPORTANT: return message instead of sending here
+        return $node->message;
     }
 }

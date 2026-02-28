@@ -4,126 +4,147 @@ namespace App\Services\Chatbot;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use App\Models\KnowledgeBase;
+use App\Models\AiCache;
+use App\Models\ConversationMemory;
 
 class AIEngine
 {
-    public function reply(int $clientId, string $userMessage): string
-    {
-        $userMessage = trim($userMessage);
+    protected float $confidenceThreshold = 0.80;
 
-        if ($userMessage === '') {
+    public function reply(int $clientId, string $message, $conversation = null): string
+    {
+        $message = trim($message);
+
+        if (!$message) {
             return "How can I assist you today?";
         }
 
-        try {
-            // 1️⃣ Try knowledge base first
-            $local = $this->searchKnowledgeBase($clientId, $userMessage);
-            if ($local) {
-                return $local;
-            }
+        // 1️⃣ Check cache
+        $hash = hash('sha256', $message);
 
-            // 2️⃣ Fallback to OpenAI
-            return $this->askOpenAI($clientId, $userMessage);
-
-        } catch (\Throwable $e) {
-            Log::error('AIEngine fatal error', [
-                'client_id' => $clientId,
-                'error' => $e->getMessage(),
-            ]);
-
-            return "Our team will respond shortly.";
-        }
-    }
-
-    protected function searchKnowledgeBase(int $clientId, string $userMessage): ?string
-    {
-        $match = KnowledgeBase::where('client_id', $clientId)
-            ->where('is_active', true)
-            ->whereRaw('LOWER(question) LIKE ?', ['%' . strtolower($userMessage) . '%'])
+        $cached = AiCache::where('client_id', $clientId)
+            ->where('message_hash', $hash)
             ->first();
 
-        if ($match) {
-            Log::info('Knowledge match', ['knowledge_id' => $match->id]);
-            return $match->answer;
+        if ($cached) {
+            return $cached->response;
         }
 
-        return null;
+        // 2️⃣ Semantic Search
+        $semantic = $this->semanticSearch($clientId, $message);
+
+        if ($semantic && $semantic['score'] >= $this->confidenceThreshold) {
+            return $this->storeAndReturn($clientId, $hash, $semantic['answer']);
+        }
+
+        // 3️⃣ FULLTEXT fallback
+        $keywordMatch = KnowledgeBase::where('client_id', $clientId)
+            ->whereRaw("MATCH(question, answer) AGAINST(? IN NATURAL LANGUAGE MODE)", [$message])
+            ->first();
+
+        if ($keywordMatch) {
+            return $this->storeAndReturn($clientId, $hash, $keywordMatch->answer);
+        }
+
+        // 4️⃣ OpenAI fallback with memory
+        return $this->openAIFallback($clientId, $hash, $message, $conversation);
     }
 
-    protected function askOpenAI(int $clientId, string $userMessage): string
+    protected function semanticSearch(int $clientId, string $message): ?array
+    {
+        $embeddingService = app(EmbeddingService::class);
+        $queryVector = $embeddingService->generate($message);
+
+        if (!$queryVector) return null;
+
+        $bestMatch = null;
+        $bestScore = 0;
+
+        foreach (KnowledgeBase::where('client_id', $clientId)->get() as $item) {
+
+            if (!$item->embedding) continue;
+
+            $storedVector = json_decode($item->embedding, true);
+
+            $score = $this->cosineSimilarity($queryVector, $storedVector);
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestMatch = $item;
+            }
+        }
+
+        if (!$bestMatch) return null;
+
+        return [
+            'answer' => $bestMatch->answer,
+            'score' => $bestScore
+        ];
+    }
+
+    protected function cosineSimilarity(array $a, array $b): float
+    {
+        $dot = 0; $normA = 0; $normB = 0;
+
+        foreach ($a as $i => $val) {
+            $dot += $val * ($b[$i] ?? 0);
+            $normA += $val * $val;
+            $normB += ($b[$i] ?? 0) * ($b[$i] ?? 0);
+        }
+
+        return $dot / (sqrt($normA) * sqrt($normB) + 1e-10);
+    }
+
+    protected function openAIFallback(int $clientId, string $hash, string $message, $conversation)
     {
         $apiKey = config('services.openai.key');
 
-        if (!$apiKey) {
-            Log::critical('OpenAI key missing');
-            return "Our team will respond shortly.";
+        $memory = $conversation
+            ? ConversationMemory::where('conversation_id', $conversation->id)
+                ->latest()->take(5)->get()->reverse()->values()
+            : collect();
+
+        $messages = [
+            ['role' => 'system', 'content' => 'You are a professional visa consultancy assistant.']
+        ];
+
+        foreach ($memory as $m) {
+            $messages[] = [
+                'role' => $m->role,
+                'content' => $m->content
+            ];
         }
 
-        // Limit knowledge context to avoid large prompts
-        $knowledge = KnowledgeBase::where('client_id', $clientId)
-            ->where('is_active', true)
-            ->limit(15)
-            ->get(['question', 'answer']);
+        $messages[] = ['role' => 'user', 'content' => $message];
 
-        $context = '';
-        foreach ($knowledge as $item) {
-            $context .= "Q: {$item->question}\nA: {$item->answer}\n\n";
+        $response = Http::withToken($apiKey)
+            ->timeout(30)
+            ->post('https://api.openai.com/v1/chat/completions', [
+                'model' => 'gpt-4o-mini',
+                'messages' => $messages,
+                'temperature' => 0.3
+            ]);
+
+        if ($response->failed()) {
+            Log::error('OpenAI fallback failed', ['body'=>$response->body()]);
+            return "Our team will assist you shortly.";
         }
 
-        $system = "You are a professional AI assistant for a company.
-Use the provided company knowledge when relevant.
-Keep answers clear, concise and professional.";
+        $answer = $response->json('choices.0.message.content');
 
-        $user = "Company Knowledge:\n{$context}\n\nUser Question:\n{$userMessage}";
+        return $this->storeAndReturn($clientId, $hash, $answer);
+    }
 
-        // 🔥 MODEL FALLBACK STRATEGY
-        $models = ['gpt-4o', 'gpt-3.5-turbo'];
+    protected function storeAndReturn(int $clientId, string $hash, string $answer): string
+    {
+        AiCache::updateOrCreate(
+            ['client_id'=>$clientId,'message_hash'=>$hash],
+            ['response'=>$answer]
+        );
 
-        foreach ($models as $model) {
-
-            try {
-
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $apiKey,
-                    'Content-Type'  => 'application/json',
-                ])
-                ->timeout(30)
-                ->retry(2, 1000)
-                ->post('https://api.openai.com/v1/chat/completions', [
-                    'model' => $model,
-                    'messages' => [
-                        ['role' => 'system', 'content' => $system],
-                        ['role' => 'user', 'content' => $user],
-                    ],
-                    'temperature' => 0.2,
-                    'max_tokens' => 400,
-                ]);
-
-                if ($response->successful()) {
-
-                    $content = $response->json('choices.0.message.content');
-
-                    if ($content) {
-                        return trim($content);
-                    }
-                }
-
-                // Log model failure but try fallback
-                Log::warning('OpenAI model failed', [
-                    'model' => $model,
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-
-            } catch (\Throwable $e) {
-                Log::warning('OpenAI request exception', [
-                    'model' => $model,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return "Our team will respond shortly.";
+        return $answer;
     }
 }

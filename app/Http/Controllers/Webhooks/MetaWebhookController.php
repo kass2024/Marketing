@@ -29,13 +29,20 @@ class MetaWebhookController extends Controller
         $token     = $request->query('hub.verify_token');
         $challenge = $request->query('hub.challenge');
 
-        if ($mode === 'subscribe' &&
-            hash_equals(config('services.whatsapp_webhook.verify_token'), $token)
+        if (
+            $mode === 'subscribe' &&
+            hash_equals(
+                (string) config('services.whatsapp_webhook.verify_token'),
+                (string) $token
+            )
         ) {
             return response($challenge, 200);
         }
 
-        Log::warning('Webhook verification failed.');
+        Log::warning('Webhook verification failed.', [
+            'mode' => $mode,
+        ]);
+
         return response('Forbidden', 403);
     }
 
@@ -46,20 +53,23 @@ class MetaWebhookController extends Controller
     */
     public function handle(Request $request): Response
     {
-        // 🔐 Validate signature
+        // Validate signature (CRITICAL in production)
         if (!$this->isValidSignature($request)) {
-            Log::warning('Invalid webhook signature.');
+            Log::error('Webhook signature validation failed.');
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
         $payload = $request->json()->all();
 
-        if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
+        if (!isset($payload['object']) ||
+            $payload['object'] !== 'whatsapp_business_account'
+        ) {
             return response()->json(['status' => 'ignored'], 200);
         }
 
         foreach ($payload['entry'] ?? [] as $entry) {
             foreach ($entry['changes'] ?? [] as $change) {
+
                 $value = $change['value'] ?? [];
 
                 if (!empty($value['messages'])) {
@@ -85,7 +95,7 @@ class MetaWebhookController extends Controller
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Missing phone_number_id in webhook.');
+            Log::warning('Webhook missing phone_number_id.');
             return;
         }
 
@@ -95,7 +105,7 @@ class MetaWebhookController extends Controller
         )->first();
 
         if (!$platform) {
-            Log::warning('Platform not found.', [
+            Log::warning('No platform found for phone_number_id.', [
                 'phone_number_id' => $phoneNumberId
             ]);
             return;
@@ -110,20 +120,22 @@ class MetaWebhookController extends Controller
                 continue;
             }
 
-            // Idempotency protection
-            if (Cache::has("wa_msg_$messageId")) {
-                return;
+            // Idempotency protection (prevent duplicate processing)
+            $cacheKey = "wa_msg_$messageId";
+
+            if (Cache::has($cacheKey)) {
+                continue;
             }
 
-            Cache::put("wa_msg_$messageId", true, now()->addMinutes(10));
+            Cache::put($cacheKey, true, now()->addMinutes(10));
 
             $text = $this->extractMessageText($incoming);
 
             if (!$text) {
-                Log::info('Unsupported message type.', [
+                Log::info('Unsupported message type received.', [
                     'type' => $incoming['type'] ?? 'unknown'
                 ]);
-                return;
+                continue;
             }
 
             try {
@@ -133,7 +145,7 @@ class MetaWebhookController extends Controller
                     'platform_id' => $platform->id,
                 ]);
 
-                if ($reply) {
+                if (!empty($reply)) {
                     $this->dispatcher->send(
                         platform: $platform,
                         to: $from,
@@ -142,10 +154,9 @@ class MetaWebhookController extends Controller
                 }
 
             } catch (\Throwable $e) {
-
-                Log::error('Message processing failed.', [
+                Log::error('Webhook message processing error.', [
                     'error' => $e->getMessage(),
-                    'platform_id' => $platform->id,
+                    'message_id' => $messageId,
                 ]);
             }
         }
@@ -159,14 +170,11 @@ class MetaWebhookController extends Controller
     protected function processStatuses(array $statuses): void
     {
         foreach ($statuses as $status) {
-
             Log::info('WhatsApp message status update.', [
                 'message_id' => $status['id'] ?? null,
                 'status'     => $status['status'] ?? null,
                 'recipient'  => $status['recipient_id'] ?? null,
             ]);
-
-            // Optional: Update DB message record
         }
     }
 
@@ -198,30 +206,41 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Validate Meta Webhook Signature
+    | Validate Webhook Signature
     |--------------------------------------------------------------------------
     */
     protected function isValidSignature(Request $request): bool
     {
-        $signature = $request->header('X-Hub-Signature-256');
+        $signature = $request->header(
+            config('services.whatsapp_webhook.signature_header', 'X-Hub-Signature-256')
+        );
 
         if (!$signature) {
+            Log::error('Missing signature header.');
             return false;
         }
 
         $appSecret = config('services.whatsapp_webhook.app_secret');
 
         if (!$appSecret) {
-            Log::critical('WhatsApp app_secret missing.');
+            Log::critical('WhatsApp app_secret not configured.');
             return false;
         }
 
         $expected = 'sha256=' . hash_hmac(
-            'sha256',
+            config('services.whatsapp_webhook.hash_algo', 'sha256'),
             $request->getContent(),
             $appSecret
         );
 
-        return hash_equals($expected, $signature);
+        if (!hash_equals($expected, $signature)) {
+            Log::error('Signature mismatch.', [
+                'expected' => $expected,
+                'received' => $signature,
+            ]);
+            return false;
+        }
+
+        return true;
     }
 }

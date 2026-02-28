@@ -12,8 +12,9 @@ use App\Models\ConversationMemory;
 
 class AIEngine
 {
-    protected float $semanticThreshold = 0.88;     // strict semantic
-    protected float $fulltextThreshold = 3.0;      // strict keyword score
+    protected float $semanticThreshold = 0.87;
+    protected float $reRankThreshold   = 0.75;
+    protected int   $candidateLimit    = 5;
 
     public function reply(int $clientId, string $message, $conversation = null): string
     {
@@ -25,34 +26,36 @@ class AIEngine
 
         $hash = hash('sha256', $clientId . $message);
 
-        // 1️⃣ Cache check
-        if ($cached = AiCache::where('client_id',$clientId)
-            ->where('message_hash',$hash)->first()) {
+        // 1️⃣ Cache
+        if ($cached = AiCache::where('client_id', $clientId)
+            ->where('message_hash', $hash)
+            ->first()) {
             return $cached->response;
         }
 
-        // 2️⃣ Semantic search
-        if ($semantic = $this->semanticSearch($clientId, $message)) {
+        // 2️⃣ Semantic candidate search
+        $candidates = $this->semanticCandidates($clientId, $message);
 
-            Log::info('Semantic score', ['score'=>$semantic['score']]);
+        if (!empty($candidates)) {
 
-            if ($semantic['score'] >= $this->semanticThreshold) {
-                return $this->store($clientId,$hash,$semantic['answer']);
+            $best = $candidates[0];
+
+            Log::info('Semantic best score', ['score' => $best['score']]);
+
+            if ($best['score'] >= $this->semanticThreshold) {
+                return $this->store($clientId, $hash, $best['answer']);
+            }
+
+            // 3️⃣ AI re-ranking (prevents wrong answers like SEVIS example)
+            $reRanked = $this->reRankWithAI($message, $candidates);
+
+            if ($reRanked && $reRanked['confidence'] >= $this->reRankThreshold) {
+                return $this->store($clientId, $hash, $reRanked['answer']);
             }
         }
 
-        // 3️⃣ FULLTEXT with score
-        if ($keyword = $this->fullTextSearch($clientId, $message)) {
-
-            Log::info('Fulltext score', ['score'=>$keyword['score']]);
-
-            if ($keyword['score'] >= $this->fulltextThreshold) {
-                return $this->store($clientId,$hash,$keyword['answer']);
-            }
-        }
-
-        // 4️⃣ AI fallback (safe & contextual)
-        return $this->openAIFallback($clientId,$hash,$message,$conversation);
+        // 4️⃣ Strict grounded AI fallback
+        return $this->groundedFallback($clientId, $hash, $message, $conversation);
     }
 
     protected function normalize(string $text): string
@@ -60,150 +63,231 @@ class AIEngine
         return trim(Str::lower($text));
     }
 
-    protected function semanticSearch(int $clientId, string $message): ?array
+    /*
+    |--------------------------------------------------------------------------
+    | Semantic Candidate Retrieval
+    |--------------------------------------------------------------------------
+    */
+
+    protected function semanticCandidates(int $clientId, string $message): array
     {
         try {
-            $queryVector = app(EmbeddingService::class)
-                ->generate($message);
 
-            if (!$queryVector) return null;
+            $queryVector = app(EmbeddingService::class)->generate($message);
 
-            $items = KnowledgeBase::where('client_id',$clientId)
+            if (!$queryVector) return [];
+
+            $items = KnowledgeBase::where('client_id', $clientId)
                 ->whereNotNull('embedding')
                 ->get();
 
-            $bestScore = 0;
-            $bestAnswer = null;
+            $results = [];
 
             foreach ($items as $item) {
 
                 $vector = is_array($item->embedding)
                     ? $item->embedding
-                    : json_decode($item->embedding,true);
+                    : json_decode($item->embedding, true);
 
                 if (!$vector) continue;
 
-                $score = $this->cosine($queryVector,$vector);
+                $score = $this->cosine($queryVector, $vector);
 
-                if ($score > $bestScore) {
-                    $bestScore = $score;
-                    $bestAnswer = $item->answer;
-                }
+                $results[] = [
+                    'answer' => $item->answer,
+                    'question' => $item->question,
+                    'score' => $score
+                ];
             }
 
-            if (!$bestAnswer) return null;
+            usort($results, fn($a, $b) => $b['score'] <=> $a['score']);
 
-            return [
-                'score'=>$bestScore,
-                'answer'=>$bestAnswer
-            ];
+            return array_slice($results, 0, $this->candidateLimit);
 
         } catch (\Throwable $e) {
-            Log::error('Semantic error',['error'=>$e->getMessage()]);
-            return null;
+
+            Log::error('Semantic search failed', [
+                'error' => $e->getMessage()
+            ]);
+
+            return [];
         }
     }
 
-    protected function fullTextSearch(int $clientId,string $message): ?array
+    protected function cosine(array $a, array $b): float
     {
-        try {
+        $dot = 0; $normA = 0; $normB = 0;
 
-            $row = KnowledgeBase::where('client_id',$clientId)
-                ->selectRaw("*, MATCH(question,answer) AGAINST(? IN NATURAL LANGUAGE MODE) as score",[$message])
-                ->whereRaw("MATCH(question,answer) AGAINST(? IN NATURAL LANGUAGE MODE)",[$message])
-                ->orderByDesc('score')
-                ->first();
-
-            if (!$row) return null;
-
-            return [
-                'score'=>$row->score,
-                'answer'=>$row->answer
-            ];
-
-        } catch (\Throwable $e) {
-            Log::error('Fulltext error',['error'=>$e->getMessage()]);
-            return null;
-        }
-    }
-
-    protected function cosine(array $a,array $b): float
-    {
-        $dot=0;$normA=0;$normB=0;
-
-        foreach($a as $i=>$v){
+        foreach ($a as $i => $v) {
             $dot += $v * ($b[$i] ?? 0);
-            $normA += $v*$v;
-            $normB += ($b[$i] ?? 0)*($b[$i] ?? 0);
+            $normA += $v * $v;
+            $normB += ($b[$i] ?? 0) * ($b[$i] ?? 0);
         }
 
-        return $dot / (sqrt($normA)*sqrt($normB) + 1e-10);
+        return $dot / (sqrt($normA) * sqrt($normB) + 1e-10);
     }
 
-    protected function openAIFallback(int $clientId,string $hash,string $message,$conversation): string
+    /*
+    |--------------------------------------------------------------------------
+    | AI Re-ranking (Prevents wrong matches)
+    |--------------------------------------------------------------------------
+    */
+
+    protected function reRankWithAI(string $message, array $candidates): ?array
     {
-        $apiKey = config('services.openai.key');
-
-        if (!$apiKey) {
-            return "Our team will assist you shortly.";
-        }
-
-        $memory = $conversation
-            ? ConversationMemory::where('conversation_id',$conversation->id)
-                ->latest()->take(5)->get()->reverse()
-            : collect();
-
-        $messages = [
-            [
-                'role'=>'system',
-                'content'=>'You are a professional visa consultancy assistant. 
-Use only company information. 
-Be precise, professional, and do not invent facts.'
-            ]
-        ];
-
-        foreach($memory as $m){
-            $messages[]=[
-                'role'=>$m->role,
-                'content'=>$m->content
-            ];
-        }
-
-        $messages[]=['role'=>'user','content'=>$message];
-
         try {
+
+            $apiKey = config('services.openai.key');
+            if (!$apiKey) return null;
+
+            $context = "";
+
+            foreach ($candidates as $i => $c) {
+                $context .= "Candidate " . ($i + 1) . ":\n";
+                $context .= "Question: {$c['question']}\n";
+                $context .= "Answer: {$c['answer']}\n\n";
+            }
+
+            $prompt = "
+You are evaluating which answer best matches the user question.
+
+User Question:
+{$message}
+
+Below are candidate Q&A pairs.
+
+{$context}
+
+Return ONLY JSON like:
+{
+  \"best_index\": number,
+  \"confidence\": decimal between 0 and 1
+}
+";
 
             $response = Http::withToken($apiKey)
                 ->timeout(30)
-                ->post('https://api.openai.com/v1/chat/completions',[
-                    'model'=>'gpt-4o-mini',
-                    'messages'=>$messages,
-                    'temperature'=>0.2,
-                    'max_tokens'=>500
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => 'gpt-4o-mini',
+                    'messages' => [
+                        ['role' => 'system', 'content' => 'You evaluate answer relevance. Return JSON only.'],
+                        ['role' => 'user', 'content' => $prompt]
+                    ],
+                    'temperature' => 0
                 ]);
 
-            if($response->failed()){
-                Log::error('OpenAI error',['body'=>$response->body()]);
+            if ($response->failed()) {
+                return null;
+            }
+
+            $content = $response->json('choices.0.message.content');
+
+            $data = json_decode($content, true);
+
+            if (!isset($data['best_index'])) return null;
+
+            $index = $data['best_index'] - 1;
+
+            if (!isset($candidates[$index])) return null;
+
+            return [
+                'answer' => $candidates[$index]['answer'],
+                'confidence' => $data['confidence'] ?? 0
+            ];
+
+        } catch (\Throwable $e) {
+
+            Log::error('Re-rank failed', [
+                'error' => $e->getMessage()
+            ]);
+
+            return null;
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Strict Grounded Fallback (NO hallucination)
+    |--------------------------------------------------------------------------
+    */
+
+    protected function groundedFallback(int $clientId, string $hash, string $message, $conversation): string
+    {
+        try {
+
+            $apiKey = config('services.openai.key');
+            if (!$apiKey) {
+                return "Our team will assist you shortly.";
+            }
+
+            $knowledge = KnowledgeBase::where('client_id', $clientId)
+                ->limit(50)
+                ->get(['question', 'answer']);
+
+            $kbText = "";
+
+            foreach ($knowledge as $item) {
+                $kbText .= "Q: {$item->question}\nA: {$item->answer}\n\n";
+            }
+
+            $prompt = "
+You are a professional visa consultancy assistant.
+
+You MUST answer strictly using the company knowledge below.
+If the answer is not found in the knowledge, respond:
+
+\"Please contact our team for accurate assistance.\"
+
+Company Knowledge:
+{$kbText}
+
+User Question:
+{$message}
+";
+
+            $response = Http::withToken($apiKey)
+                ->timeout(30)
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => 'gpt-4o-mini',
+                    'messages' => [
+                        ['role' => 'system', 'content' => 'Strictly grounded assistant.'],
+                        ['role' => 'user', 'content' => $prompt]
+                    ],
+                    'temperature' => 0.1,
+                    'max_tokens' => 500
+                ]);
+
+            if ($response->failed()) {
                 return "Our team will assist you shortly.";
             }
 
             $answer = trim($response->json('choices.0.message.content'));
 
-            return $this->store($clientId,$hash,$answer);
+            return $this->store($clientId, $hash, $answer);
 
-        } catch(\Throwable $e){
-            Log::error('OpenAI exception',['error'=>$e->getMessage()]);
+        } catch (\Throwable $e) {
+
+            Log::error('Fallback failed', [
+                'error' => $e->getMessage()
+            ]);
+
             return "Our team will assist you shortly.";
         }
     }
 
-    protected function store(int $clientId,string $hash,string $answer): string
+    protected function store(int $clientId, string $hash, string $answer): string
     {
         AiCache::updateOrCreate(
-            ['client_id'=>$clientId,'message_hash'=>$hash],
-            ['response'=>$answer]
+            [
+                'client_id' => $clientId,
+                'message_hash' => $hash
+            ],
+            [
+                'response' => $answer
+            ]
         );
 
         return $answer;
     }
 }
+//end of file 

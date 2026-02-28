@@ -41,7 +41,7 @@ class AdminMetaController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | CONNECT (Redirect to Meta OAuth)
+    | CONNECT
     |--------------------------------------------------------------------------
     */
     public function connect()
@@ -76,7 +76,7 @@ class AdminMetaController extends Controller
         if (!$code) {
             return redirect()
                 ->route('admin.meta.index')
-                ->with('error', 'Authorization cancelled or failed.');
+                ->with('error', 'Authorization cancelled.');
         }
 
         DB::beginTransaction();
@@ -85,10 +85,10 @@ class AdminMetaController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 1: SHORT-LIVED TOKEN
+            | 1️⃣ SHORT TOKEN
             |--------------------------------------------------------------------------
             */
-            $tokenResponse = Http::timeout(30)->get(
+            $shortResponse = Http::timeout(30)->get(
                 "{$this->graphUrl}/{$this->graphVersion}/oauth/access_token",
                 [
                     'client_id'     => config('services.meta.app_id'),
@@ -98,11 +98,11 @@ class AdminMetaController extends Controller
                 ]
             );
 
-            if (!$tokenResponse->ok()) {
+            if (!$shortResponse->ok()) {
                 throw new \Exception('Short token exchange failed.');
             }
 
-            $shortToken = $tokenResponse->json('access_token');
+            $shortToken = $shortResponse->json('access_token');
 
             if (!$shortToken) {
                 throw new \Exception('Short token missing.');
@@ -110,7 +110,7 @@ class AdminMetaController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 2: LONG-LIVED TOKEN
+            | 2️⃣ LONG TOKEN
             |--------------------------------------------------------------------------
             */
             $longResponse = Http::timeout(30)->get(
@@ -140,7 +140,7 @@ class AdminMetaController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 3: VALIDATE PERMISSIONS
+            | 3️⃣ PERMISSIONS CHECK
             |--------------------------------------------------------------------------
             */
             $permissionsResponse = Http::get(
@@ -149,7 +149,7 @@ class AdminMetaController extends Controller
             );
 
             if (!$permissionsResponse->ok()) {
-                throw new \Exception('Failed to validate permissions.');
+                throw new \Exception('Permission validation failed.');
             }
 
             $granted = collect($permissionsResponse->json('data'))
@@ -157,9 +157,7 @@ class AdminMetaController extends Controller
                 ->pluck('permission')
                 ->toArray();
 
-            $required = config('services.meta.required_permissions');
-
-            foreach ($required as $permission) {
+            foreach (config('services.meta.required_permissions') as $permission) {
                 if (!in_array($permission, $granted)) {
                     throw new \Exception("Missing required permission: {$permission}");
                 }
@@ -167,7 +165,7 @@ class AdminMetaController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | STEP 4: GET BUSINESS
+            | 4️⃣ GET BUSINESS
             |--------------------------------------------------------------------------
             */
             $businessResponse = Http::get(
@@ -175,38 +173,63 @@ class AdminMetaController extends Controller
                 ['access_token' => $longToken]
             );
 
-            if (!$businessResponse->ok()) {
-                throw new \Exception('Failed to fetch business accounts.');
-            }
-
             $business = Arr::first($businessResponse->json('data', []));
 
             if (!$business) {
-                throw new \Exception('No business accounts found.');
+                throw new \Exception('No business found.');
             }
 
             /*
             |--------------------------------------------------------------------------
-            | CLEAN PREVIOUS RECORD
+            | 5️⃣ GET WHATSAPP BUSINESS ACCOUNT
             |--------------------------------------------------------------------------
             */
-            PlatformMetaConnection::where(
-                'connected_by',
-                Auth::id()
-            )->delete();
+            $wabaResponse = Http::get(
+                "{$this->graphUrl}/{$this->graphVersion}/{$business['id']}/owned_whatsapp_business_accounts",
+                ['access_token' => $longToken]
+            );
+
+            $waba = Arr::first($wabaResponse->json('data', []));
+
+            if (!$waba) {
+                throw new \Exception('No WhatsApp Business Account found.');
+            }
 
             /*
             |--------------------------------------------------------------------------
-            | SAVE CONNECTION
+            | 6️⃣ GET PHONE NUMBER ID (CRITICAL)
             |--------------------------------------------------------------------------
             */
-            PlatformMetaConnection::create([
-                'connected_by'     => Auth::id(),
-                'business_id'      => $business['id'],
-                'business_name'    => $business['name'] ?? null,
-                'access_token'     => encrypt($longToken),
-                'token_expires_at' => $expiryDate,
-            ]);
+            $phoneResponse = Http::get(
+                "{$this->graphUrl}/{$this->graphVersion}/{$waba['id']}/phone_numbers",
+                ['access_token' => $longToken]
+            );
+
+            $phone = Arr::first($phoneResponse->json('data', []));
+
+            if (!$phone || empty($phone['id'])) {
+                throw new \Exception('No WhatsApp phone number found.');
+            }
+
+            $phoneNumberId = $phone['id'];
+
+            /*
+            |--------------------------------------------------------------------------
+            | 7️⃣ SAVE CONNECTION
+            |--------------------------------------------------------------------------
+            */
+            PlatformMetaConnection::updateOrCreate(
+                ['connected_by' => Auth::id()],
+                [
+                    'business_id'               => $business['id'],
+                    'business_name'             => $business['name'] ?? null,
+                    'whatsapp_business_id'      => $waba['id'],
+                    'whatsapp_phone_number_id'  => $phoneNumberId,
+                    'access_token'              => encrypt($longToken),
+                    'token_expires_at'          => $expiryDate,
+                    'granted_permissions'       => $granted,
+                ]
+            );
 
             DB::commit();
 
@@ -225,7 +248,7 @@ class AdminMetaController extends Controller
 
             return redirect()
                 ->route('admin.meta.index')
-                ->with('error', 'Meta connection failed. Check logs.');
+                ->with('error', $e->getMessage());
         }
     }
 
@@ -247,28 +270,10 @@ class AdminMetaController extends Controller
                 ->with('info', 'No platform connected.');
         }
 
-        try {
+        $connection->delete();
 
-            $connection->delete();
-
-            Log::info('Platform Meta disconnected', [
-                'admin_id' => Auth::id(),
-            ]);
-
-            return redirect()
-                ->route('admin.meta.index')
-                ->with('success', 'Platform disconnected successfully.');
-
-        } catch (\Throwable $e) {
-
-            Log::error('Disconnect Failed', [
-                'admin_id' => Auth::id(),
-                'error'    => $e->getMessage(),
-            ]);
-
-            return redirect()
-                ->route('admin.meta.index')
-                ->with('error', 'Disconnect failed.');
-        }
+        return redirect()
+            ->route('admin.meta.index')
+            ->with('success', 'Platform disconnected successfully.');
     }
 }

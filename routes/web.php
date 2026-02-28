@@ -29,9 +29,6 @@ use App\Http\Controllers\Admin\{
     AdminMetaController
 };
 
-/* Webhooks */
-use App\Http\Controllers\Webhooks\MetaWebhookController;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -44,13 +41,13 @@ Route::view('/', 'welcome')->name('home');
 
 /*
 |--------------------------------------------------------------------------
-| FACEBOOK OAUTH
+| AUTH (FACEBOOK OAUTH)
 |--------------------------------------------------------------------------
 */
 
 Route::prefix('auth')
     ->middleware('guest')
-    ->name('facebook.')
+    ->as('facebook.')
     ->group(function () {
 
         Route::get('/facebook', [FacebookAuthController::class, 'redirect'])
@@ -63,36 +60,31 @@ Route::prefix('auth')
 
 /*
 |--------------------------------------------------------------------------
-| DASHBOARD REDIRECT BASED ON ROLE
+| ROLE-BASED DASHBOARD REDIRECT
 |--------------------------------------------------------------------------
 */
 
 Route::middleware(['auth', 'verified'])
     ->get('/dashboard', function () {
 
-        $user = auth()->user();
+        return match (true) {
+            auth()->user()->isAdmin()  => redirect()->route('admin.dashboard'),
+            auth()->user()->isClient() => redirect()->route('client.dashboard'),
+            default                    => abort(403),
+        };
 
-        if ($user->isAdmin()) {
-            return redirect()->route('admin.dashboard');
-        }
-
-        if ($user->isClient()) {
-            return redirect()->route('client.dashboard');
-        }
-
-        abort(403);
     })->name('dashboard');
 
 
 /*
 |--------------------------------------------------------------------------
-| CLIENT AREA (TENANT)
+| CLIENT AREA (TENANT PANEL)
 |--------------------------------------------------------------------------
 */
 
 Route::middleware(['auth', 'verified', 'role:client'])
     ->prefix('client')
-    ->name('client.')
+    ->as('client.')
     ->group(function () {
 
         /*
@@ -134,7 +126,7 @@ Route::middleware(['auth', 'verified', 'role:client'])
         | Inbox
         |--------------------------------------------------------------------------
         */
-        Route::prefix('inbox')->name('inbox.')->group(function () {
+        Route::prefix('inbox')->as('inbox.')->group(function () {
 
             Route::get('/', [ConversationController::class, 'index'])
                 ->name('index');
@@ -153,7 +145,7 @@ Route::middleware(['auth', 'verified', 'role:client'])
         | Billing
         |--------------------------------------------------------------------------
         */
-        Route::prefix('billing')->name('billing.')->group(function () {
+        Route::prefix('billing')->as('billing.')->group(function () {
 
             Route::get('/', [BillingController::class, 'index'])
                 ->name('index');
@@ -173,7 +165,7 @@ Route::middleware(['auth', 'verified', 'role:client'])
         | Client Meta OAuth
         |--------------------------------------------------------------------------
         */
-        Route::prefix('meta')->name('meta.')->group(function () {
+        Route::prefix('meta')->as('meta.')->group(function () {
 
             Route::get('/', fn () => view('client.meta.index'))
                 ->name('index');
@@ -202,7 +194,7 @@ Route::middleware(['auth', 'verified', 'role:client'])
 
 Route::middleware(['auth', 'verified', 'role:admin'])
     ->prefix('admin')
-    ->name('admin.')
+    ->as('admin.')
     ->group(function () {
 
         /*
@@ -233,10 +225,10 @@ Route::middleware(['auth', 'verified', 'role:admin'])
 
         /*
         |--------------------------------------------------------------------------
-        | Platform Meta (Master Business)
+        | Master Meta Business
         |--------------------------------------------------------------------------
         */
-        Route::prefix('meta')->name('meta.')->group(function () {
+        Route::prefix('meta')->as('meta.')->group(function () {
 
             Route::get('/',
                 [AdminMetaController::class, 'index'])
@@ -258,7 +250,7 @@ Route::middleware(['auth', 'verified', 'role:admin'])
 
         /*
         |--------------------------------------------------------------------------
-        | System & Settings
+        | System
         |--------------------------------------------------------------------------
         */
         Route::view('/system', 'admin.system.index')
@@ -266,22 +258,6 @@ Route::middleware(['auth', 'verified', 'role:admin'])
 
         Route::view('/settings', 'admin.settings.index')
             ->name('settings.index');
-    });
-
-
-
-/*
-|--------------------------------------------------------------------------
-| META WEBHOOK (PUBLIC - SECURE)
-|--------------------------------------------------------------------------
-*/
-
-Route::prefix('webhook')
-    ->middleware('throttle:60,1')
-    ->group(function () {
-
-        Route::get('/meta', [MetaWebhookController::class, 'verify']);
-        Route::post('/meta', [MetaWebhookController::class, 'handle']);
     });
 
 

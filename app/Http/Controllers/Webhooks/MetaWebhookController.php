@@ -55,7 +55,7 @@ public function verify(Request $request): Response
     */
     public function handle(Request $request): Response
     {
-        Validate signature (CRITICAL in production)
+        //Validate signature (CRITICAL in production)
         if (!$this->isValidSignature($request)) {
             Log::error('Webhook signature validation failed.');
             return response()->json(['error' => 'Unauthorized'], 403);

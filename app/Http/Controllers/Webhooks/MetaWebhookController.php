@@ -20,7 +20,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 1️⃣ Webhook Verification (Meta Setup)
+    | 1️⃣ Webhook Verification
     |--------------------------------------------------------------------------
     */
     public function verify(Request $request): Response
@@ -39,7 +39,7 @@ class MetaWebhookController extends Controller
             return response($challenge, 200);
         }
 
-        Log::warning('Webhook verification failed.', [
+        Log::warning('Webhook verification failed', [
             'mode' => $mode,
             'token_received' => $token,
         ]);
@@ -92,18 +92,29 @@ class MetaWebhookController extends Controller
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Missing phone_number_id in webhook.');
+            Log::warning('Webhook missing phone_number_id');
             return;
         }
 
+        // Find platform using WhatsApp phone_number_id
         $platform = PlatformMetaConnection::where(
             'whatsapp_phone_number_id',
             $phoneNumberId
         )->first();
 
         if (!$platform) {
-            Log::warning('No platform found for phone_number_id.', [
+            Log::warning('No platform found for phone_number_id', [
                 'phone_number_id' => $phoneNumberId
+            ]);
+            return;
+        }
+
+        // IMPORTANT: client_id is actually stored as connected_by
+        $clientId = $platform->connected_by;
+
+        if (!$clientId) {
+            Log::error('Platform missing connected_by (client)', [
+                'platform_id' => $platform->id
             ]);
             return;
         }
@@ -117,11 +128,11 @@ class MetaWebhookController extends Controller
                 continue;
             }
 
-            // Prevent duplicate processing
+            // Idempotency protection
             $cacheKey = "wa_msg_{$messageId}";
 
             if (Cache::has($cacheKey)) {
-                continue;
+                return;
             }
 
             Cache::put($cacheKey, true, now()->addMinutes(10));
@@ -139,7 +150,7 @@ class MetaWebhookController extends Controller
                 $reply = $this->processor->process([
                     'from'      => $from,
                     'text'      => $text,
-                    'client_id' => $platform->client_id,
+                    'client_id' => $clientId,
                 ]);
 
                 if (!empty($reply)) {
@@ -151,7 +162,7 @@ class MetaWebhookController extends Controller
                 }
 
             } catch (\Throwable $e) {
-                Log::error('Webhook processing error', [
+                Log::error('Webhook message processing error', [
                     'error' => $e->getMessage(),
                     'message_id' => $messageId,
                 ]);
@@ -213,14 +224,14 @@ class MetaWebhookController extends Controller
         );
 
         if (!$signature) {
-            Log::error('Missing signature header.');
+            Log::error('Missing signature header');
             return false;
         }
 
         $appSecret = config('services.whatsapp_webhook.app_secret');
 
         if (!$appSecret) {
-            Log::critical('WhatsApp app_secret not configured.');
+            Log::critical('WhatsApp app_secret not configured');
             return false;
         }
 
@@ -231,7 +242,7 @@ class MetaWebhookController extends Controller
         );
 
         if (!hash_equals($expected, $signature)) {
-            Log::error('Signature mismatch.', [
+            Log::error('Signature mismatch', [
                 'expected' => $expected,
                 'received' => $signature,
             ]);

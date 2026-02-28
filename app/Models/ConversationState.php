@@ -18,7 +18,10 @@ class ConversationState extends Model
     protected $casts = [
         'last_interaction_at' => 'datetime',
     ];
-
+public function memory()
+{
+    return $this->hasMany(ConversationMemory::class);
+}
     public function conversation()
     {
         return $this->belongsTo(Conversation::class);

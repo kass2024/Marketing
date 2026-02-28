@@ -10,9 +10,16 @@ class KnowledgeBase extends Model
 
     protected $fillable = [
         'client_id',
-        'title',
         'question',
         'answer',
+        'embedding',
         'is_active',
+    ];
+
+    protected $casts = [
+        'embedding' => 'array',
+        'is_active' => 'boolean',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 }

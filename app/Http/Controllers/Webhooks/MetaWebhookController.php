@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use App\Models\PlatformMetaConnection;
 use App\Services\Chatbot\ChatbotProcessor;
 use App\Services\Chatbot\MessageDispatcher;
@@ -41,118 +42,37 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 2️⃣ Handle Incoming Webhook Events
+    | 2️⃣ Handle Incoming Events
     |--------------------------------------------------------------------------
     */
     public function handle(Request $request)
     {
-        // 🔐 Validate Signature
+        // 🔐 Signature validation
         if (!$this->isValidSignature($request)) {
-            Log::warning('Webhook signature validation failed.');
+            Log::warning('Invalid webhook signature.');
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
         $payload = $request->all();
 
-        if (!isset($payload['entry'])) {
+        if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
             return response()->json(['status' => 'ignored']);
         }
 
-        foreach ($payload['entry'] as $entry) {
+        foreach ($payload['entry'] ?? [] as $entry) {
 
             foreach ($entry['changes'] ?? [] as $change) {
 
-                $value = $change['value'] ?? null;
+                $value = $change['value'] ?? [];
 
-                if (!$value) {
-                    continue;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | A️⃣ Incoming Messages
-                |--------------------------------------------------------------------------
-                */
+                // 🔵 Handle incoming messages
                 if (!empty($value['messages'])) {
-
-                    foreach ($value['messages'] as $incoming) {
-
-                        $from = $incoming['from'] ?? null;
-                        $messageId = $incoming['id'] ?? null;
-                        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
-
-                        if (!$from || !$messageId) {
-                            continue;
-                        }
-
-                        // Extract message text
-                        $text = $this->extractMessageText($incoming);
-
-                        if (!$text) {
-                            Log::info('Unsupported message type received.', [
-                                'type' => $incoming['type'] ?? null,
-                            ]);
-                            continue;
-                        }
-
-                        // Find platform connection by phone_number_id
-                        $platform = PlatformMetaConnection::where(
-                            'phone_number_id',
-                            $phoneNumberId
-                        )->first();
-
-                        if (!$platform) {
-                            Log::warning('Message received but no platform connected.', [
-                                'phone_number_id' => $phoneNumberId,
-                            ]);
-                            continue;
-                        }
-
-                        try {
-
-                            // 🧠 Process chatbot logic
-                            $reply = $this->processor->process([
-                                'from' => $from,                 // WhatsApp user number
-                                'text' => $text,
-                                'platform_id' => $platform->id,
-                                'message_id' => $messageId,
-                            ]);
-
-                            // 🚀 Send reply if exists
-                            if ($reply) {
-                                $this->dispatcher->send($from, $reply);
-                            }
-
-                        } catch (\Throwable $e) {
-                            Log::error('Webhook processing failed', [
-                                'error' => $e->getMessage(),
-                                'trace' => $e->getTraceAsString(),
-                            ]);
-                        }
-                    }
-
-                    continue;
+                    $this->handleMessages($value);
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | B️⃣ Status Updates (Delivered / Read / Failed)
-                |--------------------------------------------------------------------------
-                */
+                // 🟢 Handle message status updates
                 if (!empty($value['statuses'])) {
-
-                    foreach ($value['statuses'] as $status) {
-
-                        Log::info('Message Status Update', [
-                            'message_id' => $status['id'] ?? null,
-                            'status'     => $status['status'] ?? null,
-                            'recipient'  => $status['recipient_id'] ?? null,
-                        ]);
-
-                        // You can update message table here if needed
-                    }
-
-                    continue;
+                    $this->handleStatuses($value['statuses']);
                 }
             }
         }
@@ -162,7 +82,99 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Extract message content
+    | Handle Incoming Messages
+    |--------------------------------------------------------------------------
+    */
+    protected function handleMessages(array $value): void
+    {
+        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
+
+        if (!$phoneNumberId) {
+            Log::warning('Missing phone_number_id in webhook.');
+            return;
+        }
+
+        $platform = PlatformMetaConnection::where('phone_number_id', $phoneNumberId)->first();
+
+        if (!$platform) {
+            Log::warning('No platform found for phone_number_id.', [
+                'phone_number_id' => $phoneNumberId
+            ]);
+            return;
+        }
+
+        foreach ($value['messages'] as $incoming) {
+
+            $from       = $incoming['from'] ?? null;
+            $messageId  = $incoming['id'] ?? null;
+            $timestamp  = $incoming['timestamp'] ?? null;
+
+            if (!$from || !$messageId) {
+                continue;
+            }
+
+            // 🚫 Prevent duplicate processing
+            if (Cache::has('wa_msg_' . $messageId)) {
+                return;
+            }
+            Cache::put('wa_msg_' . $messageId, true, now()->addMinutes(5));
+
+            $text = $this->extractMessageText($incoming);
+
+            if (!$text) {
+                Log::info('Unsupported message type received.', [
+                    'type' => $incoming['type'] ?? 'unknown'
+                ]);
+                return;
+            }
+
+            try {
+
+                $reply = $this->processor->process([
+                    'from'        => $from,   // phone_number
+                    'text'        => $text,
+                    'platform_id' => $platform->id,
+                    'message_id'  => $messageId,
+                    'timestamp'   => $timestamp,
+                ]);
+
+                if ($reply) {
+                    $this->dispatcher->send($from, $reply);
+                }
+
+            } catch (\Throwable $e) {
+
+                Log::error('Webhook processing failed', [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Handle Status Updates
+    |--------------------------------------------------------------------------
+    */
+    protected function handleStatuses(array $statuses): void
+    {
+        foreach ($statuses as $status) {
+
+            Log::info('WhatsApp Status Update', [
+                'message_id' => $status['id'] ?? null,
+                'status'     => $status['status'] ?? null,
+                'recipient'  => $status['recipient_id'] ?? null,
+            ]);
+
+            // Optional:
+            // Update message status table here if you store outgoing messages
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Extract Text From Message
     |--------------------------------------------------------------------------
     */
     protected function extractMessageText(array $incoming): ?string
@@ -170,15 +182,17 @@ class MetaWebhookController extends Controller
         return match ($incoming['type'] ?? null) {
 
             'text' =>
-                $incoming['text']['body'] ?? null,
+                trim($incoming['text']['body'] ?? ''),
 
             'button' =>
-                $incoming['button']['text'] ?? null,
+                trim($incoming['button']['text'] ?? ''),
 
             'interactive' =>
-                $incoming['interactive']['button_reply']['title']
-                ?? $incoming['interactive']['list_reply']['title']
-                ?? null,
+                trim(
+                    $incoming['interactive']['button_reply']['title']
+                    ?? $incoming['interactive']['list_reply']['title']
+                    ?? ''
+                ),
 
             default => null,
         };
@@ -186,7 +200,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 🔐 Validate Webhook Signature (Meta Security)
+    | Validate Meta Signature
     |--------------------------------------------------------------------------
     */
     protected function isValidSignature(Request $request): bool

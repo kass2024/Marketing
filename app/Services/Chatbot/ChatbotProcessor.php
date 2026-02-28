@@ -1,15 +1,23 @@
+<?php
+
 namespace App\Services\Chatbot;
 
 use App\Models\Chatbot;
 use App\Models\Conversation;
 use App\Models\Message;
+use Illuminate\Support\Facades\Log;
 
 class ChatbotProcessor
 {
     public function process(array $payload)
     {
-        $metaUserId = $payload['from'];
+        $metaUserId = $payload['from'] ?? null;
         $text = strtolower(trim($payload['text'] ?? ''));
+
+        if (!$metaUserId || !$text) {
+            Log::warning('Invalid chatbot payload', $payload);
+            return null;
+        }
 
         // 1️⃣ Find active conversation
         $conversation = Conversation::where('meta_user_id', $metaUserId)
@@ -30,16 +38,16 @@ class ChatbotProcessor
         $chatbot = Chatbot::where('status', 'active')->first();
 
         if (!$chatbot) {
-            return;
+            return null;
         }
 
         // Check triggers
         $triggerMatch = $chatbot->triggers()
-            ->where('keyword', 'LIKE', "%$text%")
+            ->where('keyword', 'LIKE', "%{$text}%")
             ->exists();
 
         if (!$triggerMatch) {
-            return;
+            return null;
         }
 
         $conversation = Conversation::create([

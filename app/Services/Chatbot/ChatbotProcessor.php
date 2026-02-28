@@ -4,7 +4,6 @@ namespace App\Services\Chatbot;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
-use App\Models\Chatbot;
 use App\Models\Conversation;
 
 class ChatbotProcessor
@@ -20,111 +19,40 @@ class ChatbotProcessor
             return null;
         }
 
-        $text = strtolower($text);
-
-        Log::info('Processing message', [
+        Log::info('AI Mode Processing', [
             'client_id' => $clientId,
             'phone'     => $phone,
             'text'      => $text,
         ]);
 
         try {
+
             return DB::transaction(function () use ($clientId, $phone, $text) {
 
-                // 1️⃣ Find existing bot conversation
-                $conversation = Conversation::where('client_id', $clientId)
-                    ->where('phone_number', $phone)
-                    ->where('status', 'bot')
-                    ->latest()
-                    ->first();
+                // Always ensure conversation exists
+                $conversation = Conversation::firstOrCreate(
+                    [
+                        'client_id'    => $clientId,
+                        'phone_number' => $phone,
+                        'status'       => 'bot',
+                    ],
+                    [
+                        'chatbot_id' => null,
+                    ]
+                );
 
-                if ($conversation) {
-                    return app(FlowEngine::class)
-                        ->continue($conversation, $text);
-                }
-
-                // 2️⃣ No conversation → Start new one
-                return $this->startConversation($clientId, $phone, $text);
+                return app(AIEngine::class)
+                    ->reply($clientId, $text);
             });
 
         } catch (\Throwable $e) {
 
-            Log::error('Chatbot processing failed', [
+            Log::error('AI processing failed', [
                 'error' => $e->getMessage(),
                 'client_id' => $clientId,
-                'phone' => $phone,
             ]);
 
-            // Never fail silently
-            return "Sorry, something went wrong. Please try again.";
+            return "Sorry, I’m having trouble right now.";
         }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Start New Conversation
-    |--------------------------------------------------------------------------
-    */
-    protected function startConversation(
-        int $clientId,
-        string $phone,
-        string $text
-    ): ?string
-    {
-        // Get active chatbot
-        $chatbot = Chatbot::where('client_id', $clientId)
-            ->where('status', 'active')
-            ->first();
-
-        if (!$chatbot) {
-            Log::warning('No active chatbot for client', [
-                'client_id' => $clientId
-            ]);
-
-            return "Hello 👋 How can we assist you today?";
-        }
-
-        // Optional: trigger logic (can be removed if using AI-only mode)
-        $trigger = $chatbot->triggers()
-            ->whereRaw('LOWER(keyword) LIKE ?', ["%{$text}%"])
-            ->first();
-
-        // If no trigger → still start conversation (AI-driven mode)
-        if (!$trigger) {
-            Log::info('No trigger matched — using AI fallback', [
-                'client_id' => $clientId,
-                'text' => $text
-            ]);
-        }
-
-        // Create conversation
-        $conversation = Conversation::create([
-            'client_id'    => $clientId,
-            'chatbot_id'   => $chatbot->id,
-            'phone_number' => $phone,
-            'status'       => 'bot',
-        ]);
-
-        Log::info('Conversation started', [
-            'conversation_id' => $conversation->id
-        ]);
-
-        /*
-        |--------------------------------------------------------------------------
-        | If Using Flow Engine
-        |--------------------------------------------------------------------------
-        */
-        if ($trigger) {
-            return app(FlowEngine::class)
-                ->start($conversation, $chatbot);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | AI MODE (Knowledge + OpenAI)
-        |--------------------------------------------------------------------------
-        */
-        return app(AIEngine::class)
-            ->reply($clientId, $text);
     }
 }

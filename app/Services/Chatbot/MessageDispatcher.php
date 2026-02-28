@@ -8,52 +8,76 @@ use App\Models\PlatformMetaConnection;
 
 class MessageDispatcher
 {
-    public function send(string $to, string $message): void
+    /**
+     * Send WhatsApp text message via Meta Graph API
+     */
+    public function send(
+        PlatformMetaConnection $platform,
+        string $to,
+        string $message
+    ): void
     {
-        Log::info('Dispatcher started');
-
-        $platform = PlatformMetaConnection::first();
-
-        if (!$platform) {
-            Log::error('No platform found');
-            return;
-        }
-
-        Log::info('Platform found', [
-            'phone_number_id' => $platform->whatsapp_phone_number_id,
+        Log::info('WhatsApp Dispatcher started', [
+            'to' => $to,
+            'platform_id' => $platform->id,
         ]);
 
-        if (!$platform->whatsapp_phone_number_id) {
-            Log::error('No WhatsApp phone number ID saved');
+        // Validate phone number ID
+        if (empty($platform->whatsapp_phone_number_id)) {
+            Log::error('Missing WhatsApp phone_number_id', [
+                'platform_id' => $platform->id,
+            ]);
             return;
         }
 
+        // Decrypt access token
         try {
             $token = decrypt($platform->access_token);
-            Log::info('Token decrypted successfully');
         } catch (\Throwable $e) {
-            Log::error('Token decrypt failed', ['error' => $e->getMessage()]);
+            Log::critical('Access token decryption failed', [
+                'platform_id' => $platform->id,
+                'error' => $e->getMessage(),
+            ]);
             return;
         }
 
-        $response = Http::withToken($token)
-            ->post(
-                config('services.meta.graph_url') . '/' .
-                config('services.meta.graph_version') . '/' .
-                $platform->whatsapp_phone_number_id . '/messages',
-                [
+        $graphUrl     = rtrim(config('services.meta.graph_url'), '/');
+        $graphVersion = config('services.meta.graph_version');
+
+        $endpoint = "{$graphUrl}/{$graphVersion}/{$platform->whatsapp_phone_number_id}/messages";
+
+        try {
+            $response = Http::withToken($token)
+                ->timeout(15)
+                ->retry(2, 500)
+                ->post($endpoint, [
                     'messaging_product' => 'whatsapp',
                     'to' => $to,
                     'type' => 'text',
                     'text' => [
-                        'body' => $message
+                        'body' => $message,
                     ],
-                ]
-            );
+                ]);
 
-        Log::info('WhatsApp API Response', [
-            'status' => $response->status(),
-            'body' => $response->body(),
-        ]);
+            if ($response->failed()) {
+                Log::error('WhatsApp API request failed', [
+                    'status' => $response->status(),
+                    'response' => $response->body(),
+                    'platform_id' => $platform->id,
+                ]);
+                return;
+            }
+
+            Log::info('WhatsApp message sent successfully', [
+                'to' => $to,
+                'response' => $response->json(),
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::critical('WhatsApp API exception', [
+                'error' => $e->getMessage(),
+                'platform_id' => $platform->id,
+            ]);
+        }
     }
 }

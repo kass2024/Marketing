@@ -23,30 +23,29 @@ class MetaWebhookController extends Controller
     | 1️⃣ Webhook Verification (Meta Setup)
     |--------------------------------------------------------------------------
     */
-public function verify(Request $request): Response
-{
-    // Apache converts dots to underscores
-    $mode      = $request->input('hub_mode') ?? $request->input('hub.mode');
-    $token     = $request->input('hub_verify_token') ?? $request->input('hub.verify_token');
-    $challenge = $request->input('hub_challenge') ?? $request->input('hub.challenge');
+    public function verify(Request $request): Response
+    {
+        $mode      = $request->input('hub_mode') ?? $request->input('hub.mode');
+        $token     = $request->input('hub_verify_token') ?? $request->input('hub.verify_token');
+        $challenge = $request->input('hub_challenge') ?? $request->input('hub.challenge');
 
-    if (
-        $mode === 'subscribe' &&
-        hash_equals(
-            (string) config('services.whatsapp_webhook.verify_token'),
-            (string) $token
-        )
-    ) {
-        return response($challenge, 200);
+        if (
+            $mode === 'subscribe' &&
+            hash_equals(
+                (string) config('services.whatsapp_webhook.verify_token'),
+                (string) $token
+            )
+        ) {
+            return response($challenge, 200);
+        }
+
+        Log::warning('Webhook verification failed.', [
+            'mode' => $mode,
+            'token_received' => $token,
+        ]);
+
+        return response('Forbidden', 403);
     }
-
-    Log::warning('Webhook verification failed.', [
-        'mode' => $mode,
-        'token_received' => $token,
-    ]);
-
-    return response('Forbidden', 403);
-}
 
     /*
     |--------------------------------------------------------------------------
@@ -55,17 +54,13 @@ public function verify(Request $request): Response
     */
     public function handle(Request $request): Response
     {
-        //Validate signature (CRITICAL in production)
         if (!$this->isValidSignature($request)) {
-            Log::error('Webhook signature validation failed.');
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
         $payload = $request->json()->all();
 
-        if (!isset($payload['object']) ||
-            $payload['object'] !== 'whatsapp_business_account'
-        ) {
+        if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
             return response()->json(['status' => 'ignored'], 200);
         }
 
@@ -97,7 +92,7 @@ public function verify(Request $request): Response
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Webhook missing phone_number_id.');
+            Log::warning('Missing phone_number_id in webhook.');
             return;
         }
 
@@ -122,8 +117,8 @@ public function verify(Request $request): Response
                 continue;
             }
 
-            // Idempotency protection (prevent duplicate processing)
-            $cacheKey = "wa_msg_$messageId";
+            // Prevent duplicate processing
+            $cacheKey = "wa_msg_{$messageId}";
 
             if (Cache::has($cacheKey)) {
                 continue;
@@ -134,7 +129,7 @@ public function verify(Request $request): Response
             $text = $this->extractMessageText($incoming);
 
             if (!$text) {
-                Log::info('Unsupported message type received.', [
+                Log::info('Unsupported message type', [
                     'type' => $incoming['type'] ?? 'unknown'
                 ]);
                 continue;
@@ -142,9 +137,9 @@ public function verify(Request $request): Response
 
             try {
                 $reply = $this->processor->process([
-                    'from'        => $from,
-                    'text'        => $text,
-                    'platform_id' => $platform->id,
+                    'from'      => $from,
+                    'text'      => $text,
+                    'client_id' => $platform->client_id,
                 ]);
 
                 if (!empty($reply)) {
@@ -156,7 +151,7 @@ public function verify(Request $request): Response
                 }
 
             } catch (\Throwable $e) {
-                Log::error('Webhook message processing error.', [
+                Log::error('Webhook processing error', [
                     'error' => $e->getMessage(),
                     'message_id' => $messageId,
                 ]);
@@ -172,7 +167,7 @@ public function verify(Request $request): Response
     protected function processStatuses(array $statuses): void
     {
         foreach ($statuses as $status) {
-            Log::info('WhatsApp message status update.', [
+            Log::info('WhatsApp status update', [
                 'message_id' => $status['id'] ?? null,
                 'status'     => $status['status'] ?? null,
                 'recipient'  => $status['recipient_id'] ?? null,
@@ -230,7 +225,7 @@ public function verify(Request $request): Response
         }
 
         $expected = 'sha256=' . hash_hmac(
-            config('services.whatsapp_webhook.hash_algo', 'sha256'),
+            'sha256',
             $request->getContent(),
             $appSecret
         );

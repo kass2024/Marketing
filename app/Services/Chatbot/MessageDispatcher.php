@@ -1,24 +1,43 @@
+<?php
+
 namespace App\Services\Chatbot;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use App\Models\PlatformMetaConnection;
 
 class MessageDispatcher
 {
-    public function send($recipientId, $message)
+    public function send(string $to, string $message): void
     {
-        $token = decrypt(
-            \App\Models\PlatformMetaConnection::first()->access_token
-        );
+        $platform = PlatformMetaConnection::first();
 
-        Http::post(
-            config('services.meta.graph_url') . '/' .
-            config('services.meta.graph_version') .
-            '/me/messages',
-            [
-                'recipient' => ['id' => $recipientId],
-                'message' => ['text' => $message],
-                'access_token' => $token,
-            ]
-        );
+        if (!$platform) {
+            Log::error('No platform connection found.');
+            return;
+        }
+
+        $token = decrypt($platform->access_token);
+
+        $response = Http::withToken($token)
+            ->post(
+                config('services.meta.graph_url') . '/' .
+                config('services.meta.graph_version') . '/' .
+                $platform->whatsapp_phone_number_id . '/messages',
+                [
+                    'messaging_product' => 'whatsapp',
+                    'to' => $to,
+                    'type' => 'text',
+                    'text' => [
+                        'body' => $message
+                    ],
+                ]
+            );
+
+        if (!$response->successful()) {
+            Log::error('WhatsApp send failed', [
+                'response' => $response->body()
+            ]);
+        }
     }
 }

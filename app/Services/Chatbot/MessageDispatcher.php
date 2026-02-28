@@ -1,31 +1,42 @@
-public function send(string $to, string $message): void
+<?php
+
+namespace App\Services\Chatbot;
+
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use App\Models\PlatformMetaConnection;
+
+class MessageDispatcher
 {
-    $platform = \App\Models\PlatformMetaConnection::first();
+    public function send(string $to, string $message): void
+    {
+        $platform = PlatformMetaConnection::first();
 
-    if (!$platform) {
-        \Log::error('No platform connection found.');
-        return;
+        if (!$platform || !$platform->whatsapp_phone_number_id) {
+            Log::error('No WhatsApp platform connection found.');
+            return;
+        }
+
+        $token = decrypt($platform->access_token);
+
+        $response = Http::withToken($token)
+            ->post(
+                config('services.meta.graph_url') . '/' .
+                config('services.meta.graph_version') . '/' .
+                $platform->whatsapp_phone_number_id . '/messages',
+                [
+                    'messaging_product' => 'whatsapp',
+                    'to' => $to,
+                    'type' => 'text',
+                    'text' => [
+                        'body' => $message
+                    ],
+                ]
+            );
+
+        Log::info('WhatsApp API Response', [
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
     }
-
-    $token = decrypt($platform->access_token);
-
-    $response = \Illuminate\Support\Facades\Http::withToken($token)
-        ->post(
-            config('services.meta.graph_url') . '/' .
-            config('services.meta.graph_version') . '/' .
-            $platform->whatsapp_phone_number_id . '/messages',
-            [
-                'messaging_product' => 'whatsapp',
-                'to' => $to,
-                'type' => 'text',
-                'text' => [
-                    'body' => $message
-                ],
-            ]
-        );
-
-    \Log::info('WhatsApp API Response', [
-        'status' => $response->status(),
-        'body' => $response->body(),
-    ]);
 }

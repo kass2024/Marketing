@@ -7,14 +7,19 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\KnowledgeBase;
 use App\Models\AiCache;
-use App\Models\ConversationMemory;
 
 class AIEngine
 {
-    protected float $strongThreshold = 0.75;
+    protected float $highConfidence = 0.72;
+    protected float $mediumConfidence = 0.55;
     protected int $candidateLimit = 5;
-    protected int $timeout = 30;
+    protected int $timeout = 25;
 
+    /*
+    |--------------------------------------------------------------------------
+    | MAIN ENTRY
+    |--------------------------------------------------------------------------
+    */
     public function reply(int $clientId, string $message, $conversation = null): string
     {
         $message = trim($message);
@@ -26,24 +31,47 @@ class AIEngine
         $normalized = Str::lower($message);
         $hash = hash('sha256', $clientId . $normalized);
 
+        // ✅ Cache first
         if ($cached = AiCache::where('client_id',$clientId)
             ->where('message_hash',$hash)->first()) {
             return $cached->response;
         }
 
+        // ✅ Greeting
         if ($this->isGreeting($normalized)) {
-            return "Hello 👋 How can we assist you today regarding study or visa services?";
+            return "Hello 👋 How can we assist you regarding study or visa services?";
         }
 
-        // 🔥 STEP 1 — INTENT CLASSIFICATION
+        // ✅ Intent
         $intent = $this->classifyIntent($message);
+        Log::info('Intent detected: '.$intent);
 
-        if ($intent === 'faq') {
-            return $this->handleFaqIntent($clientId,$hash,$message);
+        // ✅ Always retrieve candidates (RAG first)
+        $candidates = $this->retrieveCandidates($clientId,$message);
+
+        if (!empty($candidates)) {
+
+            $best = $candidates[0];
+            Log::info('Top similarity score: '.$best['score']);
+
+            // 🔥 HIGH CONFIDENCE → Direct FAQ
+            if ($best['score'] >= $this->highConfidence) {
+                return $this->store($clientId,$hash,$best['answer']);
+            }
+
+            // 🔥 MEDIUM CONFIDENCE → AI with context grounding
+            if ($best['score'] >= $this->mediumConfidence) {
+                return $this->handleGroundedAI(
+                    $clientId,
+                    $hash,
+                    $message,
+                    $candidates
+                );
+            }
         }
 
-        // Otherwise advisory
-        return $this->handleAdvisoryIntent($clientId,$hash,$message,$conversation);
+        // 🔥 LOW CONFIDENCE → Pure AI advisory
+        return $this->handlePureAI($clientId,$hash,$message);
     }
 
     protected function isGreeting(string $msg): bool
@@ -53,73 +81,48 @@ class AIEngine
 
     /*
     |--------------------------------------------------------------------------
-    | INTENT CLASSIFIER
+    | INTENT CLASSIFIER (SAFE FALLBACK)
     |--------------------------------------------------------------------------
     */
     protected function classifyIntent(string $message): string
     {
         $apiKey = config('services.openai.key');
-        if (!$apiKey) return 'faq';
-
-        $prompt = "
-Classify the user question into one of these categories:
-1. faq (specific factual company question)
-2. advisory (general guidance or migration advice)
-
-User question:
-{$message}
-
-Respond with only: faq or advisory.
-";
+        if (!$apiKey) return 'advisory';
 
         try {
 
             $response = Http::withToken($apiKey)
-                ->timeout(15)
+                ->timeout(10)
+                ->retry(2,300)
                 ->post('https://api.openai.com/v1/chat/completions',[
                     'model'=>'gpt-4o-mini',
                     'messages'=>[
-                        ['role'=>'system','content'=>'Intent classifier.'],
-                        ['role'=>'user','content'=>$prompt]
+                        ['role'=>'system','content'=>'Classify as faq or advisory. Return only one word.'],
+                        ['role'=>'user','content'=>$message]
                     ],
                     'temperature'=>0
                 ]);
 
-            if ($response->failed()) return 'faq';
+            if ($response->failed()) return 'advisory';
 
-            return trim($response->json('choices.0.message.content'));
+            $intent = trim($response->json('choices.0.message.content'));
+
+            return in_array($intent,['faq','advisory']) ? $intent : 'advisory';
 
         } catch (\Throwable $e) {
-            return 'faq';
+            Log::error('Intent classification failed: '.$e->getMessage());
+            return 'advisory';
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | FAQ HANDLER (RAG)
+    | RETRIEVAL
     |--------------------------------------------------------------------------
     */
-    protected function handleFaqIntent(int $clientId,string $hash,string $message): string
-    {
-        $candidates = $this->retrieveCandidates($clientId,$message);
-
-        if (!empty($candidates)) {
-
-            $best = $candidates[0];
-
-            if ($best['score'] >= $this->strongThreshold) {
-                return $this->store($clientId,$hash,$best['answer']);
-            }
-        }
-
-        return "Please contact our team for accurate assistance.";
-    }
-
     protected function retrieveCandidates(int $clientId,string $message): array
     {
-        $queryVector = app(\App\Services\Chatbot\EmbeddingService::class)
-            ->generate($message);
-
+        $queryVector = app(EmbeddingService::class)->generate($message);
         if (!$queryVector) return [];
 
         $items = KnowledgeBase::where('client_id',$clientId)
@@ -161,35 +164,86 @@ Respond with only: faq or advisory.
 
     /*
     |--------------------------------------------------------------------------
-    | ADVISORY HANDLER (AI MODE)
+    | GROUNDED AI (RAG AUGMENTED GENERATION)
     |--------------------------------------------------------------------------
     */
-    protected function handleAdvisoryIntent(int $clientId,string $hash,string $message,$conversation): string
-    {
+    protected function handleGroundedAI(
+        int $clientId,
+        string $hash,
+        string $message,
+        array $candidates
+    ): string {
+
         $apiKey = config('services.openai.key');
         if (!$apiKey) {
-            return "Please contact our team for accurate assistance.";
+            return "Please contact our team for assistance.";
         }
+
+        $context = collect($candidates)
+            ->pluck('answer')
+            ->implode("\n\n");
 
         $response = Http::withToken($apiKey)
             ->timeout($this->timeout)
+            ->retry(2,400)
             ->post('https://api.openai.com/v1/chat/completions',[
                 'model'=>'gpt-4o-mini',
                 'messages'=>[
                     [
                         'role'=>'system',
-                        'content'=>'You are a professional visa consultancy assistant.'
+                        'content'=>"You are a professional visa consultancy assistant.
+Use ONLY the context below if relevant.
+If context does not fully answer, provide professional guidance."
                     ],
                     [
                         'role'=>'user',
-                        'content'=>$message
+                        'content'=>"Context:\n".$context."\n\nUser question:\n".$message
                     ]
                 ],
                 'temperature'=>0.3
             ]);
 
         if ($response->failed()) {
-            return "Please contact our team for accurate assistance.";
+            return "Please contact our team for assistance.";
+        }
+
+        $answer = trim($response->json('choices.0.message.content'));
+
+        return $this->store($clientId,$hash,$answer);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PURE AI MODE
+    |--------------------------------------------------------------------------
+    */
+    protected function handlePureAI(int $clientId,string $hash,string $message): string
+    {
+        $apiKey = config('services.openai.key');
+        if (!$apiKey) {
+            return "Please contact our team for assistance.";
+        }
+
+        $response = Http::withToken($apiKey)
+            ->timeout($this->timeout)
+            ->retry(2,400)
+            ->post('https://api.openai.com/v1/chat/completions',[
+                'model'=>'gpt-4o-mini',
+                'messages'=>[
+                    [
+                        'role'=>'system',
+                        'content'=>'You are a professional Canadian visa consultancy assistant.'
+                    ],
+                    [
+                        'role'=>'user',
+                        'content'=>$message
+                    ]
+                ],
+                'temperature'=>0.4
+            ]);
+
+        if ($response->failed()) {
+            return "Please contact our team for assistance.";
         }
 
         $answer = trim($response->json('choices.0.message.content'));

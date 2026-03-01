@@ -4,20 +4,46 @@ namespace App\Services\Chatbot;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class EmbeddingService
 {
+    /**
+     * Production Settings
+     */
     protected string $model = 'text-embedding-3-small';
-    protected int $timeout = 30;
+    protected int $timeout = 20;
+    protected int $maxInputLength = 8000; // safety trim
+    protected int $cacheMinutes = 60 * 24 * 7; // 7 days cache
 
+    /**
+     * Generate embedding vector
+     */
     public function generate(string $text): ?array
     {
         $text = trim($text);
 
-        if (empty($text)) {
+        if ($text === '') {
             Log::warning('Embedding skipped: empty text');
             return null;
+        }
+
+        // 🔥 Normalize input (important for stable embeddings)
+        $normalized = $this->normalize($text);
+
+        // 🔥 Prevent very long inputs (protect cost + performance)
+        if (strlen($normalized) > $this->maxInputLength) {
+            $normalized = substr($normalized, 0, $this->maxInputLength);
+            Log::info('Embedding truncated due to length');
+        }
+
+        // 🔥 Hash for caching
+        $hash = hash('sha256', $normalized);
+
+        // 🔥 Cache lookup (avoid repeated embedding cost)
+        if ($cached = Cache::get("embedding:{$hash}")) {
+            return $cached;
         }
 
         $apiKey = config('services.openai.key');
@@ -31,10 +57,10 @@ class EmbeddingService
 
             $response = Http::withToken($apiKey)
                 ->timeout($this->timeout)
-                ->retry(2, 500) // retry twice with 500ms delay
+                ->retry(3, 500) // retry 3 times
                 ->post('https://api.openai.com/v1/embeddings', [
                     'model' => $this->model,
-                    'input' => $text
+                    'input' => $normalized,
                 ]);
 
             if ($response->failed()) {
@@ -58,6 +84,9 @@ class EmbeddingService
                 return null;
             }
 
+            // 🔥 Store in cache
+            Cache::put("embedding:{$hash}", $embedding, now()->addMinutes($this->cacheMinutes));
+
             return $embedding;
 
         } catch (\Throwable $e) {
@@ -68,5 +97,15 @@ class EmbeddingService
 
             return null;
         }
+    }
+
+    /**
+     * Normalize text for better embedding consistency
+     */
+    protected function normalize(string $text): string
+    {
+        $text = Str::lower($text);
+        $text = preg_replace('/\s+/', ' ', $text);
+        return trim($text);
     }
 }

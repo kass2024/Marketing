@@ -22,7 +22,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 1️⃣ Webhook Verification
+    | Webhook Verification
     |--------------------------------------------------------------------------
     */
     public function verify(Request $request): Response
@@ -41,18 +41,20 @@ class MetaWebhookController extends Controller
             return response($challenge, 200);
         }
 
-        Log::warning('Webhook verification failed');
+        Log::warning('Meta webhook verification failed');
+
         return response('Forbidden', 403);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | 2️⃣ Handle Webhook
+    | Handle Incoming Webhook
     |--------------------------------------------------------------------------
     */
     public function handle(Request $request): Response
     {
         if (!$this->isValidSignature($request)) {
+            Log::warning('Invalid Meta webhook signature');
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -82,7 +84,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Handle Incoming Messages
+    | Process Incoming Messages
     |--------------------------------------------------------------------------
     */
     protected function handleIncomingMessages(array $value): void
@@ -90,7 +92,7 @@ class MetaWebhookController extends Controller
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Missing phone_number_id');
+            Log::warning('Missing phone_number_id in webhook');
             return;
         }
 
@@ -105,7 +107,6 @@ class MetaWebhookController extends Controller
         }
 
         $clientId = $this->resolveClientId($platform);
-
         if (!$clientId) {
             return;
         }
@@ -126,6 +127,7 @@ class MetaWebhookController extends Controller
             $text = $this->extractMessageText($incoming);
 
             if (!$text) {
+                Log::info('Unsupported message type received');
                 continue;
             }
 
@@ -138,21 +140,24 @@ class MetaWebhookController extends Controller
                     'message_id' => $messageId,
                 ]);
 
-                if (!empty($aiResponse)) {
-
-                    $results = $this->dispatcher->send(
-                        platform: $platform,
-                        to: $from,
-                        payload: $aiResponse
-                    );
-
-                    $this->storeExternalIds($results);
+                if (empty($aiResponse) || empty($aiResponse['text'])) {
+                    return;
                 }
 
+                // Send via dispatcher (structured payload)
+                $results = $this->dispatcher->send(
+                    platform: $platform,
+                    to: $from,
+                    payload: $aiResponse
+                );
+
+                $this->storeExternalIds($results);
+
             } catch (\Throwable $e) {
-                Log::error('Message processing failed', [
+
+                Log::error('Incoming message processing failed', [
                     'error' => $e->getMessage(),
-                    'message_id' => $messageId,
+                    'from'  => $from,
                 ]);
             }
         }
@@ -179,14 +184,14 @@ class MetaWebhookController extends Controller
 
             Log::info('Message status updated', [
                 'external_id' => $externalId,
-                'status' => $delivery
+                'status'      => $delivery
             ]);
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Store External Message IDs
+    | Store External IDs Safely
     |--------------------------------------------------------------------------
     */
     protected function storeExternalIds(array $results): void
@@ -196,11 +201,11 @@ class MetaWebhookController extends Controller
             if (!empty($result['external_message_id'])) {
 
                 Message::whereNull('external_message_id')
-                    ->latest()
+                    ->latest('id')
                     ->limit(1)
                     ->update([
                         'external_message_id' => $result['external_message_id'],
-                        'status' => 'sent'
+                        'status'              => 'sent'
                     ]);
             }
         }
@@ -254,7 +259,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Idempotency
+    | Idempotency Protection
     |--------------------------------------------------------------------------
     */
     protected function isDuplicate(string $messageId): bool

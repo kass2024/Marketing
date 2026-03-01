@@ -10,10 +10,16 @@ use App\Models\AiCache;
 
 class AIEngine
 {
+    protected string $model;
     protected float $highConfidence   = 0.82;
     protected float $mediumConfidence = 0.60;
     protected int   $candidateLimit   = 5;
-    protected int   $timeout          = 25;
+    protected int   $timeout          = 30;
+
+    public function __construct()
+    {
+        $this->model = config('services.openai.model', 'gpt-4.1-mini');
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -22,6 +28,8 @@ class AIEngine
     */
     public function reply(int $clientId, string $message, $conversation = null): array
     {
+        $requestId = Str::uuid()->toString();
+
         try {
 
             $message = trim($message);
@@ -33,7 +41,7 @@ class AIEngine
             $normalized = Str::lower($message);
             $hash = hash('sha256', $clientId . $normalized);
 
-            // 🔥 SAFE CACHE READ
+            // SAFE CACHE
             if ($cached = AiCache::where('client_id',$clientId)
                 ->where('message_hash',$hash)->first()) {
 
@@ -43,11 +51,9 @@ class AIEngine
                     return $decoded;
                 }
 
-                // corrupted cache fallback
-                Log::warning('Corrupted AI cache detected', ['hash' => $hash]);
+                Log::warning('Corrupted cache', ['request_id'=>$requestId]);
             }
 
-            // Greeting
             if ($this->isGreeting($normalized)) {
                 return $this->formatResponse(
                     "Hello 👋 How can we assist you regarding study or visa services?",
@@ -57,7 +63,7 @@ class AIEngine
                 );
             }
 
-            // 🔥 RAG Retrieval
+            // RAG
             $candidates = $this->retrieveCandidates($clientId,$message);
 
             if (!empty($candidates)) {
@@ -84,18 +90,19 @@ class AIEngine
                         $clientId,
                         $hash,
                         $message,
-                        $candidates
+                        $candidates,
+                        $requestId
                     );
                 }
             }
 
-            // Pure AI fallback
-            return $this->handlePureAI($clientId,$hash,$message);
+            return $this->handlePureAI($clientId,$hash,$message,$requestId);
 
         } catch (\Throwable $e) {
 
-            Log::error('AIEngine fatal error', [
-                'error' => $e->getMessage()
+            Log::error('AIEngine fatal', [
+                'error'=>$e->getMessage(),
+                'request_id'=>$requestId
             ]);
 
             return $this->fallback(
@@ -106,7 +113,123 @@ class AIEngine
 
     /*
     |--------------------------------------------------------------------------
-    | RETRIEVAL
+    | OPENAI CALL (CENTRALIZED)
+    |--------------------------------------------------------------------------
+    */
+    protected function callOpenAI(string $prompt, string $requestId): ?string
+    {
+        $apiKey = config('services.openai.key');
+
+        if (!$apiKey) {
+            Log::critical('OpenAI key missing');
+            return null;
+        }
+
+        try {
+
+            $response = Http::withToken($apiKey)
+                ->timeout($this->timeout)
+                ->retry(2, 500)
+                ->post('https://api.openai.com/v1/responses', [
+                    'model' => $this->model,
+                    'input' => $prompt,
+                ]);
+
+            if ($response->failed()) {
+
+                Log::error('OpenAI request failed', [
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
+                    'request_id'=>$requestId
+                ]);
+
+                return null;
+            }
+
+            return trim(
+                $response->json('output_text') ?? ''
+            );
+
+        } catch (\Throwable $e) {
+
+            Log::error('OpenAI exception', [
+                'error'=>$e->getMessage(),
+                'request_id'=>$requestId
+            ]);
+
+            return null;
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PURE AI
+    |--------------------------------------------------------------------------
+    */
+    protected function handlePureAI(
+        int $clientId,
+        string $hash,
+        string $message,
+        string $requestId
+    ): array {
+
+        $prompt = "You are a professional visa assistant.\n\nUser: ".$message;
+
+        $answer = $this->callOpenAI($prompt, $requestId);
+
+        if (!$answer) {
+            return $this->fallback();
+        }
+
+        return $this->store(
+            $clientId,
+            $hash,
+            $this->formatResponse($answer, [], 0.5, 'ai')
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | GROUNDED AI
+    |--------------------------------------------------------------------------
+    */
+    protected function handleGroundedAI(
+        int $clientId,
+        string $hash,
+        string $message,
+        array $candidates,
+        string $requestId
+    ): array {
+
+        $context = collect($candidates)
+            ->pluck('knowledge.answer')
+            ->implode("\n\n");
+
+        $prompt = "You are a professional visa assistant.
+Use context if relevant.
+
+Context:
+$context
+
+Question:
+$message";
+
+        $answer = $this->callOpenAI($prompt, $requestId);
+
+        if (!$answer) {
+            return $this->fallback();
+        }
+
+        return $this->store(
+            $clientId,
+            $hash,
+            $this->formatResponse($answer, [], 0.65, 'grounded_ai')
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | RAG RETRIEVAL
     |--------------------------------------------------------------------------
     */
     protected function retrieveCandidates(int $clientId,string $message): array
@@ -161,114 +284,6 @@ class AIEngine
         $faqWords   = collect(explode(' ', strtolower($faqQuestion)));
 
         return $inputWords->intersect($faqWords)->count() >= 2;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | GROUNDED AI (SAFE)
-    |--------------------------------------------------------------------------
-    */
-    protected function handleGroundedAI(
-        int $clientId,
-        string $hash,
-        string $message,
-        array $candidates
-    ): array {
-
-        $apiKey = config('services.openai.key');
-        if (!$apiKey) return $this->fallback();
-
-        $context = collect($candidates)
-            ->pluck('knowledge.answer')
-            ->implode("\n\n");
-
-        try {
-
-            $response = Http::withToken($apiKey)
-                ->timeout($this->timeout)
-                ->retry(2,400)
-                ->post('https://api.openai.com/v1/chat/completions',[
-                    'model'=>'gpt-4o-mini',
-                    'messages'=>[
-                        [
-                            'role'=>'system',
-                            'content'=>"You are a professional visa assistant.
-Use context if relevant."
-                        ],
-                        [
-                            'role'=>'user',
-                            'content'=>"Context:\n".$context."\n\nQuestion:\n".$message
-                        ]
-                    ],
-                    'temperature'=>0.3
-                ]);
-
-            if ($response->failed()) {
-                return $this->fallback();
-            }
-
-            $answer = trim($response->json('choices.0.message.content') ?? '');
-
-            if (!$answer) {
-                return $this->fallback();
-            }
-
-            return $this->store(
-                $clientId,
-                $hash,
-                $this->formatResponse($answer, [], 0.65, 'grounded_ai')
-            );
-
-        } catch (\Throwable $e) {
-            Log::error('Grounded AI failed', ['error'=>$e->getMessage()]);
-            return $this->fallback();
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PURE AI (SAFE)
-    |--------------------------------------------------------------------------
-    */
-    protected function handlePureAI(int $clientId,string $hash,string $message): array
-    {
-        $apiKey = config('services.openai.key');
-        if (!$apiKey) return $this->fallback();
-
-        try {
-
-            $response = Http::withToken($apiKey)
-                ->timeout($this->timeout)
-                ->retry(2,400)
-                ->post('https://api.openai.com/v1/chat/completions',[
-                    'model'=>'gpt-4o-mini',
-                    'messages'=>[
-                        ['role'=>'system','content'=>'You are a professional visa assistant.'],
-                        ['role'=>'user','content'=>$message]
-                    ],
-                    'temperature'=>0.4
-                ]);
-
-            if ($response->failed()) {
-                return $this->fallback();
-            }
-
-            $answer = trim($response->json('choices.0.message.content') ?? '');
-
-            if (!$answer) {
-                return $this->fallback();
-            }
-
-            return $this->store(
-                $clientId,
-                $hash,
-                $this->formatResponse($answer, [], 0.5, 'ai')
-            );
-
-        } catch (\Throwable $e) {
-            Log::error('Pure AI failed', ['error'=>$e->getMessage()]);
-            return $this->fallback();
-        }
     }
 
     /*

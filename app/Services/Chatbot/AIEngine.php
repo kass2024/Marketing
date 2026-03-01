@@ -11,8 +11,10 @@ use App\Models\ConversationMemory;
 
 class AIEngine
 {
-    protected float $similarityThreshold = 0.78;   // realistic threshold
+    protected float $similarityThreshold = 0.65;   // tuned for FAQ systems
+    protected float $borderlineThreshold = 0.55;   // rerank zone
     protected int $candidateLimit = 5;
+    protected int $memoryLimit = 5;
 
     public function reply(int $clientId, string $message, $conversation = null): string
     {
@@ -22,105 +24,100 @@ class AIEngine
             return "How can we assist you today?";
         }
 
-        // 1️⃣ Greetings & Short Messages Handling
         if ($this->isGreeting($message)) {
             return "Hello 👋 How can we assist you today regarding study or visa services?";
         }
 
-        // 2️⃣ Cache check
         $hash = hash('sha256', $clientId . strtolower($message));
 
-        if ($cached = AiCache::where('client_id', $clientId)
-            ->where('message_hash', $hash)
-            ->first()) {
+        if ($cached = AiCache::where('client_id',$clientId)
+            ->where('message_hash',$hash)->first()) {
             return $cached->response;
         }
 
-        // 3️⃣ Retrieve candidates (semantic)
-        $candidates = $this->retrieveCandidates($clientId, $message);
+        $candidates = $this->retrieveCandidates($clientId,$message);
 
         if (!empty($candidates)) {
 
             $best = $candidates[0];
 
+            Log::info('Best semantic score', ['score'=>$best['score']]);
+
+            // Strong match
             if ($best['score'] >= $this->similarityThreshold) {
-                return $this->store($clientId, $hash, $best['answer']);
+                return $this->store($clientId,$hash,$best['answer']);
             }
 
-            // AI re-ranking if borderline
-            $reranked = $this->aiRerank($message, $candidates);
+            // Borderline match → rerank
+            if ($best['score'] >= $this->borderlineThreshold) {
 
-            if ($reranked) {
-                return $this->store($clientId, $hash, $reranked);
+                if ($reranked = $this->rerankWithAI($message,$candidates)) {
+                    return $this->store($clientId,$hash,$reranked);
+                }
             }
         }
 
-        // 4️⃣ Controlled AI Fallback
-        return $this->groundedAI($clientId, $hash, $message);
+        return $this->groundedFallback($clientId,$hash,$message,$conversation,$candidates ?? []);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Greeting detection
-    |--------------------------------------------------------------------------
-    */
+    /* ===========================
+       Greeting Detection
+    ============================ */
 
     protected function isGreeting(string $message): bool
     {
         $msg = strtolower($message);
 
         return in_array($msg, [
-            'hi','hello','hey','good morning',
-            'good afternoon','good evening'
+            'hi','hello','hey',
+            'good morning','good afternoon','good evening'
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Candidate Retrieval
-    |--------------------------------------------------------------------------
-    */
+    /* ===========================
+       Semantic Retrieval
+    ============================ */
 
-    protected function retrieveCandidates(int $clientId, string $message): array
+    protected function retrieveCandidates(int $clientId,string $message): array
     {
         try {
 
-            $embeddingService = app(EmbeddingService::class);
-            $queryVector = $embeddingService->generate($message);
+            $queryVector = app(\App\Services\Chatbot\EmbeddingService::class)
+                ->generate($message);
 
             if (!$queryVector) return [];
 
-            $items = KnowledgeBase::where('client_id', $clientId)
+            $items = KnowledgeBase::where('client_id',$clientId)
                 ->whereNotNull('embedding')
                 ->get();
 
             $results = [];
 
-            foreach ($items as $item) {
+            foreach($items as $item){
 
-                $vector = json_decode($item->embedding, true);
-                if (!$vector) continue;
+                $vector = json_decode($item->embedding,true);
+                if(!$vector) continue;
 
-                $score = $this->cosineSimilarity($queryVector, $vector);
+                $score = $this->cosine($queryVector,$vector);
 
-                $results[] = [
-                    'question' => $item->question,
-                    'answer'   => $item->answer,
-                    'score'    => $score
+                $results[]=[
+                    'question'=>$item->question,
+                    'answer'=>$item->answer,
+                    'score'=>$score
                 ];
             }
 
-            usort($results, fn($a,$b) => $b['score'] <=> $a['score']);
+            usort($results,fn($a,$b)=>$b['score'] <=> $a['score']);
 
-            return array_slice($results, 0, $this->candidateLimit);
+            return array_slice($results,0,$this->candidateLimit);
 
-        } catch (\Throwable $e) {
-            Log::error('Retrieval failed', ['error'=>$e->getMessage()]);
+        } catch(\Throwable $e){
+            Log::error('Semantic retrieval failed',['error'=>$e->getMessage()]);
             return [];
         }
     }
 
-    protected function cosineSimilarity(array $a, array $b): float
+    protected function cosine(array $a,array $b): float
     {
         $dot=0;$normA=0;$normB=0;
 
@@ -130,40 +127,29 @@ class AIEngine
             $normB += ($b[$i] ?? 0)*($b[$i] ?? 0);
         }
 
-        return $dot / (sqrt($normA)*sqrt($normB) + 1e-10);
+        return $dot/(sqrt($normA)*sqrt($normB)+1e-10);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | AI Re-ranking (only for close matches)
-    |--------------------------------------------------------------------------
-    */
+    /* ===========================
+       AI Reranking (Top 5 only)
+    ============================ */
 
-    protected function aiRerank(string $message, array $candidates): ?string
+    protected function rerankWithAI(string $message,array $candidates): ?string
     {
-        try {
+        try{
 
-            $apiKey = config('services.openai.key');
-            if (!$apiKey) return null;
+            $apiKey=config('services.openai.key');
+            if(!$apiKey) return null;
 
-            $context = "";
-
-            foreach ($candidates as $i => $c) {
-                $context .= ($i+1).". {$c['question']}\n";
+            $context="";
+            foreach($candidates as $i=>$c){
+                $context.=($i+1).". {$c['question']}\n";
             }
 
-            $prompt = "
-User Question:
-{$message}
+            $prompt="User Question:\n{$message}\n\nSelect the most relevant number:\n{$context}\nOnly respond with the number.";
 
-Which of these questions is most relevant?
-
-{$context}
-
-Respond with only the number.
-";
-
-            $response = Http::withToken($apiKey)
+            $response=Http::withToken($apiKey)
+                ->timeout(30)
                 ->post('https://api.openai.com/v1/chat/completions',[
                     'model'=>'gpt-4o-mini',
                     'messages'=>[
@@ -173,75 +159,87 @@ Respond with only the number.
                     'temperature'=>0
                 ]);
 
-            if ($response->failed()) return null;
+            if($response->failed()) return null;
 
-            $choice = intval(trim($response->json('choices.0.message.content'))) - 1;
+            $choice=intval(trim($response->json('choices.0.message.content')))-1;
 
-            if (!isset($candidates[$choice])) return null;
+            return $candidates[$choice]['answer'] ?? null;
 
-            return $candidates[$choice]['answer'];
-
-        } catch (\Throwable $e) {
+        }catch(\Throwable $e){
+            Log::error('Rerank failed',['error'=>$e->getMessage()]);
             return null;
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Strict Grounded AI (NO hallucination)
-    |--------------------------------------------------------------------------
-    */
+    /* ===========================
+       Strict Grounded Fallback
+    ============================ */
 
-    protected function groundedAI(int $clientId,string $hash,string $message): string
+    protected function groundedFallback(int $clientId,string $hash,string $message,$conversation,array $candidates): string
     {
-        try {
+        try{
 
-            $apiKey = config('services.openai.key');
-            if (!$apiKey) {
+            $apiKey=config('services.openai.key');
+            if(!$apiKey){
                 return "Please contact our team for accurate assistance.";
             }
 
-            $knowledge = KnowledgeBase::where('client_id',$clientId)
-                ->limit(50)
-                ->get(['question','answer']);
+            $kbContext="";
 
-            $kbText = "";
-
-            foreach($knowledge as $k){
-                $kbText .= "Q: {$k->question}\nA: {$k->answer}\n\n";
+            // Only send top 5 candidates to AI
+            foreach($candidates as $c){
+                $kbContext.="Q: {$c['question']}\nA: {$c['answer']}\n\n";
             }
 
-            $prompt = "
-Answer strictly using this company knowledge.
-If answer is not found, say:
+            $memoryContext="";
+
+            if($conversation){
+                $memory=ConversationMemory::where('conversation_id',$conversation->id)
+                    ->latest()->take($this->memoryLimit)->get()->reverse();
+
+                foreach($memory as $m){
+                    $memoryContext.="{$m->role}: {$m->content}\n";
+                }
+            }
+
+            $prompt="
+You are a professional visa consultancy assistant.
+
+Use ONLY the provided company knowledge below.
+If the answer is not found, reply:
 'Please contact our team for accurate assistance.'
 
+Conversation Context:
+{$memoryContext}
+
 Company Knowledge:
-{$kbText}
+{$kbContext}
 
 User Question:
 {$message}
 ";
 
-            $response = Http::withToken($apiKey)
+            $response=Http::withToken($apiKey)
+                ->timeout(30)
                 ->post('https://api.openai.com/v1/chat/completions',[
                     'model'=>'gpt-4o-mini',
                     'messages'=>[
-                        ['role'=>'system','content'=>'Strictly grounded assistant.'],
+                        ['role'=>'system','content'=>'Strictly grounded assistant. No hallucination.'],
                         ['role'=>'user','content'=>$prompt]
                     ],
                     'temperature'=>0.1
                 ]);
 
-            if ($response->failed()) {
+            if($response->failed()){
                 return "Please contact our team for accurate assistance.";
             }
 
-            $answer = trim($response->json('choices.0.message.content'));
+            $answer=trim($response->json('choices.0.message.content'));
 
             return $this->store($clientId,$hash,$answer);
 
-        } catch (\Throwable $e) {
+        }catch(\Throwable $e){
+            Log::error('Grounded fallback failed',['error'=>$e->getMessage()]);
             return "Please contact our team for accurate assistance.";
         }
     }

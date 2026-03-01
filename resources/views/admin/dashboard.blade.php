@@ -129,47 +129,42 @@ class="min-h-screen bg-gray-100 font-sans">
 
         {{-- ================= AUTOMATION ================= --}}
         <div>
-            <button @click="openAutomation = !openAutomation"
-                    class="w-full flex justify-between items-center px-4 py-3 rounded-xl font-semibold text-gray-800 hover:bg-gray-100 transition">
-                <span>🤖 Automation & CRM</span>
-                <svg :class="openAutomation ? 'rotate-90' : ''"
-                     class="w-4 h-4 transition-transform"
-                     fill="none" stroke="currentColor" stroke-width="2"
-                     viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                          d="M9 5l7 7-7 7"/>
-                </svg>
-            </button>
+    <button @click="openAutomation = !openAutomation"
+            class="w-full flex justify-between items-center px-4 py-3 rounded-xl font-semibold text-gray-800 hover:bg-gray-100 transition">
+        <span>🤖 Automation & CRM</span>
+        <svg :class="openAutomation ? 'rotate-90' : ''"
+             class="w-4 h-4 transition-transform"
+             fill="none" stroke="currentColor" stroke-width="2"
+             viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M9 5l7 7-7 7"/>
+        </svg>
+    </button>
 
-            <div x-show="openAutomation" x-transition class="pl-6 mt-2 space-y-2">
+    <div x-show="openAutomation" x-transition class="pl-6 mt-2 space-y-2">
 
-                <div>
-    <a href="{{ safeRoute('admin.chatbots.index') }}"
-       class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.chatbots')?'text-blue-600 font-semibold':'' }}">
-        Chatbots
-    </a>
+        <a href="{{ route('admin.chatbots.index') }}"
+           class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.chatbots') ? 'text-blue-600 font-semibold' : '' }}">
+            Chatbots
+        </a>
 
-    <a href="{{ route('admin.faq.index') }}"
-       class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.faq')?'text-blue-600 font-semibold':'' }}">
-        FAQ Knowledge Base
-    </a>
+        <a href="{{ route('admin.faq.index') }}"
+           class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.faq') ? 'text-blue-600 font-semibold' : '' }}">
+            FAQ Knowledge Base
+        </a>
+
+        <a href="{{ route('admin.templates.index') }}"
+           class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.templates') ? 'text-blue-600 font-semibold' : '' }}">
+            Templates
+        </a>
+
+        <a href="{{ route('admin.leads.index') }}"
+           class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.leads') ? 'text-blue-600 font-semibold' : '' }}">
+            Leads CRM
+        </a>
+
+    </div>
 </div>
-                   class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.chatbots')?'text-blue-600 font-semibold':'' }}">
-                    Chatbots
-                </a>
-
-                <a href="{{ safeRoute('admin.templates.index') }}"
-                   class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.templates')?'text-blue-600 font-semibold':'' }}">
-                    Templates
-                </a>
-
-                <a href="{{ safeRoute('admin.leads.index') }}"
-                   class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.leads')?'text-blue-600 font-semibold':'' }}">
-                    Leads CRM
-                </a>
-
-            </div>
-        </div>
 
         <a href="{{ safeRoute('admin.system.index') }}"
            class="flex items-center gap-3 px-4 py-3 rounded-xl transition font-medium hover:bg-gray-100 {{ str_contains($route,'admin.system')?'text-blue-600 font-semibold':'' }}">

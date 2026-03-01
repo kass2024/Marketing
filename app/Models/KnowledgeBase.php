@@ -20,11 +20,11 @@ class KnowledgeBase extends Model
     ];
 
     protected $casts = [
-        'embedding'   => 'array',
-        'is_active'   => 'boolean',
-        'priority'    => 'integer',
-        'created_at'  => 'datetime',
-        'updated_at'  => 'datetime',
+        'embedding'  => 'array',
+        'is_active'  => 'boolean',
+        'priority'   => 'integer',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     /*
@@ -33,9 +33,10 @@ class KnowledgeBase extends Model
     |--------------------------------------------------------------------------
     */
 
+    // ✅ FIXED foreign key to match DB
     public function attachments()
     {
-        return $this->hasMany(KnowledgeAttachment::class, 'knowledge_base_id');
+        return $this->hasMany(KnowledgeAttachment::class, 'knowledge_id');
     }
 
     /*
@@ -84,9 +85,9 @@ class KnowledgeBase extends Model
             'attachments' => $this->attachments
                 ->map(function ($att) {
                     return [
-                        'type' => $att->type,
+                        'type'      => $att->type,
                         'file_path' => $att->file_path,
-                        'url' => $att->resolved_url ?? $att->url,
+                        'url'       => $att->resolved_url ?? $att->url,
                     ];
                 })
                 ->toArray()

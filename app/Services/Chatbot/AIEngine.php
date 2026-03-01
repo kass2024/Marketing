@@ -328,17 +328,79 @@ $message";
     }
 
     protected function formatFromKnowledge($knowledge, float $confidence, string $source): array
-    {
-        return [
-            'text' => $knowledge->answer,
-            'attachments' => $knowledge->attachments->map(fn($a) => [
-                'type' => $a->type,
-                'url'  => $a->resolved_url ?? $a->url,
-            ])->toArray(),
-            'confidence' => $confidence,
-            'source' => $source
-        ];
+{
+    $attachments = [];
+
+    if ($knowledge->relationLoaded('attachments') && $knowledge->attachments) {
+
+        foreach ($knowledge->attachments as $attachment) {
+
+            // Skip invalid rows
+            if (!$attachment->url && !$attachment->file_path) {
+                continue;
+            }
+
+            $type = strtolower($attachment->type ?? 'document');
+
+            /*
+            |--------------------------------------------------------------------------
+            | Normalize Type for WhatsApp API
+            |--------------------------------------------------------------------------
+            */
+
+            if (in_array($type, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                $type = 'image';
+            }
+
+            if (in_array($type, ['pdf', 'doc', 'docx'])) {
+                $type = 'document';
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Build Public HTTPS URL
+            |--------------------------------------------------------------------------
+            */
+
+            $url = $attachment->url
+                ? url($attachment->url)
+                : url($attachment->file_path);
+
+            /*
+            |--------------------------------------------------------------------------
+            | Determine Filename
+            |--------------------------------------------------------------------------
+            */
+
+            $filename = null;
+
+            if ($attachment->file_path) {
+                $filename = basename($attachment->file_path);
+            } elseif ($attachment->url) {
+                $filename = basename(parse_url($attachment->url, PHP_URL_PATH));
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Push Attachment
+            |--------------------------------------------------------------------------
+            */
+
+            $attachments[] = [
+                'type'     => $type,
+                'url'      => $url,
+                'filename' => $filename,
+            ];
+        }
     }
+
+    return [
+        'text'        => $knowledge->answer ?? '',
+        'attachments' => $attachments,
+        'confidence'  => $confidence,
+        'source'      => $source,
+    ];
+}
 
     protected function fallback(string $message = "Please contact support."): array
     {

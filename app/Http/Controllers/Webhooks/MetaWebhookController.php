@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 use App\Models\PlatformMetaConnection;
 use App\Models\Client;
+use App\Models\Message;
 use App\Services\Chatbot\ChatbotProcessor;
 use App\Services\Chatbot\MessageDispatcher;
 
@@ -21,7 +22,7 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | 1️⃣ Webhook Verification (Meta Setup)
+    | 1️⃣ Webhook Verification
     |--------------------------------------------------------------------------
     */
     public function verify(Request $request): Response
@@ -40,17 +41,13 @@ class MetaWebhookController extends Controller
             return response($challenge, 200);
         }
 
-        Log::warning('Webhook verification failed', [
-            'mode' => $mode,
-            'token_received' => $token,
-        ]);
-
+        Log::warning('Webhook verification failed');
         return response('Forbidden', 403);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | 2️⃣ Handle Incoming Webhook
+    | 2️⃣ Handle Webhook
     |--------------------------------------------------------------------------
     */
     public function handle(Request $request): Response
@@ -71,11 +68,11 @@ class MetaWebhookController extends Controller
                 $value = $change['value'] ?? [];
 
                 if (!empty($value['messages'])) {
-                    $this->processMessages($value);
+                    $this->handleIncomingMessages($value);
                 }
 
                 if (!empty($value['statuses'])) {
-                    $this->processStatuses($value['statuses']);
+                    $this->handleStatusUpdates($value['statuses']);
                 }
             }
         }
@@ -85,15 +82,15 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Process Incoming Messages
+    | Handle Incoming Messages
     |--------------------------------------------------------------------------
     */
-    protected function processMessages(array $value): void
+    protected function handleIncomingMessages(array $value): void
     {
         $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
         if (!$phoneNumberId) {
-            Log::warning('Missing phone_number_id in webhook');
+            Log::warning('Missing phone_number_id');
             return;
         }
 
@@ -103,27 +100,13 @@ class MetaWebhookController extends Controller
         )->first();
 
         if (!$platform) {
-            Log::warning('Platform not found', [
-                'phone_number_id' => $phoneNumberId
-            ]);
+            Log::warning('Platform not found', ['phone_number_id' => $phoneNumberId]);
             return;
         }
 
-        /*
-         |--------------------------------------------------------------------------
-         | Resolve Client Properly (users → clients mapping)
-         |--------------------------------------------------------------------------
-         */
-
-        $userId = $platform->connected_by;
-
-        $clientId = Client::where('user_id', $userId)->value('id');
+        $clientId = $this->resolveClientId($platform);
 
         if (!$clientId) {
-            Log::error('Client not found for platform user', [
-                'user_id' => $userId,
-                'platform_id' => $platform->id
-            ]);
             return;
         }
 
@@ -136,52 +119,38 @@ class MetaWebhookController extends Controller
                 continue;
             }
 
-            /*
-             |--------------------------------------------------------------------------
-             | Idempotency Protection
-             |--------------------------------------------------------------------------
-             */
-
-            $cacheKey = "wa_msg_{$messageId}";
-
-            if (Cache::has($cacheKey)) {
-                return;
+            if ($this->isDuplicate($messageId)) {
+                continue;
             }
-
-            Cache::put($cacheKey, true, now()->addMinutes(10));
 
             $text = $this->extractMessageText($incoming);
 
             if (!$text) {
-                Log::info('Unsupported message type', [
-                    'type' => $incoming['type'] ?? 'unknown'
-                ]);
                 continue;
             }
 
             try {
-                Log::info('Processing message', [
-                    'client_id' => $clientId,
-                    'phone'     => $from,
-                    'text'      => $text,
+
+                $aiResponse = $this->processor->process([
+                    'from'       => $from,
+                    'text'       => $text,
+                    'client_id'  => $clientId,
+                    'message_id' => $messageId,
                 ]);
 
-                $reply = $this->processor->process([
-                    'from'      => $from,
-                    'text'      => $text,
-                    'client_id' => $clientId,
-                ]);
+                if (!empty($aiResponse)) {
 
-                if (!empty($reply)) {
-                    $this->dispatcher->send(
+                    $results = $this->dispatcher->send(
                         platform: $platform,
                         to: $from,
-                        message: $reply
+                        payload: $aiResponse
                     );
+
+                    $this->storeExternalIds($results);
                 }
 
             } catch (\Throwable $e) {
-                Log::error('Webhook message processing error', [
+                Log::error('Message processing failed', [
                     'error' => $e->getMessage(),
                     'message_id' => $messageId,
                 ]);
@@ -191,18 +160,70 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Process Status Updates
+    | Handle Delivery Status Updates
     |--------------------------------------------------------------------------
     */
-    protected function processStatuses(array $statuses): void
+    protected function handleStatusUpdates(array $statuses): void
     {
         foreach ($statuses as $status) {
-            Log::info('WhatsApp status update', [
-                'message_id' => $status['id'] ?? null,
-                'status'     => $status['status'] ?? null,
-                'recipient'  => $status['recipient_id'] ?? null,
+
+            $externalId = $status['id'] ?? null;
+            $delivery   = $status['status'] ?? null;
+
+            if (!$externalId || !$delivery) {
+                continue;
+            }
+
+            Message::where('external_message_id', $externalId)
+                ->update(['status' => $delivery]);
+
+            Log::info('Message status updated', [
+                'external_id' => $externalId,
+                'status' => $delivery
             ]);
         }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Store External Message IDs
+    |--------------------------------------------------------------------------
+    */
+    protected function storeExternalIds(array $results): void
+    {
+        foreach ($results as $result) {
+
+            if (!empty($result['external_message_id'])) {
+
+                Message::whereNull('external_message_id')
+                    ->latest()
+                    ->limit(1)
+                    ->update([
+                        'external_message_id' => $result['external_message_id'],
+                        'status' => 'sent'
+                    ]);
+            }
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Resolve Client
+    |--------------------------------------------------------------------------
+    */
+    protected function resolveClientId(PlatformMetaConnection $platform): ?int
+    {
+        $userId = $platform->connected_by;
+
+        $clientId = Client::where('user_id', $userId)->value('id');
+
+        if (!$clientId) {
+            Log::error('Client not found for platform', [
+                'platform_id' => $platform->id
+            ]);
+        }
+
+        return $clientId;
     }
 
     /*
@@ -233,7 +254,25 @@ class MetaWebhookController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Validate Webhook Signature
+    | Idempotency
+    |--------------------------------------------------------------------------
+    */
+    protected function isDuplicate(string $messageId): bool
+    {
+        $key = "wa_msg_$messageId";
+
+        if (Cache::has($key)) {
+            return true;
+        }
+
+        Cache::put($key, true, now()->addMinutes(10));
+
+        return false;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Validate Signature
     |--------------------------------------------------------------------------
     */
     protected function isValidSignature(Request $request): bool
@@ -241,14 +280,12 @@ class MetaWebhookController extends Controller
         $signature = $request->header('X-Hub-Signature-256');
 
         if (!$signature) {
-            Log::error('Missing signature header');
             return false;
         }
 
         $appSecret = config('services.whatsapp_webhook.app_secret');
 
         if (!$appSecret) {
-            Log::critical('WhatsApp app_secret not configured');
             return false;
         }
 
@@ -258,11 +295,6 @@ class MetaWebhookController extends Controller
             $appSecret
         );
 
-        if (!hash_equals($expected, $signature)) {
-            Log::error('Signature mismatch');
-            return false;
-        }
-
-        return true;
+        return hash_equals($expected, $signature);
     }
 }

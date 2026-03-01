@@ -10,22 +10,27 @@ use App\Models\AiCache;
 
 class AIEngine
 {
-    protected float $highConfidence = 0.72;
-    protected float $mediumConfidence = 0.55;
-    protected int $candidateLimit = 5;
-    protected int $timeout = 25;
+    protected float $highConfidence   = 0.82;
+    protected float $mediumConfidence = 0.60;
+    protected int   $candidateLimit   = 5;
+    protected int   $timeout          = 25;
 
     /*
     |--------------------------------------------------------------------------
     | MAIN ENTRY
     |--------------------------------------------------------------------------
     */
-    public function reply(int $clientId, string $message, $conversation = null): string
+    public function reply(int $clientId, string $message, $conversation = null): array
     {
         $message = trim($message);
 
         if ($message === '') {
-            return "How can we assist you today?";
+            return $this->formatResponse(
+                "How can we assist you today?",
+                [],
+                1.0,
+                'system'
+            );
         }
 
         $normalized = Str::lower($message);
@@ -34,19 +39,20 @@ class AIEngine
         // ✅ Cache first
         if ($cached = AiCache::where('client_id',$clientId)
             ->where('message_hash',$hash)->first()) {
-            return $cached->response;
+
+            return json_decode($cached->response, true);
         }
 
-        // ✅ Greeting
         if ($this->isGreeting($normalized)) {
-            return "Hello 👋 How can we assist you regarding study or visa services?";
+            return $this->formatResponse(
+                "Hello 👋 How can we assist you regarding study or visa services?",
+                [],
+                1.0,
+                'system'
+            );
         }
 
-        // ✅ Intent
-        $intent = $this->classifyIntent($message);
-        Log::info('Intent detected: '.$intent);
-
-        // ✅ Always retrieve candidates (RAG first)
+        // 🔥 Step 1: Retrieve candidates
         $candidates = $this->retrieveCandidates($clientId,$message);
 
         if (!empty($candidates)) {
@@ -54,12 +60,19 @@ class AIEngine
             $best = $candidates[0];
             Log::info('Top similarity score: '.$best['score']);
 
-            // 🔥 HIGH CONFIDENCE → Direct FAQ
-            if ($best['score'] >= $this->highConfidence) {
-                return $this->store($clientId,$hash,$best['answer']);
+            // HIGH CONFIDENCE → Direct FAQ
+            if (
+                $best['score'] >= $this->highConfidence &&
+                $this->isStrongMatch($message, $best['knowledge']->question)
+            ) {
+                return $this->store(
+                    $clientId,
+                    $hash,
+                    $this->formatFromKnowledge($best['knowledge'], $best['score'], 'faq')
+                );
             }
 
-            // 🔥 MEDIUM CONFIDENCE → AI with context grounding
+            // MEDIUM → Grounded AI
             if ($best['score'] >= $this->mediumConfidence) {
                 return $this->handleGroundedAI(
                     $clientId,
@@ -70,7 +83,7 @@ class AIEngine
             }
         }
 
-        // 🔥 LOW CONFIDENCE → Pure AI advisory
+        // LOW → Pure AI
         return $this->handlePureAI($clientId,$hash,$message);
     }
 
@@ -81,43 +94,7 @@ class AIEngine
 
     /*
     |--------------------------------------------------------------------------
-    | INTENT CLASSIFIER (SAFE FALLBACK)
-    |--------------------------------------------------------------------------
-    */
-    protected function classifyIntent(string $message): string
-    {
-        $apiKey = config('services.openai.key');
-        if (!$apiKey) return 'advisory';
-
-        try {
-
-            $response = Http::withToken($apiKey)
-                ->timeout(10)
-                ->retry(2,300)
-                ->post('https://api.openai.com/v1/chat/completions',[
-                    'model'=>'gpt-4o-mini',
-                    'messages'=>[
-                        ['role'=>'system','content'=>'Classify as faq or advisory. Return only one word.'],
-                        ['role'=>'user','content'=>$message]
-                    ],
-                    'temperature'=>0
-                ]);
-
-            if ($response->failed()) return 'advisory';
-
-            $intent = trim($response->json('choices.0.message.content'));
-
-            return in_array($intent,['faq','advisory']) ? $intent : 'advisory';
-
-        } catch (\Throwable $e) {
-            Log::error('Intent classification failed: '.$e->getMessage());
-            return 'advisory';
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | RETRIEVAL
+    | RETRIEVAL (RAG)
     |--------------------------------------------------------------------------
     */
     protected function retrieveCandidates(int $clientId,string $message): array
@@ -125,21 +102,22 @@ class AIEngine
         $queryVector = app(EmbeddingService::class)->generate($message);
         if (!$queryVector) return [];
 
-        $items = KnowledgeBase::where('client_id',$clientId)
+        $items = KnowledgeBase::forClient($clientId)
+            ->active()
             ->whereNotNull('embedding')
+            ->with('attachments')
             ->get();
 
         $results = [];
 
         foreach ($items as $item) {
 
-            $vector = json_decode($item->embedding,true);
-            if(!$vector) continue;
+            if (!$item->embedding) continue;
 
-            $score = $this->cosine($queryVector,$vector);
+            $score = $this->cosine($queryVector,$item->embedding);
 
             $results[]=[
-                'answer'=>$item->answer,
+                'knowledge'=>$item,
                 'score'=>$score
             ];
         }
@@ -162,9 +140,19 @@ class AIEngine
         return $dot/(sqrt($normA)*sqrt($normB)+1e-10);
     }
 
+    protected function isStrongMatch(string $input, ?string $faqQuestion): bool
+    {
+        if (!$faqQuestion) return false;
+
+        $inputWords = collect(explode(' ', strtolower($input)));
+        $faqWords   = collect(explode(' ', strtolower($faqQuestion)));
+
+        return $inputWords->intersect($faqWords)->count() >= 2;
+    }
+
     /*
     |--------------------------------------------------------------------------
-    | GROUNDED AI (RAG AUGMENTED GENERATION)
+    | GROUNDED AI
     |--------------------------------------------------------------------------
     */
     protected function handleGroundedAI(
@@ -172,15 +160,20 @@ class AIEngine
         string $hash,
         string $message,
         array $candidates
-    ): string {
+    ): array {
 
         $apiKey = config('services.openai.key');
         if (!$apiKey) {
-            return "Please contact our team for assistance.";
+            return $this->formatResponse(
+                "Please contact our team for assistance.",
+                [],
+                0.0,
+                'fallback'
+            );
         }
 
         $context = collect($candidates)
-            ->pluck('answer')
+            ->pluck('knowledge.answer')
             ->implode("\n\n");
 
         $response = Http::withToken($apiKey)
@@ -192,36 +185,50 @@ class AIEngine
                     [
                         'role'=>'system',
                         'content'=>"You are a professional visa consultancy assistant.
-Use ONLY the context below if relevant.
-If context does not fully answer, provide professional guidance."
+Use ONLY the context below if relevant."
                     ],
                     [
                         'role'=>'user',
-                        'content'=>"Context:\n".$context."\n\nUser question:\n".$message
+                        'content'=>"Context:\n".$context."\n\nQuestion:\n".$message
                     ]
                 ],
                 'temperature'=>0.3
             ]);
 
         if ($response->failed()) {
-            return "Please contact our team for assistance.";
+            return $this->formatResponse(
+                "Please contact our team for assistance.",
+                [],
+                0.0,
+                'fallback'
+            );
         }
 
         $answer = trim($response->json('choices.0.message.content'));
 
-        return $this->store($clientId,$hash,$answer);
+        return $this->store(
+            $clientId,
+            $hash,
+            $this->formatResponse($answer, [], 0.65, 'grounded_ai')
+        );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | PURE AI MODE
+    | PURE AI
     |--------------------------------------------------------------------------
     */
-    protected function handlePureAI(int $clientId,string $hash,string $message): string
+    protected function handlePureAI(int $clientId,string $hash,string $message): array
     {
         $apiKey = config('services.openai.key');
+
         if (!$apiKey) {
-            return "Please contact our team for assistance.";
+            return $this->formatResponse(
+                "Please contact our team for assistance.",
+                [],
+                0.0,
+                'fallback'
+            );
         }
 
         $response = Http::withToken($apiKey)
@@ -232,7 +239,7 @@ If context does not fully answer, provide professional guidance."
                 'messages'=>[
                     [
                         'role'=>'system',
-                        'content'=>'You are a professional Canadian visa consultancy assistant.'
+                        'content'=>'You are a professional visa consultancy assistant.'
                     ],
                     [
                         'role'=>'user',
@@ -243,21 +250,61 @@ If context does not fully answer, provide professional guidance."
             ]);
 
         if ($response->failed()) {
-            return "Please contact our team for assistance.";
+            return $this->formatResponse(
+                "Please contact our team for assistance.",
+                [],
+                0.0,
+                'fallback'
+            );
         }
 
         $answer = trim($response->json('choices.0.message.content'));
 
-        return $this->store($clientId,$hash,$answer);
+        return $this->store(
+            $clientId,
+            $hash,
+            $this->formatResponse($answer, [], 0.5, 'ai')
+        );
     }
 
-    protected function store(int $clientId,string $hash,string $answer): string
+    /*
+    |--------------------------------------------------------------------------
+    | FORMATTERS
+    |--------------------------------------------------------------------------
+    */
+    protected function formatFromKnowledge($knowledge, float $confidence, string $source): array
+    {
+        return [
+            'text' => $knowledge->answer,
+            'attachments' => $knowledge->attachments->map(function ($att) {
+                return [
+                    'type' => $att->type,
+                    'file_path' => $att->file_path,
+                    'url' => $att->url,
+                ];
+            })->toArray(),
+            'confidence' => $confidence,
+            'source' => $source
+        ];
+    }
+
+    protected function formatResponse(string $text, array $attachments, float $confidence, string $source): array
+    {
+        return [
+            'text' => $text,
+            'attachments' => $attachments,
+            'confidence' => $confidence,
+            'source' => $source
+        ];
+    }
+
+    protected function store(int $clientId,string $hash,array $response): array
     {
         AiCache::updateOrCreate(
             ['client_id'=>$clientId,'message_hash'=>$hash],
-            ['response'=>$answer]
+            ['response'=>json_encode($response)]
         );
 
-        return $answer;
+        return $response;
     }
 }

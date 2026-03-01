@@ -10,22 +10,40 @@ use App\Services\Chatbot\EmbeddingService;
 
 class FaqController extends Controller
 {
+    /*
+    |--------------------------------------------------------------------------
+    | INDEX
+    |--------------------------------------------------------------------------
+    */
     public function index()
     {
-        $faqs = KnowledgeBase::latest()->paginate(20);
+        $faqs = KnowledgeBase::with('attachments')
+            ->latest()
+            ->paginate(20);
+
         return view('admin.faq.index', compact('faqs'));
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE
+    |--------------------------------------------------------------------------
+    */
     public function create()
     {
         return view('admin.faq.create');
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | STORE
+    |--------------------------------------------------------------------------
+    */
     public function store(Request $request)
     {
         $request->validate([
-            'question' => 'required|string|max:1000',
-            'answer'   => 'required|string',
+            'question'   => 'required|string|max:1000',
+            'answer'     => 'required|string',
             'attachment' => 'nullable|file|max:5120'
         ]);
 
@@ -41,6 +59,7 @@ class FaqController extends Controller
         // Generate embedding
         $faq->embedding = app(EmbeddingService::class)
             ->generate($faq->question . ' ' . $faq->answer);
+
         $faq->save();
 
         // Optional attachment
@@ -50,14 +69,94 @@ class FaqController extends Controller
                 ->store('faq_attachments', 'public');
 
             $faq->attachments()->create([
-                'type' => $request->file('attachment')->extension(),
+                'type'      => $request->file('attachment')->extension(),
                 'file_path' => $path,
-                'url' => Storage::url($path),
+                'url'       => Storage::url($path),
             ]);
         }
 
         return redirect()
             ->route('admin.faq.index')
             ->with('success', 'FAQ created successfully.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | EDIT
+    |--------------------------------------------------------------------------
+    */
+    public function edit(KnowledgeBase $faq)
+    {
+        $faq->load('attachments');
+
+        return view('admin.faq.edit', compact('faq'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | UPDATE
+    |--------------------------------------------------------------------------
+    */
+    public function update(Request $request, KnowledgeBase $faq)
+    {
+        $request->validate([
+            'question'   => 'required|string|max:1000',
+            'answer'     => 'required|string',
+            'attachment' => 'nullable|file|max:5120'
+        ]);
+
+        $faq->update([
+            'question'  => $request->question,
+            'answer'    => $request->answer,
+            'is_active' => $request->has('is_active')
+        ]);
+
+        // Regenerate embedding after update
+        $faq->embedding = app(EmbeddingService::class)
+            ->generate($faq->question . ' ' . $faq->answer);
+
+        $faq->save();
+
+        // New attachment (optional)
+        if ($request->hasFile('attachment')) {
+
+            $path = $request->file('attachment')
+                ->store('faq_attachments', 'public');
+
+            $faq->attachments()->create([
+                'type'      => $request->file('attachment')->extension(),
+                'file_path' => $path,
+                'url'       => Storage::url($path),
+            ]);
+        }
+
+        return redirect()
+            ->route('admin.faq.index')
+            ->with('success', 'FAQ updated successfully.');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | DESTROY
+    |--------------------------------------------------------------------------
+    */
+    public function destroy(KnowledgeBase $faq)
+    {
+        // Delete attachments from storage
+        foreach ($faq->attachments as $attachment) {
+
+            if ($attachment->file_path) {
+                Storage::disk('public')
+                    ->delete($attachment->file_path);
+            }
+
+            $attachment->delete();
+        }
+
+        $faq->delete();
+
+        return redirect()
+            ->route('admin.faq.index')
+            ->with('success', 'FAQ deleted successfully.');
     }
 }

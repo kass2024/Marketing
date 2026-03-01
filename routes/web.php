@@ -285,9 +285,29 @@ Route::prefix('admin')
     ->name('admin.')
     ->group(function () {
 
-        Route::get('/faq', [FaqController::class, 'index'])->name('faq.index');
-        Route::get('/faq/create', [FaqController::class, 'create'])->name('faq.create');
-        Route::post('/faq', [FaqController::class, 'store'])->name('faq.store');
-    });
+        // INDEX
+        Route::get('/faq', [FaqController::class, 'index'])
+            ->name('faq.index');
 
+        // CREATE
+        Route::get('/faq/create', [FaqController::class, 'create'])
+            ->name('faq.create');
+
+        // STORE
+        Route::post('/faq', [FaqController::class, 'store'])
+            ->name('faq.store');
+
+        // EDIT
+        Route::get('/faq/{faq}/edit', [FaqController::class, 'edit'])
+            ->name('faq.edit');
+
+        // UPDATE
+        Route::put('/faq/{faq}', [FaqController::class, 'update'])
+            ->name('faq.update');
+
+        // DELETE
+        Route::delete('/faq/{faq}', [FaqController::class, 'destroy'])
+            ->name('faq.destroy');
+
+    });
 require __DIR__.'/auth.php';

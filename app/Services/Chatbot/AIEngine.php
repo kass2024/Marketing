@@ -28,62 +28,74 @@ class AIEngine
      * ===========================
      */
     public function reply(int $clientId, string $message, $conversation = null): string
-    {
-        $message = trim($message);
+{
+    $message = trim($message);
 
-        if ($message === '') {
-            return "How can we assist you today?";
-        }
-
-        // Normalize
-        $normalized = Str::lower($message);
-
-        // Greeting handler
-        if ($this->isGreeting($normalized)) {
-            return "Hello 👋 How can we assist you today regarding study or visa services?";
-        }
-
-        // Cache key
-        $hash = hash('sha256', $clientId . $normalized);
-
-        // Cache lookup
-        if ($cached = AiCache::where('client_id', $clientId)
-            ->where('message_hash', $hash)
-            ->first()) {
-
-            Log::info('AI cache hit');
-            return $cached->response;
-        }
-
-        // Semantic retrieval
-        $candidates = $this->retrieveCandidates($clientId, $message);
-
-        if (!empty($candidates)) {
-
-            $best = $candidates[0];
-
-            Log::info('Top semantic score', ['score' => $best['score']]);
-
-            // Strong match
-            if ($best['score'] >= $this->strongMatchThreshold) {
-                return $this->store($clientId, $hash, $best['answer']);
-            }
-
-            // Borderline → AI rerank
-            if ($best['score'] >= $this->borderlineThreshold) {
-
-                $reranked = $this->rerankWithAI($message, $candidates);
-
-                if ($reranked) {
-                    return $this->store($clientId, $hash, $reranked);
-                }
-            }
-        }
-
-        // Advisory fallback
-        return $this->advisoryFallback($clientId, $hash, $message, $conversation);
+    if ($message === '') {
+        return "How can we assist you today?";
     }
 
+    $normalized = Str::lower($message);
+
+    if ($this->isGreeting($normalized)) {
+        return "Hello 👋 How can we assist you today regarding study or visa services?";
+    }
+
+    $hash = hash('sha256', $clientId . $normalized);
+
+    if ($cached = AiCache::where('client_id',$clientId)
+        ->where('message_hash',$hash)->first()) {
+        return $cached->response;
+    }
+
+    // 🚨 NEW: Short vague query detection
+    if (str_word_count($normalized) <= 3) {
+        return $this->advisoryFallback($clientId,$hash,$message,$conversation);
+    }
+
+    // 🚨 NEW: Intent keyword routing
+    if ($this->looksLikeGeneralAdvisory($normalized)) {
+        return $this->advisoryFallback($clientId,$hash,$message,$conversation);
+    }
+
+    $candidates = $this->retrieveCandidates($clientId,$message);
+
+    if (!empty($candidates)) {
+
+        $best = $candidates[0];
+
+        Log::info('Top semantic score', ['score'=>$best['score']]);
+
+        if ($best['score'] >= 0.78) {   // 🚨 stricter threshold
+            return $this->store($clientId,$hash,$best['answer']);
+        }
+
+        if ($best['score'] >= 0.65) {
+            if ($reranked = $this->rerankWithAI($message,$candidates)) {
+                return $this->store($clientId,$hash,$reranked);
+            }
+        }
+    }
+
+    return $this->advisoryFallback($clientId,$hash,$message,$conversation);
+}
+
+protected function looksLikeGeneralAdvisory(string $message): bool
+{
+    $keywords = [
+        'work in','migrate','move to','immigrate',
+        'live in','jobs in','work permit',
+        'how can i go','process to go'
+    ];
+
+    foreach ($keywords as $word) {
+        if (Str::contains($message,$word)) {
+            return true;
+        }
+    }
+
+    return false;
+}
     /**
      * ===========================
      * GREETING DETECTION

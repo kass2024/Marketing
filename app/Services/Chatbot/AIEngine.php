@@ -362,9 +362,7 @@ $message";
             |--------------------------------------------------------------------------
             */
 
-            $url = $attachment->url
-                ? url($attachment->url)
-                : url($attachment->file_path);
+            $url = asset('storage/' . ltrim($attachment->file_path, '/'));
 
             /*
             |--------------------------------------------------------------------------

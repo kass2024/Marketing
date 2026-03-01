@@ -3,25 +3,92 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class KnowledgeAttachment extends Model
 {
     protected $table = 'knowledge_attachments';
 
     protected $fillable = [
-        'knowledge_id',
-        'type',        // pdf, image, link
-        'file_path',
-        'url',
+        'knowledge_base_id',   // standardized FK
+        'type',                // pdf | image | document | link
+        'file_path',           // storage path (relative)
+        'url',                 // optional absolute URL
+        'metadata',            // optional JSON (future use)
+        'is_active',
     ];
 
     protected $casts = [
+        'metadata'   => 'array',
+        'is_active'  => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 
+    /*
+    |--------------------------------------------------------------------------
+    | RELATIONSHIPS
+    |--------------------------------------------------------------------------
+    */
+
     public function knowledge()
     {
-        return $this->belongsTo(KnowledgeBase::class, 'knowledge_id');
+        return $this->belongsTo(KnowledgeBase::class, 'knowledge_base_id');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SCOPES
+    |--------------------------------------------------------------------------
+    */
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCESSORS
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Returns a fully accessible URL for WhatsApp sending
+     */
+    public function getResolvedUrlAttribute(): ?string
+    {
+        // If explicit URL exists, use it
+        if (!empty($this->url)) {
+            return $this->url;
+        }
+
+        // If stored locally, generate public URL
+        if (!empty($this->file_path)) {
+            return Storage::url($this->file_path);
+        }
+
+        return null;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function isPdf(): bool
+    {
+        return $this->type === 'pdf';
+    }
+
+    public function isImage(): bool
+    {
+        return $this->type === 'image';
+    }
+
+    public function isLink(): bool
+    {
+        return $this->type === 'link';
     }
 }

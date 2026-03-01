@@ -14,8 +14,8 @@ class KnowledgeBase extends Model
         'question',
         'answer',
         'embedding',
-        'intent_type',      // faq | advisory | document
-        'priority',         // ranking weight
+        'intent_type',
+        'priority',
         'is_active',
     ];
 
@@ -35,12 +35,12 @@ class KnowledgeBase extends Model
 
     public function attachments()
     {
-        return $this->hasMany(KnowledgeAttachment::class, 'knowledge_id');
+        return $this->hasMany(KnowledgeAttachment::class, 'knowledge_base_id');
     }
 
     /*
     |--------------------------------------------------------------------------
-    | QUERY SCOPES (Enterprise Filtering)
+    | SCOPES
     |--------------------------------------------------------------------------
     */
 
@@ -61,7 +61,7 @@ class KnowledgeBase extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | HELPER METHODS
+    | HELPERS
     |--------------------------------------------------------------------------
     */
 
@@ -81,13 +81,15 @@ class KnowledgeBase extends Model
     {
         return [
             'text' => $this->answer,
-            'attachments' => $this->attachments()->get()->map(function ($att) {
-                return [
-                    'type' => $att->type,
-                    'file_path' => $att->file_path,
-                    'url' => $att->url,
-                ];
-            })
+            'attachments' => $this->attachments
+                ->map(function ($att) {
+                    return [
+                        'type' => $att->type,
+                        'file_path' => $att->file_path,
+                        'url' => $att->resolved_url ?? $att->url,
+                    ];
+                })
+                ->toArray()
         ];
     }
 }

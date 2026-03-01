@@ -4,6 +4,7 @@ namespace App\Services\Chatbot;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use App\Models\PlatformMetaConnection;
 
 class MessageDispatcher
@@ -18,7 +19,7 @@ class MessageDispatcher
     public function send(
         PlatformMetaConnection $platform,
         string $to,
-        array $payload // structured AI response
+        array $payload
     ): array {
 
         Log::info('WhatsApp Dispatcher started', [
@@ -36,10 +37,13 @@ class MessageDispatcher
         }
 
         $endpoint = $this->buildEndpoint($platform);
+        $results  = [];
 
-        $results = [];
-
-        // 1️⃣ Send Text First
+        /*
+        |--------------------------------------------------------------------------
+        | 1️⃣ SEND TEXT FIRST
+        |--------------------------------------------------------------------------
+        */
         if (!empty($payload['text'])) {
             $results[] = $this->sendText(
                 $endpoint,
@@ -49,7 +53,11 @@ class MessageDispatcher
             );
         }
 
-        // 2️⃣ Send Attachments (PDF / Image / etc)
+        /*
+        |--------------------------------------------------------------------------
+        | 2️⃣ SEND ATTACHMENTS
+        |--------------------------------------------------------------------------
+        */
         foreach ($payload['attachments'] ?? [] as $attachment) {
             $results[] = $this->sendAttachment(
                 $endpoint,
@@ -84,7 +92,7 @@ class MessageDispatcher
 
     /*
     |--------------------------------------------------------------------------
-    | SEND ATTACHMENT
+    | SEND ATTACHMENT (ENTERPRISE SAFE)
     |--------------------------------------------------------------------------
     */
     protected function sendAttachment(
@@ -94,21 +102,34 @@ class MessageDispatcher
         array $attachment
     ): array {
 
-        $type = $attachment['type'] ?? 'document';
+        $type = strtolower($attachment['type'] ?? 'document');
+
+        // Normalize common extensions
+        if (in_array($type, ['jpg','jpeg','png','gif','webp'])) {
+            $type = 'image';
+        }
+
+        if ($type === 'pdf') {
+            $type = 'document';
+        }
+
+        $link = $this->resolveAttachmentUrl($attachment);
+
+        if (!$link) {
+            Log::error('Attachment URL missing or invalid', $attachment);
+
+            return [
+                'success' => false,
+                'error'   => 'Invalid attachment URL',
+            ];
+        }
+
+        Log::info('Sending WhatsApp attachment', [
+            'type' => $type,
+            'link' => $link
+        ]);
 
         switch ($type) {
-
-            case 'pdf':
-            case 'document':
-                return $this->post($endpoint, $token, [
-                    'messaging_product' => 'whatsapp',
-                    'to'   => $to,
-                    'type' => 'document',
-                    'document' => [
-                        'link' => $attachment['url'] ?? asset($attachment['file_path']),
-                        'filename' => $attachment['filename'] ?? 'document.pdf',
-                    ],
-                ]);
 
             case 'image':
                 return $this->post($endpoint, $token, [
@@ -116,11 +137,26 @@ class MessageDispatcher
                     'to'   => $to,
                     'type' => 'image',
                     'image' => [
-                        'link' => $attachment['url'] ?? asset($attachment['file_path']),
+                        'link' => $link,
+                    ],
+                ]);
+
+            case 'document':
+                return $this->post($endpoint, $token, [
+                    'messaging_product' => 'whatsapp',
+                    'to'   => $to,
+                    'type' => 'document',
+                    'document' => [
+                        'link'     => $link,
+                        'filename' => $attachment['filename'] ?? basename($link),
                     ],
                 ]);
 
             default:
+                Log::warning('Unsupported attachment type', [
+                    'type' => $type
+                ]);
+
                 return [
                     'success' => false,
                     'error'   => 'Unsupported attachment type',
@@ -130,7 +166,28 @@ class MessageDispatcher
 
     /*
     |--------------------------------------------------------------------------
-    | CORE POST METHOD (Centralized API Call)
+    | RESOLVE ATTACHMENT URL (CRITICAL FIX)
+    |--------------------------------------------------------------------------
+    */
+    protected function resolveAttachmentUrl(array $attachment): ?string
+    {
+        // If already full URL
+        if (!empty($attachment['url']) &&
+            filter_var($attachment['url'], FILTER_VALIDATE_URL)) {
+            return $attachment['url'];
+        }
+
+        // If stored as /storage/faq_attachments/...
+        if (!empty($attachment['file_path'])) {
+            return URL::to('/storage/' . ltrim($attachment['file_path'], '/'));
+        }
+
+        return null;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CORE POST METHOD
     |--------------------------------------------------------------------------
     */
     protected function post(string $endpoint, string $token, array $body): array
@@ -192,10 +249,12 @@ class MessageDispatcher
         try {
             return decrypt($platform->access_token);
         } catch (\Throwable $e) {
+
             Log::critical('Access token decryption failed', [
                 'platform_id' => $platform->id,
-                'error' => $e->getMessage(),
+                'error'       => $e->getMessage(),
             ]);
+
             return null;
         }
     }

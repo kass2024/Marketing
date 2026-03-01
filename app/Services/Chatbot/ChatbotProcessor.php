@@ -12,6 +12,7 @@ use App\Models\Message;
 class ChatbotProcessor
 {
     protected int $rateLimitSeconds = 2;
+    protected bool $debug = true; // turn OFF in production if needed
 
     public function __construct(
         protected AIEngine $aiEngine
@@ -32,45 +33,30 @@ class ChatbotProcessor
         $clientId  = $payload['client_id'] ?? null;
         $messageId = $payload['message_id'] ?? Str::uuid()->toString();
 
-        Log::info('ChatbotProcessor START', [
-            'request_id' => $requestId,
-            'client_id'  => $clientId,
-            'phone'      => $phone,
-            'text'       => $text,
-            'message_id' => $messageId
-        ]);
+        $this->log('START', compact(
+            'clientId','phone','text','messageId'
+        ), $requestId);
 
         // ---------------- VALIDATION ----------------
         if (!$phone || !$text || !$clientId) {
-
-            Log::warning('ChatbotProcessor INVALID PAYLOAD', [
-                'request_id' => $requestId,
-                'payload'    => $payload
-            ]);
-
+            $this->log('INVALID PAYLOAD', $payload, $requestId);
             return null;
         }
 
         // ---------------- IDEMPOTENCY ----------------
         if ($this->isDuplicate($messageId)) {
-
-            Log::info('ChatbotProcessor DUPLICATE MESSAGE', [
-                'request_id' => $requestId,
+            $this->log('DUPLICATE MESSAGE BLOCKED', [
                 'message_id' => $messageId
-            ]);
-
+            ], $requestId);
             return null;
         }
 
         // ---------------- RATE LIMIT ----------------
         if (!$this->allowProcessing($clientId, $phone)) {
-
-            Log::warning('ChatbotProcessor RATE LIMITED', [
-                'request_id' => $requestId,
-                'client_id'  => $clientId,
-                'phone'      => $phone
-            ]);
-
+            $this->log('RATE LIMITED', [
+                'client_id' => $clientId,
+                'phone'     => $phone
+            ], $requestId);
             return null;
         }
 
@@ -83,7 +69,12 @@ class ChatbotProcessor
                 $requestId
             ) {
 
-                // ---------------- CONVERSATION ----------------
+                /*
+                |--------------------------------------------------------------------------
+                | RESOLVE CONVERSATION
+                |--------------------------------------------------------------------------
+                */
+
                 $conversation = Conversation::firstOrCreate(
                     [
                         'client_id'    => $clientId,
@@ -95,13 +86,17 @@ class ChatbotProcessor
                     ]
                 );
 
-                Log::info('Conversation resolved', [
-                    'request_id'       => $requestId,
-                    'conversation_id'  => $conversation->id,
-                    'status'           => $conversation->status
-                ]);
+                $this->log('CONVERSATION RESOLVED', [
+                    'conversation_id' => $conversation->id,
+                    'status'          => $conversation->status
+                ], $requestId);
 
-                // ---------------- SAVE INCOMING ----------------
+                /*
+                |--------------------------------------------------------------------------
+                | STORE INCOMING MESSAGE
+                |--------------------------------------------------------------------------
+                */
+
                 $incoming = Message::create([
                     'conversation_id' => $conversation->id,
                     'direction'       => 'incoming',
@@ -109,26 +104,32 @@ class ChatbotProcessor
                     'status'          => 'received'
                 ]);
 
-                Log::info('Incoming message stored', [
-                    'request_id' => $requestId,
+                $this->log('INCOMING STORED', [
                     'message_id' => $incoming->id
-                ]);
+                ], $requestId);
 
-                // ---------------- HUMAN TAKEOVER ----------------
+                /*
+                |--------------------------------------------------------------------------
+                | HUMAN TAKEOVER CHECK
+                |--------------------------------------------------------------------------
+                */
+
                 if ($conversation->status === 'human') {
 
-                    Log::info('Conversation under human control', [
-                        'request_id' => $requestId,
+                    $this->log('HUMAN MODE ACTIVE', [
                         'conversation_id' => $conversation->id
-                    ]);
+                    ], $requestId);
 
                     return null;
                 }
 
-                // ---------------- AI CALL ----------------
-                Log::info('Calling AIEngine', [
-                    'request_id' => $requestId
-                ]);
+                /*
+                |--------------------------------------------------------------------------
+                | CALL AI ENGINE
+                |--------------------------------------------------------------------------
+                */
+
+                $this->log('CALLING AI ENGINE', [], $requestId);
 
                 $aiResponse = $this->aiEngine->reply(
                     $clientId,
@@ -138,26 +139,39 @@ class ChatbotProcessor
 
                 if (!$aiResponse || !is_array($aiResponse)) {
 
-                    Log::warning('AIEngine returned empty response', [
-                        'request_id' => $requestId
-                    ]);
+                    $this->log('AI RETURNED EMPTY', [], $requestId);
 
-                    return null;
+                    return [
+                        'text'        => "Sorry, I’m having trouble right now. Please try again shortly.",
+                        'attachments' => [],
+                        'confidence'  => 0,
+                        'source'      => 'error'
+                    ];
                 }
 
-                Log::info('AIEngine RESPONSE RECEIVED', [
-                    'request_id' => $requestId,
-                    'response_preview' => substr($aiResponse['text'] ?? '', 0, 120)
-                ]);
+                $this->log('AI RESPONSE RECEIVED', [
+                    'preview' => substr($aiResponse['text'] ?? '', 0, 150),
+                    'source'  => $aiResponse['source'] ?? null
+                ], $requestId);
 
-                // ---------------- STORE OUTGOING ----------------
+                /*
+                |--------------------------------------------------------------------------
+                | STORE OUTGOING RESPONSE
+                |--------------------------------------------------------------------------
+                */
+
                 $this->storeOutgoing(
                     conversationId: $conversation->id,
                     response: $aiResponse,
                     requestId: $requestId
                 );
 
-                // ---------------- UPDATE CONVERSATION ----------------
+                /*
+                |--------------------------------------------------------------------------
+                | UPDATE CONVERSATION
+                |--------------------------------------------------------------------------
+                */
+
                 $conversation->update([
                     'last_activity_at' => now(),
                 ]);
@@ -173,7 +187,7 @@ class ChatbotProcessor
             ]);
 
             return [
-                'text'        => "Sorry, I'm experiencing technical issues. Please try again shortly.",
+                'text'        => "Technical issue occurred. Please try again.",
                 'attachments' => [],
                 'confidence'  => 0,
                 'source'      => 'error'
@@ -183,7 +197,7 @@ class ChatbotProcessor
 
     /*
     |--------------------------------------------------------------------------
-    | STORE OUTGOING (TEXT + ATTACHMENTS)
+    | STORE OUTGOING RESPONSE
     |--------------------------------------------------------------------------
     */
 
@@ -193,10 +207,9 @@ class ChatbotProcessor
         string $requestId
     ): void {
 
-        // ---------- MAIN TEXT ----------
         if (!empty($response['text'])) {
 
-            $out = Message::create([
+            $message = Message::create([
                 'conversation_id' => $conversationId,
                 'direction'       => 'outgoing',
                 'content'         => $response['text'],
@@ -207,28 +220,25 @@ class ChatbotProcessor
                 ])
             ]);
 
-            Log::info('Outgoing text stored', [
-                'request_id' => $requestId,
-                'message_id' => $out->id
-            ]);
+            $this->log('OUTGOING TEXT STORED', [
+                'message_id' => $message->id
+            ], $requestId);
         }
 
-        // ---------- ATTACHMENTS ----------
         foreach ($response['attachments'] ?? [] as $attachment) {
 
             $att = Message::create([
                 'conversation_id' => $conversationId,
                 'direction'       => 'outgoing',
-                'content'         => '[Attachment: ' . ($attachment['type'] ?? 'unknown') . ']',
+                'content'         => '[Attachment]',
                 'status'          => 'pending',
                 'meta'            => json_encode($attachment)
             ]);
 
-            Log::info('Outgoing attachment stored', [
-                'request_id' => $requestId,
+            $this->log('OUTGOING ATTACHMENT STORED', [
                 'message_id' => $att->id,
                 'type'       => $attachment['type'] ?? null
-            ]);
+            ], $requestId);
         }
     }
 
@@ -268,5 +278,21 @@ class ChatbotProcessor
         Cache::put($key, true, now()->addSeconds($this->rateLimitSeconds));
 
         return true;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | LOGGER
+    |--------------------------------------------------------------------------
+    */
+
+    protected function log(string $title, array $data, string $requestId): void
+    {
+        if ($this->debug) {
+            Log::info("ChatbotProcessor {$title}", array_merge(
+                ['request_id' => $requestId],
+                $data
+            ));
+        }
     }
 }

@@ -11,12 +11,14 @@ use App\Models\AiCache;
 class AIEngine
 {
     protected string $model;
-    protected float $faqThreshold = 0.65;
-    protected float $groundThreshold = 0.50;
+
+    // Tunable thresholds
+    protected float $faqThreshold = 0.60;      // direct FAQ match
+    protected float $groundThreshold = 0.45;   // grounded AI
     protected int $candidateLimit = 5;
     protected int $timeout = 30;
 
-    // 🔥 TURN THIS OFF IN PRODUCTION
+    // Disable in production
     protected bool $debug = true;
 
     public function __construct()
@@ -36,7 +38,10 @@ class AIEngine
         $normalized = $this->normalize($message);
         $hash = hash('sha256', $clientId . $normalized);
 
-        $this->log('START', compact('clientId', 'message', 'normalized'), $requestId);
+        $this->log('START', [
+            'client_id' => $clientId,
+            'message'   => $normalized
+        ], $requestId);
 
         try {
 
@@ -59,7 +64,6 @@ class AIEngine
 
             // GREETING
             if ($this->isGreeting($normalized)) {
-                $this->log('GREETING MODE', [], $requestId);
                 return $this->formatResponse(
                     "Hello 👋 How can we assist you?",
                     [],
@@ -68,11 +72,24 @@ class AIEngine
                 );
             }
 
-            // CHECK KB COUNT
-            $kbCount = KnowledgeBase::forClient($clientId)->active()->count();
-            $this->log('KB COUNT', ['count' => $kbCount], $requestId);
+            // EXACT MATCH (Deterministic)
+            $exact = KnowledgeBase::forClient($clientId)
+                ->active()
+                ->whereRaw('LOWER(question) = ?', [$normalized])
+                ->with('attachments')
+                ->first();
 
-            // RAG
+            if ($exact) {
+                $this->log('EXACT FAQ MATCH', [], $requestId);
+
+                return $this->store(
+                    $clientId,
+                    $hash,
+                    $this->formatFromKnowledge($exact, 1.0, 'faq_exact')
+                );
+            }
+
+            // SEMANTIC RETRIEVAL
             $candidates = $this->retrieveCandidates($clientId, $normalized, $requestId);
 
             if (!empty($candidates)) {
@@ -80,11 +97,13 @@ class AIEngine
                 $best = $candidates[0];
 
                 $this->log('TOP MATCH', [
-                    'score' => $best['score'],
+                    'score' => round($best['score'], 4),
                     'question' => $best['knowledge']->question
                 ], $requestId);
 
+                // FAQ MODE
                 if ($best['score'] >= $this->faqThreshold) {
+
                     $this->log('FAQ MODE', [], $requestId);
 
                     return $this->store(
@@ -93,13 +112,15 @@ class AIEngine
                         $this->formatFromKnowledge(
                             $best['knowledge'],
                             $best['score'],
-                            'faq'
+                            'faq_semantic'
                         )
                     );
                 }
 
+                // GROUNDED MODE
                 if ($best['score'] >= $this->groundThreshold) {
-                    $this->log('GROUNDED AI MODE', [], $requestId);
+
+                    $this->log('GROUNDED MODE', [], $requestId);
 
                     return $this->handleGroundedAI(
                         $clientId,
@@ -111,6 +132,7 @@ class AIEngine
                 }
             }
 
+            // PURE AI
             $this->log('PURE AI MODE', [], $requestId);
 
             return $this->handlePureAI(
@@ -127,7 +149,7 @@ class AIEngine
                 'request_id' => $requestId
             ]);
 
-            return $this->fallback("Something went wrong.");
+            return $this->fallback("Sorry, something went wrong.");
         }
     }
 
@@ -141,7 +163,7 @@ class AIEngine
     {
         $queryVector = app(EmbeddingService::class)->generate($message);
 
-        if (!$queryVector || !is_array($queryVector)) {
+        if (!$queryVector) {
             $this->log('EMBEDDING FAILED', [], $requestId);
             return [];
         }
@@ -152,28 +174,19 @@ class AIEngine
             ->with('attachments')
             ->get();
 
-        $this->log('EMBEDDING DEBUG', [
-            'items_found' => $items->count(),
-            'first_embedding_type' => gettype(optional($items->first())->embedding)
-        ], $requestId);
-
         $results = [];
 
         foreach ($items as $item) {
 
-            $embedding = is_string($item->embedding)
-                ? json_decode($item->embedding, true)
-                : $item->embedding;
-
-            if (!is_array($embedding)) {
+            if (!is_array($item->embedding)) {
                 continue;
             }
 
-            $score = $this->cosine($queryVector, $embedding);
+            $score = $this->cosine($queryVector, $item->embedding);
 
             $results[] = [
                 'knowledge' => $item,
-                'score' => $score
+                'score'     => $score
             ];
         }
 
@@ -210,7 +223,12 @@ class AIEngine
         return $this->store(
             $clientId,
             $hash,
-            $this->formatResponse($answer ?? 'Please contact support.', [], 0.50, 'ai')
+            $this->formatResponse(
+                $answer ?? 'Please contact support.',
+                [],
+                0.50,
+                'ai'
+            )
         );
     }
 
@@ -227,7 +245,7 @@ class AIEngine
             ->implode("\n\n");
 
         $prompt = "You are a professional visa assistant.
-Use the following context if relevant.
+Use the following context when relevant.
 
 Context:
 $context
@@ -240,7 +258,12 @@ $message";
         return $this->store(
             $clientId,
             $hash,
-            $this->formatResponse($answer ?? 'Please contact support.', [], 0.65, 'grounded_ai')
+            $this->formatResponse(
+                $answer ?? 'Please contact support.',
+                [],
+                0.65,
+                'grounded_ai'
+            )
         );
     }
 
@@ -257,13 +280,16 @@ $message";
                 ]);
 
             if ($response->failed()) {
+
                 $this->log('OPENAI FAILED', [
                     'status' => $response->status()
                 ], $requestId);
+
                 return null;
             }
 
             $json = $response->json();
+
             return $json['output'][0]['content'][0]['text'] ?? null;
 
         } catch (\Throwable $e) {
@@ -290,7 +316,10 @@ $message";
 
     protected function isGreeting(string $msg): bool
     {
-        return in_array($msg, ['hi','hello','hey','good morning','good afternoon','good evening']);
+        return in_array($msg, [
+            'hi','hello','hey',
+            'good morning','good afternoon','good evening'
+        ]);
     }
 
     protected function formatResponse(string $text, array $attachments, float $confidence, string $source): array

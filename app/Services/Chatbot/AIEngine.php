@@ -11,8 +11,8 @@ use App\Models\AiCache;
 class AIEngine
 {
     protected string $model;
-    protected float $highConfidence = 0.82;
-    protected float $mediumConfidence = 0.60;
+    protected float $faqThreshold = 0.65;      // lowered for real-world use
+    protected float $groundThreshold = 0.50;   // grounded AI threshold
     protected int $candidateLimit = 5;
     protected int $timeout = 30;
 
@@ -49,18 +49,16 @@ class AIEngine
             $hash = hash('sha256', $clientId . $normalized);
 
             // ---------------- CACHE ----------------
-            if ($cached = AiCache::where('client_id', $clientId)
+            $cached = AiCache::where('client_id', $clientId)
                 ->where('message_hash', $hash)
-                ->first()) {
+                ->first();
 
+            if ($cached) {
                 $decoded = json_decode($cached->response, true);
-
                 if (is_array($decoded)) {
                     Log::info('AIEngine CACHE HIT', ['request_id' => $requestId]);
                     return $decoded;
                 }
-
-                Log::warning('AIEngine corrupted cache', ['request_id' => $requestId]);
             }
 
             // ---------------- GREETING ----------------
@@ -73,23 +71,23 @@ class AIEngine
                 );
             }
 
-            // ---------------- RAG ----------------
+            // ---------------- RAG RETRIEVAL ----------------
             $candidates = $this->retrieveCandidates($clientId, $message);
 
             if (!empty($candidates)) {
 
                 $best = $candidates[0];
 
-                Log::info('AIEngine TOP SCORE', [
+                Log::info('AIEngine TOP MATCH', [
+                    'request_id' => $requestId,
                     'score'      => $best['score'],
-                    'request_id' => $requestId
+                    'question'   => $best['knowledge']->question
                 ]);
 
-                if (
-                    $best['score'] >= $this->highConfidence &&
-                    $this->isStrongMatch($message, $best['knowledge']->question)
-                ) {
-                    Log::info('AIEngine FAQ MATCH', ['request_id' => $requestId]);
+                // ✅ FAQ MODE (Priority)
+                if ($best['score'] >= $this->faqThreshold) {
+
+                    Log::info('AIEngine FAQ MODE', ['request_id' => $requestId]);
 
                     return $this->store(
                         $clientId,
@@ -102,9 +100,10 @@ class AIEngine
                     );
                 }
 
-                if ($best['score'] >= $this->mediumConfidence) {
+                // ✅ Grounded AI Mode
+                if ($best['score'] >= $this->groundThreshold) {
 
-                    Log::info('AIEngine GROUNDED AI', ['request_id' => $requestId]);
+                    Log::info('AIEngine GROUNDED MODE', ['request_id' => $requestId]);
 
                     return $this->handleGroundedAI(
                         $clientId,
@@ -116,7 +115,8 @@ class AIEngine
                 }
             }
 
-            Log::info('AIEngine PURE AI', ['request_id' => $requestId]);
+            // ✅ Pure AI Mode
+            Log::info('AIEngine PURE MODE', ['request_id' => $requestId]);
 
             return $this->handlePureAI(
                 $clientId,
@@ -132,9 +132,7 @@ class AIEngine
                 'request_id' => $requestId
             ]);
 
-            return $this->fallback(
-                "Sorry, something went wrong. Please try again."
-            );
+            return $this->fallback("Sorry, something went wrong. Please try again.");
         }
     }
 
@@ -160,7 +158,6 @@ class AIEngine
 
                 Log::error('OpenAI FAILED', [
                     'status'     => $response->status(),
-                    'body'       => $response->body(),
                     'request_id' => $requestId
                 ]);
 
@@ -169,11 +166,6 @@ class AIEngine
 
             $json = $response->json();
 
-            Log::info('OpenAI RAW RESPONSE', [
-                'request_id' => $requestId,
-            ]);
-
-            // Correct parsing for Responses API
             $text = $json['output'][0]['content'][0]['text'] ?? null;
 
             return $text ? trim($text) : null;
@@ -195,13 +187,8 @@ class AIEngine
     |--------------------------------------------------------------------------
     */
 
-    protected function handlePureAI(
-        int $clientId,
-        string $hash,
-        string $message,
-        string $requestId
-    ): array {
-
+    protected function handlePureAI(int $clientId, string $hash, string $message, string $requestId): array
+    {
         $prompt = "You are a professional visa assistant.\n\nUser: " . $message;
 
         $answer = $this->callOpenAI($prompt, $requestId);
@@ -213,7 +200,7 @@ class AIEngine
         return $this->store(
             $clientId,
             $hash,
-            $this->formatResponse($answer, [], 0.5, 'ai')
+            $this->formatResponse($answer, [], 0.50, 'ai')
         );
     }
 
@@ -235,7 +222,14 @@ class AIEngine
             ->pluck('knowledge.answer')
             ->implode("\n\n");
 
-        $prompt = "You are a professional visa assistant.\n\nContext:\n$context\n\nQuestion:\n$message";
+        $prompt = "You are a professional visa assistant.
+Use the provided context when relevant.
+
+Context:
+$context
+
+Question:
+$message";
 
         $answer = $this->callOpenAI($prompt, $requestId);
 
@@ -306,18 +300,6 @@ class AIEngine
         return $dot / (sqrt($normA) * sqrt($normB) + 1e-10);
     }
 
-    protected function isStrongMatch(string $input, ?string $faqQuestion): bool
-    {
-        if (!$faqQuestion) {
-            return false;
-        }
-
-        $inputWords = collect(explode(' ', strtolower($input)));
-        $faqWords   = collect(explode(' ', strtolower($faqQuestion)));
-
-        return $inputWords->intersect($faqWords)->count() >= 2;
-    }
-
     /*
     |--------------------------------------------------------------------------
     | HELPERS
@@ -336,12 +318,8 @@ class AIEngine
         ]);
     }
 
-    protected function formatResponse(
-        string $text,
-        array $attachments,
-        float $confidence,
-        string $source
-    ): array {
+    protected function formatResponse(string $text, array $attachments, float $confidence, string $source): array
+    {
         return [
             'text'        => $text,
             'attachments' => $attachments,
@@ -350,18 +328,14 @@ class AIEngine
         ];
     }
 
-    protected function formatFromKnowledge(
-        $knowledge,
-        float $confidence,
-        string $source
-    ): array {
+    protected function formatFromKnowledge($knowledge, float $confidence, string $source): array
+    {
         return [
             'text'        => $knowledge->answer,
             'attachments' => $knowledge->attachments->map(function ($att) {
                 return [
-                    'type'      => $att->type,
-                    'file_path' => $att->file_path,
-                    'url'       => $att->url,
+                    'type' => $att->type,
+                    'url'  => $att->resolved_url ?? $att->url,
                 ];
             })->toArray(),
             'confidence'  => $confidence,
@@ -382,13 +356,8 @@ class AIEngine
     protected function store(int $clientId, string $hash, array $response): array
     {
         AiCache::updateOrCreate(
-            [
-                'client_id'    => $clientId,
-                'message_hash' => $hash
-            ],
-            [
-                'response' => json_encode($response)
-            ]
+            ['client_id' => $clientId, 'message_hash' => $hash],
+            ['response' => json_encode($response)]
         );
 
         return $response;

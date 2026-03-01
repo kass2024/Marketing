@@ -19,85 +19,145 @@ class ChatbotProcessor
 
     /*
     |--------------------------------------------------------------------------
-    | MAIN PROCESSOR
+    | MAIN ENTRY
     |--------------------------------------------------------------------------
     */
+
     public function process(array $payload): ?array
     {
+        $requestId = Str::uuid()->toString();
+
         $phone     = $payload['from'] ?? null;
         $text      = trim($payload['text'] ?? '');
         $clientId  = $payload['client_id'] ?? null;
         $messageId = $payload['message_id'] ?? Str::uuid()->toString();
 
-        if (!$phone || !$text || !$clientId) {
-            Log::warning('Invalid chatbot payload', $payload);
-            return null;
-        }
-
-        Log::info('Processing incoming message', [
-            'client_id' => $clientId,
-            'phone'     => $phone,
-            'text'      => $text,
+        Log::info('ChatbotProcessor START', [
+            'request_id' => $requestId,
+            'client_id'  => $clientId,
+            'phone'      => $phone,
+            'text'       => $text,
+            'message_id' => $messageId
         ]);
 
-        // 1️⃣ Idempotency Protection
-        if ($this->isDuplicate($messageId)) {
-            Log::info('Duplicate message skipped', ['message_id' => $messageId]);
+        // ---------------- VALIDATION ----------------
+        if (!$phone || !$text || !$clientId) {
+
+            Log::warning('ChatbotProcessor INVALID PAYLOAD', [
+                'request_id' => $requestId,
+                'payload'    => $payload
+            ]);
+
             return null;
         }
 
-        // 2️⃣ Rate Limit Protection
+        // ---------------- IDEMPOTENCY ----------------
+        if ($this->isDuplicate($messageId)) {
+
+            Log::info('ChatbotProcessor DUPLICATE MESSAGE', [
+                'request_id' => $requestId,
+                'message_id' => $messageId
+            ]);
+
+            return null;
+        }
+
+        // ---------------- RATE LIMIT ----------------
         if (!$this->allowProcessing($clientId, $phone)) {
-            Log::warning('Rate limit triggered', compact('clientId','phone'));
+
+            Log::warning('ChatbotProcessor RATE LIMITED', [
+                'request_id' => $requestId,
+                'client_id'  => $clientId,
+                'phone'      => $phone
+            ]);
+
             return null;
         }
 
         try {
 
-            return DB::transaction(function () use ($clientId, $phone, $text) {
+            return DB::transaction(function () use (
+                $clientId,
+                $phone,
+                $text,
+                $requestId
+            ) {
 
-                // 3️⃣ Conversation Bootstrap
+                // ---------------- CONVERSATION ----------------
                 $conversation = Conversation::firstOrCreate(
                     [
                         'client_id'    => $clientId,
                         'phone_number' => $phone,
                     ],
                     [
-                        'status'            => 'bot',
-                        'last_activity_at'  => now(),
+                        'status'           => 'bot',
+                        'last_activity_at' => now(),
                     ]
                 );
 
-                // 4️⃣ Save Incoming Message
-                $incomingMessage = Message::create([
+                Log::info('Conversation resolved', [
+                    'request_id'       => $requestId,
+                    'conversation_id'  => $conversation->id,
+                    'status'           => $conversation->status
+                ]);
+
+                // ---------------- SAVE INCOMING ----------------
+                $incoming = Message::create([
                     'conversation_id' => $conversation->id,
                     'direction'       => 'incoming',
                     'content'         => $text,
+                    'status'          => 'received'
                 ]);
 
-                // 5️⃣ Human Takeover Check
+                Log::info('Incoming message stored', [
+                    'request_id' => $requestId,
+                    'message_id' => $incoming->id
+                ]);
+
+                // ---------------- HUMAN TAKEOVER ----------------
                 if ($conversation->status === 'human') {
+
                     Log::info('Conversation under human control', [
+                        'request_id' => $requestId,
                         'conversation_id' => $conversation->id
                     ]);
+
                     return null;
                 }
 
-                // 6️⃣ Generate AI Response
+                // ---------------- AI CALL ----------------
+                Log::info('Calling AIEngine', [
+                    'request_id' => $requestId
+                ]);
+
                 $aiResponse = $this->aiEngine->reply(
                     $clientId,
                     $text,
                     $conversation
                 );
 
-                if (!$aiResponse) {
+                if (!$aiResponse || !is_array($aiResponse)) {
+
+                    Log::warning('AIEngine returned empty response', [
+                        'request_id' => $requestId
+                    ]);
+
                     return null;
                 }
 
-                // 7️⃣ Persist Outgoing Response
-                $this->storeOutgoing($conversation->id, $aiResponse);
+                Log::info('AIEngine RESPONSE RECEIVED', [
+                    'request_id' => $requestId,
+                    'response_preview' => substr($aiResponse['text'] ?? '', 0, 120)
+                ]);
 
-                // 8️⃣ Update Conversation Metadata
+                // ---------------- STORE OUTGOING ----------------
+                $this->storeOutgoing(
+                    conversationId: $conversation->id,
+                    response: $aiResponse,
+                    requestId: $requestId
+                );
+
+                // ---------------- UPDATE CONVERSATION ----------------
                 $conversation->update([
                     'last_activity_at' => now(),
                 ]);
@@ -107,76 +167,96 @@ class ChatbotProcessor
 
         } catch (\Throwable $e) {
 
-            Log::error('Chatbot processing failed', [
-                'error'     => $e->getMessage(),
-                'client_id' => $clientId,
-                'phone'     => $phone,
+            Log::error('ChatbotProcessor FATAL', [
+                'request_id' => $requestId,
+                'error'      => $e->getMessage()
             ]);
 
             return [
-                'text' => "Sorry, I'm experiencing technical issues. Please try again shortly.",
+                'text'        => "Sorry, I'm experiencing technical issues. Please try again shortly.",
                 'attachments' => [],
-                'confidence' => 0,
-                'source' => 'error'
+                'confidence'  => 0,
+                'source'      => 'error'
             ];
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Store Outgoing Response (Text + Attachments + Metadata)
+    | STORE OUTGOING (TEXT + ATTACHMENTS)
     |--------------------------------------------------------------------------
     */
-    protected function storeOutgoing(int $conversationId, array $response): void
-    {
-        // Store main text
+
+    protected function storeOutgoing(
+        int $conversationId,
+        array $response,
+        string $requestId
+    ): void {
+
+        // ---------- MAIN TEXT ----------
         if (!empty($response['text'])) {
-            Message::create([
+
+            $out = Message::create([
                 'conversation_id' => $conversationId,
                 'direction'       => 'outgoing',
                 'content'         => $response['text'],
+                'status'          => 'pending',
                 'meta'            => json_encode([
                     'confidence' => $response['confidence'] ?? null,
                     'source'     => $response['source'] ?? null,
                 ])
             ]);
+
+            Log::info('Outgoing text stored', [
+                'request_id' => $requestId,
+                'message_id' => $out->id
+            ]);
         }
 
-        // Store attachments if any
+        // ---------- ATTACHMENTS ----------
         foreach ($response['attachments'] ?? [] as $attachment) {
 
-            Message::create([
+            $att = Message::create([
                 'conversation_id' => $conversationId,
                 'direction'       => 'outgoing',
-                'content'         => '[Attachment: '.$attachment['type'].']',
-                'meta'            => json_encode($attachment),
+                'content'         => '[Attachment: ' . ($attachment['type'] ?? 'unknown') . ']',
+                'status'          => 'pending',
+                'meta'            => json_encode($attachment)
             ]);
 
-            // 🔥 Here is where you trigger WhatsApp / Twilio / Telegram document sending
-            // This layer should call your MessageDispatcher
+            Log::info('Outgoing attachment stored', [
+                'request_id' => $requestId,
+                'message_id' => $att->id,
+                'type'       => $attachment['type'] ?? null
+            ]);
         }
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Idempotency Check
+    | IDEMPOTENCY
     |--------------------------------------------------------------------------
     */
+
     protected function isDuplicate(string $messageId): bool
     {
-        if (Cache::has("msg:$messageId")) {
+        $key = "msg:$messageId";
+
+        if (Cache::has($key)) {
             return true;
         }
 
-        Cache::put("msg:$messageId", true, now()->addMinutes(10));
+        Cache::put($key, true, now()->addMinutes(10));
+
         return false;
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Rate Limiting
+    | RATE LIMIT
     |--------------------------------------------------------------------------
     */
+
     protected function allowProcessing(int $clientId, string $phone): bool
     {
         $key = "rate:$clientId:$phone";
@@ -186,6 +266,7 @@ class ChatbotProcessor
         }
 
         Cache::put($key, true, now()->addSeconds($this->rateLimitSeconds));
+
         return true;
     }
 }

@@ -143,7 +143,17 @@ class="min-h-screen bg-gray-100 font-sans">
 
             <div x-show="openAutomation" x-transition class="pl-6 mt-2 space-y-2">
 
-                <a href="{{ safeRoute('admin.chatbots.index') }}"
+                <div>
+    <a href="{{ safeRoute('admin.chatbots.index') }}"
+       class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.chatbots')?'text-blue-600 font-semibold':'' }}">
+        Chatbots
+    </a>
+
+    <a href="{{ route('admin.faq.index') }}"
+       class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.faq')?'text-blue-600 font-semibold':'' }}">
+        FAQ Knowledge Base
+    </a>
+</div>
                    class="block py-2 rounded-lg px-3 hover:bg-gray-100 {{ str_contains($route,'admin.chatbots')?'text-blue-600 font-semibold':'' }}">
                     Chatbots
                 </a>

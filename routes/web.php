@@ -279,6 +279,14 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])
         ->name('profile.destroy');
 });
+Route::prefix('admin')
+    ->middleware(['auth'])
+    ->name('admin.')
+    ->group(function () {
 
+        Route::get('/faq', [FaqController::class, 'index'])->name('faq.index');
+        Route::get('/faq/create', [FaqController::class, 'create'])->name('faq.create');
+        Route::post('/faq', [FaqController::class, 'store'])->name('faq.store');
+    });
 
 require __DIR__.'/auth.php';

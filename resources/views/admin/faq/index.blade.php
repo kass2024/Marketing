@@ -1,261 +1,264 @@
 <x-app-layout>
 <div class="min-h-screen bg-gray-50">
-    <div class="max-w-6xl mx-auto px-6 py-12 space-y-10">
+    <div class="max-w-6xl mx-auto px-6 py-10 space-y-8">
 
-        {{-- SUCCESS ALERT --}}
+        {{-- SUCCESS --}}
         @if(session('success'))
-            <div class="bg-green-50 border border-green-200 text-green-700 px-6 py-4 rounded-xl shadow-sm">
+            <div class="bg-green-50 border border-green-200 text-green-700 px-5 py-3 rounded-lg text-sm">
                 {{ session('success') }}
             </div>
         @endif
 
         {{-- HEADER --}}
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div class="flex items-center justify-between">
             <div>
                 <a href="{{ route('dashboard') }}"
-                   class="text-sm text-gray-500 hover:text-gray-900 transition">
-                    ← Back to Dashboard
+                   class="text-sm text-gray-500 hover:text-gray-900">
+                    ← Back
                 </a>
 
-                <h1 class="text-3xl font-bold text-gray-900 mt-3">
+                <h1 class="text-2xl font-semibold text-gray-900 mt-2">
                     FAQ Knowledge Base
                 </h1>
 
-                <p class="text-gray-500 mt-2">
-                    Manage your AI-powered responses and improve automation quality.
+                <p class="text-sm text-gray-500 mt-1">
+                    Manage automated AI responses.
                 </p>
             </div>
 
             <div class="flex gap-3">
                 <a href="{{ route('admin.faq.template') }}"
-                   class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-100 transition">
+                   class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-100">
                     Download Template
                 </a>
 
                 <a href="{{ route('admin.faq.create') }}"
-                   class="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold shadow hover:bg-blue-700 transition">
+                   class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                     + Add FAQ
                 </a>
             </div>
         </div>
 
-        {{-- ========================= --}}
-        {{-- PREMIUM IMPORT CARD --}}
-        {{-- ========================= --}}
-        <div class="bg-white rounded-2xl shadow-md border border-gray-200 p-8">
 
-            <div class="mb-6">
-                <h3 class="text-xl font-semibold text-gray-900">
-                    Bulk Import FAQs
+        {{-- ============================ --}}
+        {{-- MODERN IMPORT SECTION --}}
+        {{-- ============================ --}}
+        <div class="bg-white border border-gray-200 rounded-xl p-6 space-y-5">
+
+            <div>
+                <h3 class="text-base font-semibold text-gray-900">
+                    Bulk Import
                 </h3>
                 <p class="text-sm text-gray-500 mt-1">
-                    Upload Excel (.xlsx) or CSV file to instantly update your knowledge base.
+                    Upload a .xlsx or .csv file to update your FAQs.
                 </p>
             </div>
 
-            <div id="uploadBox"
-                 class="group relative border-2 border-dashed border-gray-300 rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 bg-gray-50 hover:border-blue-500 hover:bg-blue-50">
+            {{-- Upload Row --}}
+            <div class="flex items-center gap-4">
 
-                {{-- ICON --}}
-                <div id="uploadIcon" class="flex justify-center mb-4 text-gray-400 group-hover:text-blue-600 transition">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none"
-                         viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                              d="M3 16.5V19a2 2 0 002 2h14a2 2 0 002-2v-2.5M16 12l-4-4m0 0l-4 4m4-4v12" />
-                    </svg>
-                </div>
+                <button id="selectFileBtn"
+                        class="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-black transition">
+                    Select File
+                </button>
 
-                {{-- TEXT --}}
-                <div id="uploadContent">
-                    <p class="text-sm font-medium text-gray-700">
-                        Click to upload or drag & drop
-                    </p>
-                    <p class="text-xs text-gray-400 mt-2">
-                        .xlsx or .csv
-                    </p>
-                </div>
-
-                {{-- PROGRESS --}}
-                <div id="progressWrapper" class="hidden mt-8">
-                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                        <div id="progressBar"
-                             class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                             style="width:0%">
-                        </div>
-                    </div>
-
-                    <p id="progressText"
-                       class="text-xs text-gray-500 mt-3 font-medium">
-                        Uploading...
-                    </p>
-                </div>
+                <span class="text-sm text-gray-500">
+                    or drag and drop file here
+                </span>
 
                 <input type="file"
                        id="fileInput"
                        accept=".xlsx,.csv"
                        class="hidden">
             </div>
+
+            {{-- Selected File Display --}}
+            <div id="filePreview" class="hidden border border-gray-200 rounded-lg p-4 bg-gray-50">
+
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p id="fileName" class="text-sm font-medium text-gray-800"></p>
+                        <p id="uploadStatus" class="text-xs text-gray-500 mt-1"></p>
+                    </div>
+
+                    <span id="uploadBadge"
+                          class="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-700 hidden">
+                        Uploading
+                    </span>
+                </div>
+
+                {{-- Progress --}}
+                <div class="mt-3 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                    <div id="progressBar"
+                         class="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                         style="width:0%">
+                    </div>
+                </div>
+            </div>
+
         </div>
 
+
         {{-- SEARCH --}}
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <div class="bg-white border border-gray-200 rounded-xl p-4">
             <form method="GET"
                   action="{{ route('admin.faq.index') }}"
-                  class="flex flex-col md:flex-row gap-4">
+                  class="flex gap-3">
 
                 <input type="text"
                        name="search"
                        value="{{ request('search') }}"
-                       placeholder="Search question or answer..."
-                       class="flex-1 border border-gray-300 rounded-xl px-5 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                       placeholder="Search FAQs..."
+                       class="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
 
                 <button type="submit"
-                        class="px-8 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition">
+                        class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                     Search
                 </button>
             </form>
         </div>
 
+
         {{-- TABLE --}}
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+
             <table class="w-full text-sm">
-                <thead class="bg-gray-50 border-b text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                    <th class="px-8 py-5 text-left">Question</th>
-                    <th class="px-8 py-5 text-left w-40">Status</th>
-                    <th class="px-8 py-5 text-right w-48">Actions</th>
-                </tr>
+
+                <thead class="bg-gray-50 border-b text-xs uppercase text-gray-500">
+                    <tr>
+                        <th class="px-6 py-4 text-left">Question</th>
+                        <th class="px-6 py-4 text-left w-32">Status</th>
+                        <th class="px-6 py-4 text-right w-40">Actions</th>
+                    </tr>
                 </thead>
 
                 <tbody class="divide-y divide-gray-100">
-                @forelse($faqs as $faq)
-                    <tr class="hover:bg-gray-50 transition">
-                        <td class="px-8 py-6">
-                            <div class="font-semibold text-gray-900">
-                                {{ $faq->question }}
-                            </div>
-                            <div class="text-gray-500 text-xs mt-2">
-                                {{ \Illuminate\Support\Str::limit($faq->answer, 140) }}
-                            </div>
-                        </td>
 
-                        <td class="px-8 py-6">
-                            @if($faq->is_active)
-                                <span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700">
-                                    Active
-                                </span>
-                            @else
-                                <span class="px-3 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-600">
-                                    Disabled
-                                </span>
-                            @endif
-                        </td>
+                    @forelse($faqs as $faq)
+                        <tr class="hover:bg-gray-50 transition">
+                            <td class="px-6 py-5">
+                                <div class="font-medium text-gray-900">
+                                    {{ $faq->question }}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    {{ \Illuminate\Support\Str::limit($faq->answer, 120) }}
+                                </div>
+                            </td>
 
-                        <td class="px-8 py-6 text-right">
-                            <div class="flex justify-end gap-3">
-                                <a href="{{ route('admin.faq.edit', $faq->id) }}"
-                                   class="px-4 py-2 text-xs font-medium border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition">
-                                    Edit
-                                </a>
+                            <td class="px-6 py-5">
+                                @if($faq->is_active)
+                                    <span class="px-2.5 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
+                                        Active
+                                    </span>
+                                @else
+                                    <span class="px-2.5 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-600">
+                                        Disabled
+                                    </span>
+                                @endif
+                            </td>
 
-                                <form action="{{ route('admin.faq.destroy', $faq->id) }}"
-                                      method="POST"
-                                      onsubmit="return confirm('Delete this FAQ?')">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit"
-                                            class="px-4 py-2 text-xs font-medium border border-red-500 text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition">
-                                        Delete
-                                    </button>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="3" class="text-center py-16 text-gray-400">
-                            No FAQs found.
-                        </td>
-                    </tr>
-                @endforelse
+                            <td class="px-6 py-5 text-right">
+                                <div class="flex justify-end gap-2">
+                                    <a href="{{ route('admin.faq.edit', $faq->id) }}"
+                                       class="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-100">
+                                        Edit
+                                    </a>
+
+                                    <form action="{{ route('admin.faq.destroy', $faq->id) }}"
+                                          method="POST"
+                                          onsubmit="return confirm('Delete this FAQ?')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit"
+                                                class="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded-md hover:bg-red-50">
+                                            Delete
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="3" class="text-center py-12 text-gray-400 text-sm">
+                                No FAQs found.
+                            </td>
+                        </tr>
+                    @endforelse
+
                 </tbody>
             </table>
         </div>
 
         <div>
-            {{ $faqs->appends(request()->query())->links() }}
+            {{ $faqs->links() }}
         </div>
+
     </div>
 </div>
 
-{{-- ========================= --}}
-{{-- PRODUCTION UPLOAD SCRIPT --}}
-{{-- ========================= --}}
+
+{{-- ======================= --}}
+{{-- CLEAN MODERN JS --}}
+{{-- ======================= --}}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
 
-    const uploadBox = document.getElementById('uploadBox');
-    const fileInput = document.getElementById('fileInput');
-    const progressWrapper = document.getElementById('progressWrapper');
-    const progressBar = document.getElementById('progressBar');
-    const progressText = document.getElementById('progressText');
-    const uploadContent = document.getElementById('uploadContent');
+    const btn = document.getElementById('selectFileBtn');
+    const input = document.getElementById('fileInput');
+    const preview = document.getElementById('filePreview');
+    const name = document.getElementById('fileName');
+    const status = document.getElementById('uploadStatus');
+    const badge = document.getElementById('uploadBadge');
+    const bar = document.getElementById('progressBar');
 
-    uploadBox.addEventListener('click', () => fileInput.click());
+    btn.addEventListener('click', () => input.click());
 
-    fileInput.addEventListener('change', function () {
+    input.addEventListener('change', function () {
         if (!this.files.length) return;
-        uploadFile(this.files[0]);
+        upload(this.files[0]);
     });
 
-    function uploadFile(file) {
+    function upload(file) {
 
-        uploadBox.classList.add('opacity-80','pointer-events-none');
-        progressWrapper.classList.remove('hidden');
-
-        uploadContent.innerHTML = `
-            <p class="text-sm font-semibold text-gray-800">${file.name}</p>
-            <p class="text-xs text-gray-400 mt-1">Uploading...</p>
-        `;
+        preview.classList.remove('hidden');
+        name.textContent = file.name;
+        status.textContent = "Uploading...";
+        badge.classList.remove('hidden');
+        badge.textContent = "Uploading";
+        bar.style.width = "0%";
 
         const formData = new FormData();
         formData.append('file', file);
         formData.append('_token', '{{ csrf_token() }}');
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', "{{ route('admin.faq.import') }}", true);
+        xhr.open('POST', "{{ route('admin.faq.import') }}");
 
-        xhr.upload.addEventListener('progress', function (e) {
+        xhr.upload.onprogress = function(e) {
             if (e.lengthComputable) {
-                let percent = (e.loaded / e.total) * 100;
-                progressBar.style.width = percent + '%';
+                const percent = (e.loaded / e.total) * 100;
+                bar.style.width = percent + "%";
             }
-        });
+        };
 
         xhr.onload = function () {
             if (xhr.status === 200) {
-                progressBar.style.width = '100%';
-                progressText.innerText = 'Processing...';
-
-                setTimeout(() => {
-                    progressText.innerText = 'Upload complete ✓';
-                    uploadContent.innerHTML = `
-                        <p class="text-sm font-semibold text-green-600">Upload complete ✓</p>
-                    `;
-                    setTimeout(() => location.reload(), 1200);
-                }, 800);
+                badge.textContent = "Completed";
+                badge.classList.remove('bg-blue-100','text-blue-700');
+                badge.classList.add('bg-green-100','text-green-700');
+                status.textContent = "Import successful";
+                bar.style.width = "100%";
+                setTimeout(() => location.reload(), 1200);
             } else {
-                progressText.innerText = 'Upload failed';
-                uploadContent.innerHTML = `
-                    <p class="text-sm font-semibold text-red-600">Upload failed. Try again.</p>
-                `;
-                uploadBox.classList.remove('pointer-events-none');
+                badge.textContent = "Failed";
+                badge.classList.remove('bg-blue-100','text-blue-700');
+                badge.classList.add('bg-red-100','text-red-700');
+                status.textContent = "Upload failed";
             }
         };
 
         xhr.send(formData);
     }
-
 });
 </script>
 

@@ -1,163 +1,187 @@
 <x-app-layout>
 
-<div class="container py-5">
+<div class="max-w-7xl mx-auto px-12 py-12 space-y-10">
 
     {{-- SUCCESS ALERT --}}
     @if(session('success'))
-        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+        <div class="bg-green-50 border border-green-200 text-green-700 px-6 py-4 rounded-xl shadow-sm">
             {{ session('success') }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     @endif
 
     {{-- HEADER --}}
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2 class="fw-bold mb-1">FAQ Knowledge Base</h2>
-            <p class="text-muted mb-0">Manage AI-powered knowledge responses</p>
-        </div>
+    <div class="flex justify-between items-center">
 
         <div>
-            <a href="{{ route('admin.faq.template') }}" class="btn btn-outline-secondary me-2">
+            <h1 class="text-3xl font-bold text-gray-900">
+                FAQ Knowledge Base
+            </h1>
+            <p class="text-gray-500 mt-2">
+                Manage AI-powered knowledge responses
+            </p>
+        </div>
+
+        <div class="flex gap-4">
+            <a href="{{ route('admin.faq.template') }}"
+               class="px-5 py-3 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 transition">
                 Download Template
             </a>
 
-            <a href="{{ route('admin.faq.create') }}" class="btn btn-primary">
+            <a href="{{ route('admin.faq.create') }}"
+               class="px-6 py-3 rounded-xl bg-blue-600 text-white shadow hover:bg-blue-700 transition">
                 + Add FAQ
             </a>
         </div>
     </div>
 
-    {{-- IMPORT EXCEL --}}
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-body">
-            <h5 class="card-title mb-3">Import FAQs (Excel / CSV)</h5>
+    {{-- IMPORT SECTION --}}
+    <div class="bg-white rounded-2xl shadow-sm border p-8">
 
-            <form method="POST"
-                  action="{{ route('admin.faq.import') }}"
-                  enctype="multipart/form-data"
-                  class="row g-3 align-items-center">
+        <h3 class="text-lg font-semibold text-gray-800 mb-6">
+            Import FAQs (Excel / CSV)
+        </h3>
 
-                @csrf
+        <form method="POST"
+              action="{{ route('admin.faq.import') }}"
+              enctype="multipart/form-data"
+              class="flex flex-col md:flex-row gap-6 items-center">
 
-                <div class="col-md-9">
-                    <input type="file"
-                           name="file"
-                           accept=".xlsx,.csv"
-                           class="form-control"
-                           required>
-                </div>
+            @csrf
 
-                <div class="col-md-3">
-                    <button type="submit" class="btn btn-success w-100">
-                        Upload File
-                    </button>
-                </div>
-            </form>
-        </div>
+            <div class="flex-1 w-full">
+                <input type="file"
+                       name="file"
+                       accept=".xlsx,.csv"
+                       required
+                       class="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+
+            <button type="submit"
+                    class="px-8 py-3 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition whitespace-nowrap">
+                Upload File
+            </button>
+
+        </form>
     </div>
 
     {{-- SEARCH --}}
-    <div class="card shadow-sm border-0 mb-4">
-        <div class="card-body">
-            <form method="GET" action="{{ route('admin.faq.index') }}">
-                <div class="input-group">
-                    <input type="text"
-                           name="search"
-                           value="{{ request('search') }}"
-                           class="form-control"
-                           placeholder="Search question or answer...">
+    <div class="bg-white rounded-2xl shadow-sm border p-6">
 
-                    <button class="btn btn-outline-primary" type="submit">
-                        Search
-                    </button>
-                </div>
-            </form>
-        </div>
+        <form method="GET" action="{{ route('admin.faq.index') }}">
+            <div class="flex gap-4">
+
+                <input type="text"
+                       name="search"
+                       value="{{ request('search') }}"
+                       placeholder="Search question or answer..."
+                       class="flex-1 border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none">
+
+                <button type="submit"
+                        class="px-6 py-3 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition">
+                    Search
+                </button>
+
+            </div>
+        </form>
+
     </div>
 
-    {{-- FAQ TABLE --}}
-    <div class="card shadow-sm border-0">
-        <div class="card-body p-0">
+    {{-- TABLE --}}
+    <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
 
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+        <table class="min-w-full text-sm">
 
-                    <thead class="table-light">
-                        <tr>
-                            <th>Question</th>
-                            <th width="150">Status</th>
-                            <th width="180" class="text-end">Actions</th>
-                        </tr>
-                    </thead>
+            <thead class="bg-gray-50 border-b text-gray-700 uppercase text-xs tracking-wider">
+                <tr>
+                    <th class="px-8 py-4 text-left">Question</th>
+                    <th class="px-8 py-4 text-left w-40">Status</th>
+                    <th class="px-8 py-4 text-right w-48">Actions</th>
+                </tr>
+            </thead>
 
-                    <tbody>
-                        @forelse($faqs as $faq)
-                            <tr>
+            <tbody class="divide-y">
 
-                                <td>
-                                    <div class="fw-semibold">
-                                        {{ $faq->question }}
-                                    </div>
-                                    <div class="text-muted small">
-                                        {{ \Illuminate\Support\Str::limit($faq->answer, 120) }}
-                                    </div>
-                                </td>
+                @forelse($faqs as $faq)
 
-                                <td>
-                                    @if($faq->is_active)
-                                        <span class="badge bg-success">
-                                            Active
-                                        </span>
-                                    @else
-                                        <span class="badge bg-danger">
-                                            Disabled
-                                        </span>
-                                    @endif
-                                </td>
+                    <tr class="hover:bg-gray-50 transition">
 
-                                <td class="text-end">
+                        {{-- QUESTION --}}
+                        <td class="px-8 py-6">
 
-                                    <a href="{{ route('admin.faq.edit', $faq->id) }}"
-                                       class="btn btn-sm btn-outline-primary me-2">
-                                        Edit
-                                    </a>
+                            <div class="font-semibold text-gray-900">
+                                {{ $faq->question }}
+                            </div>
 
-                                    <form action="{{ route('admin.faq.destroy', $faq->id) }}"
-                                          method="POST"
-                                          class="d-inline"
-                                          onsubmit="return confirm('Delete this FAQ?')">
+                            <div class="text-gray-500 text-sm mt-2">
+                                {{ \Illuminate\Support\Str::limit($faq->answer, 140) }}
+                            </div>
 
-                                        @csrf
-                                        @method('DELETE')
+                        </td>
 
-                                        <button type="submit"
-                                                class="btn btn-sm btn-outline-danger">
-                                            Delete
-                                        </button>
-                                    </form>
+                        {{-- STATUS --}}
+                        <td class="px-8 py-6">
 
-                                </td>
+                            @if($faq->is_active)
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                                    Active
+                                </span>
+                            @else
+                                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600">
+                                    Disabled
+                                </span>
+                            @endif
 
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="3" class="text-center py-5 text-muted">
-                                    No FAQs found.
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
+                        </td>
 
-                </table>
-            </div>
+                        {{-- ACTIONS --}}
+                        <td class="px-8 py-6 text-right">
 
-        </div>
+                            <div class="flex justify-end gap-3">
+
+                                <a href="{{ route('admin.faq.edit', $faq->id) }}"
+                                   class="px-4 py-2 text-sm border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition">
+                                    Edit
+                                </a>
+
+                                <form action="{{ route('admin.faq.destroy', $faq->id) }}"
+                                      method="POST"
+                                      onsubmit="return confirm('Delete this FAQ?')">
+
+                                    @csrf
+                                    @method('DELETE')
+
+                                    <button type="submit"
+                                            class="px-4 py-2 text-sm border border-red-500 text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition">
+                                        Delete
+                                    </button>
+
+                                </form>
+
+                            </div>
+
+                        </td>
+
+                    </tr>
+
+                @empty
+
+                    <tr>
+                        <td colspan="3" class="text-center py-12 text-gray-400">
+                            No FAQs found.
+                        </td>
+                    </tr>
+
+                @endforelse
+
+            </tbody>
+
+        </table>
+
     </div>
 
     {{-- PAGINATION --}}
-    <div class="mt-4">
-        {{ $faqs->appends(request()->query())->links('pagination::bootstrap-5') }}
+    <div>
+        {{ $faqs->appends(request()->query())->links() }}
     </div>
 
 </div>

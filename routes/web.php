@@ -308,6 +308,12 @@ Route::prefix('admin')
         // DELETE
         Route::delete('/faq/{faq}', [FaqController::class, 'destroy'])
             ->name('faq.destroy');
+               // ✨ NEW ROUTES FOR EXCEL
+        Route::get('/faq/template', [FaqController::class, 'downloadTemplate'])
+            ->name('faq.template');
+
+        Route::post('/faq/import', [FaqController::class, 'import'])
+            ->name('faq.import');
 
     });
 require __DIR__.'/auth.php';

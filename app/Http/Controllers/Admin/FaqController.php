@@ -7,7 +7,9 @@ use App\Models\KnowledgeBase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use App\Services\Chatbot\EmbeddingService;
-
+use Maatwebsite\Excel\Facades\Excel;
+use App\Imports\FaqImport;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 class FaqController extends Controller
 {
     /*
@@ -15,14 +17,21 @@ class FaqController extends Controller
     | INDEX
     |--------------------------------------------------------------------------
     */
-    public function index()
-    {
-        $faqs = KnowledgeBase::with('attachments')
-            ->latest()
-            ->paginate(20);
+  public function index(Request $request)
+{
+    $query = KnowledgeBase::with('attachments')->latest();
 
-        return view('admin.faq.index', compact('faqs'));
+    if ($request->search) {
+        $query->where(function ($q) use ($request) {
+            $q->where('question', 'like', "%{$request->search}%")
+              ->orWhere('answer', 'like', "%{$request->search}%");
+        });
     }
+
+    $faqs = $query->paginate(20);
+
+    return view('admin.faq.index', compact('faqs'));
+}
 
     /*
     |--------------------------------------------------------------------------
@@ -159,4 +168,37 @@ class FaqController extends Controller
             ->route('admin.faq.index')
             ->with('success', 'FAQ deleted successfully.');
     }
+    public function downloadTemplate(): BinaryFileResponse
+{
+    $filePath = storage_path('app/public/faq_template.xlsx');
+
+    if (!file_exists($filePath)) {
+
+        Excel::store(new class implements \Maatwebsite\Excel\Concerns\FromArray {
+
+            public function array(): array
+            {
+                return [
+                    ['question', 'answer', 'is_active'],
+                    ['What is visa price?', 'Visa price is $1000', 1],
+                ];
+            }
+
+        }, 'faq_template.xlsx', 'public');
+    }
+
+    return response()->download($filePath);
+}
+public function import(Request $request)
+{
+    $request->validate([
+        'file' => 'required|mimes:xlsx,csv|max:5120'
+    ]);
+
+    Excel::import(new FaqImport, $request->file('file'));
+
+    return redirect()
+        ->route('admin.faq.index')
+        ->with('success', 'FAQs imported successfully.');
+}
 }

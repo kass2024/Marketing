@@ -18,12 +18,12 @@
 
         <div class="flex gap-3">
             <a href="{{ route('admin.faq.template') }}"
-               class="bg-gray-200 px-5 py-3 rounded-xl">
+               class="bg-gray-200 hover:bg-gray-300 px-5 py-3 rounded-xl">
                 Download Template
             </a>
 
             <a href="{{ route('admin.faq.create') }}"
-               class="bg-blue-600 text-white px-6 py-3 rounded-xl shadow">
+               class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow">
                 + Add FAQ
             </a>
         </div>
@@ -34,16 +34,18 @@
         <form method="POST"
               action="{{ route('admin.faq.import') }}"
               enctype="multipart/form-data"
-              class="flex items-center gap-4">
+              class="flex flex-col md:flex-row items-center gap-4">
 
             @csrf
 
             <input type="file"
                    name="file"
-                   class="border p-2 rounded w-full"
-                   required>
+                   accept=".xlsx,.csv"
+                   required
+                   class="border p-3 rounded-xl w-full">
 
-            <button class="bg-green-600 text-white px-6 py-2 rounded-xl">
+            <button type="submit"
+                    class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl shadow">
                 Upload Excel
             </button>
         </form>
@@ -51,12 +53,12 @@
 
     {{-- SEARCH --}}
     <div class="bg-white p-6 rounded-2xl shadow border">
-        <form method="GET">
+        <form method="GET" action="{{ route('admin.faq.index') }}">
             <input type="text"
                    name="search"
                    value="{{ request('search') }}"
                    placeholder="Search question or answer..."
-                   class="w-full border rounded-xl px-4 py-3">
+                   class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none">
         </form>
     </div>
 
@@ -70,13 +72,13 @@
                     <th class="px-6 py-4 text-right">Actions</th>
                 </tr>
             </thead>
-            <tbody class="divide-y">
 
+            <tbody class="divide-y">
                 @forelse($faqs as $faq)
-                    <tr class="hover:bg-gray-50">
+                    <tr class="hover:bg-gray-50 transition">
 
                         <td class="px-6 py-4">
-                            <p class="font-semibold">
+                            <p class="font-semibold text-gray-900">
                                 {{ $faq->question }}
                             </p>
                             <p class="text-xs text-gray-500 mt-1">
@@ -86,22 +88,25 @@
 
                         <td class="px-6 py-4">
                             @if($faq->is_active)
-                                <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs">
+                                <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">
                                     Active
                                 </span>
                             @else
-                                <span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs">
+                                <span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-semibold">
                                     Disabled
                                 </span>
                             @endif
                         </td>
 
-                        <td class="px-6 py-4 text-right space-x-3">
+                        <td class="px-6 py-4 text-right space-x-4">
+
+                            {{-- EDIT --}}
                             <a href="{{ route('admin.faq.edit', $faq->id) }}"
-                               class="text-blue-600 text-sm">
+                               class="text-blue-600 hover:underline text-sm">
                                 Edit
                             </a>
 
+                            {{-- DELETE --}}
                             <form action="{{ route('admin.faq.destroy', $faq->id) }}"
                                   method="POST"
                                   class="inline-block"
@@ -109,12 +114,12 @@
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit"
-                                        class="text-red-500 text-sm">
+                                        class="text-red-500 hover:underline text-sm">
                                     Delete
                                 </button>
                             </form>
-                        </td>
 
+                        </td>
                     </tr>
                 @empty
                     <tr>
@@ -123,14 +128,13 @@
                         </td>
                     </tr>
                 @endforelse
-
             </tbody>
         </table>
     </div>
 
     {{-- PAGINATION --}}
     <div>
-        {{ $faqs->links() }}
+        {{ $faqs->appends(request()->query())->links() }}
     </div>
 
 </div>

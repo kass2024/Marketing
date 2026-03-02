@@ -10,6 +10,12 @@ class Conversation extends Model
 {
     use HasFactory;
 
+    /*
+    |--------------------------------------------------------------------------
+    | MASS ASSIGNMENT
+    |--------------------------------------------------------------------------
+    */
+
     protected $fillable = [
         'client_id',
         'chatbot_id',
@@ -17,13 +23,27 @@ class Conversation extends Model
         'channel',               // whatsapp | web | telegram | etc
         'status',                // bot | human | closed | escalated
         'assigned_agent_id',
+
+        // 🆕 Onboarding Fields
+        'customer_name',
+        'customer_email',
+        'is_profile_completed',
+        'profile_step',
+
+        // Existing
         'last_activity_at',
         'last_message_at',
         'escalation_reason',
-        'metadata',              // JSON
-        'conversation_score',    // optional AI scoring
+        'metadata',
+        'conversation_score',
         'is_active',
     ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | CASTS
+    |--------------------------------------------------------------------------
+    */
 
     protected $casts = [
         'metadata'            => 'array',
@@ -31,6 +51,7 @@ class Conversation extends Model
         'last_message_at'     => 'datetime',
         'conversation_score'  => 'float',
         'is_active'           => 'boolean',
+        'is_profile_completed'=> 'boolean',
         'created_at'          => 'datetime',
         'updated_at'          => 'datetime',
     ];
@@ -92,6 +113,17 @@ class Conversation extends Model
         return $query->where('status', 'escalated');
     }
 
+    // 🆕 Onboarding scopes
+    public function scopeProfileCompleted(Builder $query)
+    {
+        return $query->where('is_profile_completed', true);
+    }
+
+    public function scopeProfileIncomplete(Builder $query)
+    {
+        return $query->where('is_profile_completed', false);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | HELPER METHODS
@@ -143,5 +175,30 @@ class Conversation extends Model
         $this->update([
             'conversation_score' => ($this->conversation_score ?? 0) + $value
         ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ONBOARDING HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function completeProfile(string $name, string $email): void
+    {
+        $this->update([
+            'customer_name'       => $name,
+            'customer_email'      => strtolower($email),
+            'is_profile_completed'=> true,
+            'profile_step'        => 'completed',
+        ]);
+    }
+
+    public function startOnboarding(): void
+    {
+        if (!$this->profile_step) {
+            $this->update([
+                'profile_step' => 'ask_name'
+            ]);
+        }
     }
 }

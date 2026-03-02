@@ -29,27 +29,27 @@
         </div>
     </div>
 
-    {{-- IMPORT EXCEL --}}
-    <div class="bg-white p-6 rounded-2xl shadow border">
-        <form method="POST"
-              action="{{ route('admin.faq.import') }}"
-              enctype="multipart/form-data"
-              class="flex flex-col md:flex-row items-center gap-4">
+{{-- IMPORT EXCEL --}}
+<div class="bg-white p-6 rounded-2xl shadow border">
+    <form method="POST"
+          action="{{ route('admin.faq.import') }}"
+          enctype="multipart/form-data"
+          class="flex flex-col md:flex-row items-center gap-4">
 
-            @csrf
+        @csrf
 
-            <input type="file"
-                   name="file"
-                   accept=".xlsx,.csv"
-                   required
-                   class="border p-3 rounded-xl w-full">
+        <input type="file"
+               name="file"
+               accept=".xlsx,.csv"
+               required
+               class="border border-gray-300 p-3 rounded-xl w-full bg-white">
 
-            <button type="submit"
-                    class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl shadow">
-                Upload Excel
-            </button>
-        </form>
-    </div>
+        <button type="submit"
+                class="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-3 rounded-xl shadow-lg transition">
+            Upload Excel
+        </button>
+    </form>
+</div>
 
     {{-- SEARCH --}}
     <div class="bg-white p-6 rounded-2xl shadow border">

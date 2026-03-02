@@ -31,24 +31,24 @@
 
 {{-- IMPORT EXCEL --}}
 <div class="bg-white p-6 rounded-2xl shadow border">
-    <form method="POST"
-          action="{{ route('admin.faq.import') }}"
-          enctype="multipart/form-data"
-          class="flex flex-col md:flex-row items-center gap-4">
+ <form method="POST"
+      action="{{ route('admin.faq.import') }}"
+      enctype="multipart/form-data"
+      class="flex items-center gap-4">
 
-        @csrf
+    @csrf
 
-        <input type="file"
-               name="file"
-               accept=".xlsx,.csv"
-               required
-               class="border border-gray-300 p-3 rounded-xl w-full bg-white">
+    <input type="file"
+           name="file"
+           accept=".xlsx,.csv"
+           required
+           class="flex-1 border border-gray-300 px-4 py-2 rounded-lg bg-white">
 
-        <button type="submit"
-                class="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-3 rounded-xl shadow-lg transition">
-            Upload Excel
-        </button>
-    </form>
+    <button type="submit"
+            class="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-2 rounded-lg shadow transition">
+        Upload
+    </button>
+</form>
 </div>
 
     {{-- SEARCH --}}

@@ -34,21 +34,24 @@
         </div>
     </div>
 
-    {{-- IMPORT SECTION --}}
-    <div class="bg-white rounded-2xl shadow-sm border p-8">
+  {{-- IMPORT SECTION --}}
+<div class="bg-white rounded-2xl shadow-sm border p-8">
 
-        <h3 class="text-lg font-semibold text-gray-800 mb-6">
-            Import FAQs (Excel / CSV)
-        </h3>
+    <h3 class="text-lg font-semibold text-gray-800 mb-6">
+        Import FAQs (Excel / CSV)
+    </h3>
 
-        <form method="POST"
-              action="{{ route('admin.faq.import') }}"
-              enctype="multipart/form-data"
-              class="flex flex-col md:flex-row gap-6 items-center">
+    <form method="POST"
+          action="{{ route('admin.faq.import') }}"
+          enctype="multipart/form-data"
+          class="w-full">
 
-            @csrf
+        @csrf
 
-            <div class="flex-1 w-full">
+        <div class="flex flex-col lg:flex-row gap-4">
+
+            {{-- FILE INPUT --}}
+            <div class="flex-1">
                 <input type="file"
                        name="file"
                        accept=".xlsx,.csv"
@@ -56,14 +59,18 @@
                        class="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none">
             </div>
 
-            <button type="submit"
-                    class="px-8 py-3 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition whitespace-nowrap">
-                Upload File
-            </button>
+            {{-- UPLOAD BUTTON --}}
+            <div class="lg:w-48">
+                <button type="submit"
+                        class="w-full px-6 py-3 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition">
+                    Upload File
+                </button>
+            </div>
 
-        </form>
-    </div>
+        </div>
 
+    </form>
+</div>
     {{-- SEARCH --}}
     <div class="bg-white rounded-2xl shadow-sm border p-6">
 

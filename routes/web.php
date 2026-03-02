@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\Admin\FaqController;
+use App\Http\Controllers\Admin\InboxController;
 
 /* Client */
 use App\Http\Controllers\Client\{
@@ -314,6 +315,27 @@ Route::prefix('admin')
 
         Route::post('/faq/import', [FaqController::class, 'import'])
             ->name('faq.import');
+/*
+|--------------------------------------------------------------------------
+| Admin Inbox (Conversation Management)
+|--------------------------------------------------------------------------
+*/
 
+Route::controller(InboxController::class)
+    ->prefix('inbox')
+    ->as('inbox.')
+    ->group(function () {
+
+        Route::get('/', 'index')->name('index');
+
+        Route::post('{conversation}/reply', 'reply')
+            ->name('reply');
+
+        Route::post('{conversation}/toggle', 'toggle')
+            ->name('toggle');
+
+        Route::post('{conversation}/close', 'close')
+            ->name('close');
+    });
     });
 require __DIR__.'/auth.php';

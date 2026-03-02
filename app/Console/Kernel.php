@@ -12,7 +12,30 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        /*
+        |--------------------------------------------------------------------------
+        | Unread WhatsApp Messages Report
+        |--------------------------------------------------------------------------
+        | Sends admin all new unread incoming messages every 5 minutes.
+        | - Prevents overlapping
+        | - Runs in background
+        | - Safe for production
+        */
+
+        $schedule->command('report:unread-messages')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Optional Future Jobs (Examples)
+        |--------------------------------------------------------------------------
+        |
+        | $schedule->command('queue:work --stop-when-empty')->everyMinute();
+        | $schedule->command('report:daily-summary')->dailyAt('18:00');
+        |
+        */
     }
 
     /**
@@ -20,7 +43,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands(): void
     {
-        $this->load(__DIR__.'/Commands');
+        $this->load(__DIR__ . '/Commands');
 
         require base_path('routes/console.php');
     }

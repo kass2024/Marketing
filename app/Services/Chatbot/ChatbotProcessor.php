@@ -12,7 +12,7 @@ use App\Models\Message;
 class ChatbotProcessor
 {
     protected int $rateLimitSeconds = 2;
-    protected bool $debug = true; // set false in production
+    protected bool $debug = true; // set false in strict production
 
     public function __construct(
         protected AIEngine $aiEngine
@@ -33,26 +33,36 @@ class ChatbotProcessor
         $clientId  = $payload['client_id'] ?? null;
         $messageId = $payload['message_id'] ?? Str::uuid()->toString();
 
-        $this->log('START', compact('clientId','phone','text','messageId'), $requestId);
+        $this->log('START', compact(
+            'clientId','phone','text','messageId'
+        ), $requestId);
 
         // ---------------- VALIDATION ----------------
         if (!$phone || !$text || !$clientId) {
+            $this->log('INVALID PAYLOAD', $payload, $requestId);
             return null;
         }
 
         // ---------------- IDEMPOTENCY ----------------
         if ($this->isDuplicate($messageId)) {
+            $this->log('DUPLICATE BLOCKED', ['message_id' => $messageId], $requestId);
             return null;
         }
 
         // ---------------- RATE LIMIT ----------------
         if (!$this->allowProcessing($clientId, $phone)) {
+            $this->log('RATE LIMITED', compact('clientId','phone'), $requestId);
             return null;
         }
 
         try {
 
-            return DB::transaction(function () use ($clientId,$phone,$text,$requestId) {
+            return DB::transaction(function () use (
+                $clientId,
+                $phone,
+                $text,
+                $requestId
+            ) {
 
                 /*
                 |--------------------------------------------------------------------------
@@ -66,12 +76,17 @@ class ChatbotProcessor
                         'phone_number' => $phone,
                     ],
                     [
-                        'status'                => 'bot',
-                        'last_activity_at'      => now(),
-                        'is_profile_completed'  => 0,
-                        'profile_step'          => null
+                        'status'           => 'bot',
+                        'last_activity_at' => now(),
+                        'is_profile_completed' => 0,
+                        'profile_step' => null
                     ]
                 );
+
+                $this->log('CONVERSATION RESOLVED', [
+                    'conversation_id' => $conversation->id,
+                    'status'          => $conversation->status
+                ], $requestId);
 
                 /*
                 |--------------------------------------------------------------------------
@@ -79,38 +94,58 @@ class ChatbotProcessor
                 |--------------------------------------------------------------------------
                 */
 
-                Message::create([
+                $incoming = Message::create([
                     'conversation_id' => $conversation->id,
                     'direction'       => 'incoming',
                     'content'         => $text,
                     'status'          => 'received'
                 ]);
 
-                // If human takeover active
+                $this->log('INCOMING STORED', [
+                    'message_id' => $incoming->id
+                ], $requestId);
+
+                /*
+                |--------------------------------------------------------------------------
+                | HUMAN TAKEOVER CHECK
+                |--------------------------------------------------------------------------
+                */
+
                 if ($conversation->status === 'human') {
+                    $this->log('HUMAN MODE ACTIVE', [], $requestId);
                     return null;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | ONBOARDING FLOW
+                | MANDATORY PROFILE ONBOARDING
                 |--------------------------------------------------------------------------
                 */
 
                 if (!$conversation->is_profile_completed) {
 
+                    $this->log('ONBOARDING FLOW', [
+                        'step' => $conversation->profile_step
+                    ], $requestId);
+
                     $response = $this->handleOnboarding($conversation, $text);
 
-                    $this->storeOutgoing($conversation->id, $response, $requestId);
+                    $this->storeOutgoing(
+                        conversationId: $conversation->id,
+                        response: $response,
+                        requestId: $requestId
+                    );
 
                     return $response;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | AI RESPONSE
+                | CALL AI ENGINE (UNCHANGED LOGIC)
                 |--------------------------------------------------------------------------
                 */
+
+                $this->log('CALLING AI ENGINE', [], $requestId);
 
                 $aiResponse = $this->aiEngine->reply(
                     $clientId,
@@ -119,10 +154,27 @@ class ChatbotProcessor
                 );
 
                 if (!$aiResponse || !is_array($aiResponse)) {
-                    return $this->errorReply();
+
+                    $this->log('AI EMPTY RESPONSE', [], $requestId);
+
+                    return [
+                        'text'        => "Sorry, I’m having trouble right now. Please try again shortly.",
+                        'attachments' => [],
+                        'confidence'  => 0,
+                        'source'      => 'error'
+                    ];
                 }
 
-                $this->storeOutgoing($conversation->id, $aiResponse, $requestId);
+                $this->log('AI RESPONSE RECEIVED', [
+                    'preview' => substr($aiResponse['text'] ?? '', 0, 150),
+                    'source'  => $aiResponse['source'] ?? null
+                ], $requestId);
+
+                $this->storeOutgoing(
+                    conversationId: $conversation->id,
+                    response: $aiResponse,
+                    requestId: $requestId
+                );
 
                 $conversation->update([
                     'last_activity_at' => now(),
@@ -133,12 +185,17 @@ class ChatbotProcessor
 
         } catch (\Throwable $e) {
 
-            Log::error('ChatbotProcessor ERROR', [
+            Log::error('ChatbotProcessor FATAL', [
                 'request_id' => $requestId,
                 'error'      => $e->getMessage()
             ]);
 
-            return $this->errorReply();
+            return [
+                'text'        => "Technical issue occurred. Please try again.",
+                'attachments' => [],
+                'confidence'  => 0,
+                'source'      => 'error'
+            ];
         }
     }
 
@@ -152,12 +209,7 @@ class ChatbotProcessor
     {
         $message = trim($message);
 
-        /*
-        |--------------------------------------------------------------------------
-        | STEP 0: FIRST MESSAGE → ASK FULL NAME
-        |--------------------------------------------------------------------------
-        */
-
+        // STEP 0 → Ask Name
         if (!$conversation->profile_step) {
 
             $conversation->update([
@@ -169,42 +221,28 @@ class ChatbotProcessor
             );
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | STEP 1: SAVE FULL NAME
-        |--------------------------------------------------------------------------
-        */
-
+        // STEP 1 → Save Name
         if ($conversation->profile_step === 'ask_name') {
 
-            if (strlen($message) < 3 || str_word_count($message) < 2) {
-                return $this->systemReply(
-                    "Please enter your *full name* (first and last name)."
-                );
+            if (strlen($message) < 3) {
+                return $this->systemReply("Please enter your full name.");
             }
 
             $conversation->update([
-                'customer_name' => ucwords($message),
+                'customer_name' => $message,
                 'profile_step'  => 'ask_email'
             ]);
 
             return $this->systemReply(
-                "Thank you {$conversation->customer_name} 😊\nNow please provide your *email address*."
+                "Thank you {$message} 😊\nNow please provide your *email address*."
             );
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | STEP 2: SAVE EMAIL
-        |--------------------------------------------------------------------------
-        */
-
+        // STEP 2 → Save Email
         if ($conversation->profile_step === 'ask_email') {
 
             if (!filter_var($message, FILTER_VALIDATE_EMAIL)) {
-                return $this->systemReply(
-                    "❌ Please provide a valid email address."
-                );
+                return $this->systemReply("❌ Please provide a valid email address.");
             }
 
             $conversation->update([
@@ -214,7 +252,7 @@ class ChatbotProcessor
             ]);
 
             return $this->systemReply(
-                "✅ Profile completed successfully!\nYou can now ask your questions."
+                "✅ Thank you! You can now ask your questions."
             );
         }
 
@@ -227,23 +265,13 @@ class ChatbotProcessor
             'text'        => $text,
             'attachments' => [],
             'confidence'  => 1,
-            'source'      => 'system'
-        ];
-    }
-
-    protected function errorReply(): array
-    {
-        return [
-            'text'        => "Sorry, something went wrong. Please try again shortly.",
-            'attachments' => [],
-            'confidence'  => 0,
-            'source'      => 'error'
+            'source'      => 'system_onboarding'
         ];
     }
 
     /*
     |--------------------------------------------------------------------------
-    | STORE OUTGOING MESSAGE
+    | STORE OUTGOING RESPONSE
     |--------------------------------------------------------------------------
     */
 
@@ -251,7 +279,7 @@ class ChatbotProcessor
     {
         if (!empty($response['text'])) {
 
-            Message::create([
+            $message = Message::create([
                 'conversation_id' => $conversationId,
                 'direction'       => 'outgoing',
                 'content'         => $response['text'],
@@ -261,17 +289,26 @@ class ChatbotProcessor
                     'source'     => $response['source'] ?? null,
                 ])
             ]);
+
+            $this->log('OUTGOING TEXT STORED', [
+                'message_id' => $message->id
+            ], $requestId);
         }
 
         foreach ($response['attachments'] ?? [] as $attachment) {
 
-            Message::create([
+            $att = Message::create([
                 'conversation_id' => $conversationId,
                 'direction'       => 'outgoing',
                 'content'         => '[Attachment]',
                 'status'          => 'pending',
                 'meta'            => json_encode($attachment)
             ]);
+
+            $this->log('OUTGOING ATTACHMENT STORED', [
+                'message_id' => $att->id,
+                'type'       => $attachment['type'] ?? null
+            ], $requestId);
         }
     }
 

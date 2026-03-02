@@ -1,144 +1,163 @@
 <x-app-layout>
 
-<div class="max-w-7xl mx-auto px-6 py-10 space-y-8">
+<div class="container py-5">
 
-    {{-- SUCCESS --}}
+    {{-- SUCCESS ALERT --}}
     @if(session('success'))
-        <div class="p-4 bg-green-100 text-green-700 rounded-xl">
+        <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
             {{ session('success') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     @endif
 
     {{-- HEADER --}}
-    <div class="flex justify-between items-center">
+    <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="text-3xl font-bold">FAQ Knowledge Base</h1>
-            <p class="text-gray-500">Manage AI-powered knowledge responses</p>
+            <h2 class="fw-bold mb-1">FAQ Knowledge Base</h2>
+            <p class="text-muted mb-0">Manage AI-powered knowledge responses</p>
         </div>
 
-        <div class="flex gap-3">
-            <a href="{{ route('admin.faq.template') }}"
-               class="bg-gray-200 hover:bg-gray-300 px-5 py-3 rounded-xl">
+        <div>
+            <a href="{{ route('admin.faq.template') }}" class="btn btn-outline-secondary me-2">
                 Download Template
             </a>
 
-            <a href="{{ route('admin.faq.create') }}"
-               class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow">
+            <a href="{{ route('admin.faq.create') }}" class="btn btn-primary">
                 + Add FAQ
             </a>
         </div>
     </div>
 
-{{-- IMPORT EXCEL --}}
-<div class="bg-white p-6 rounded-2xl shadow border">
-<form method="POST"
-      action="{{ route('admin.faq.import') }}"
-      enctype="multipart/form-data"
-      class="flex gap-4 w-full">
+    {{-- IMPORT EXCEL --}}
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Import FAQs (Excel / CSV)</h5>
 
-    @csrf
+            <form method="POST"
+                  action="{{ route('admin.faq.import') }}"
+                  enctype="multipart/form-data"
+                  class="row g-3 align-items-center">
 
-    <div class="flex-1">
-        <input type="file"
-               name="file"
-               accept=".xlsx,.csv"
-               required
-               class="w-full border border-gray-300 px-4 py-3 rounded-xl bg-white">
+                @csrf
+
+                <div class="col-md-9">
+                    <input type="file"
+                           name="file"
+                           accept=".xlsx,.csv"
+                           class="form-control"
+                           required>
+                </div>
+
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-success w-100">
+                        Upload File
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
-
-    <div>
-        <button type="submit"
-                class="bg-green-600 hover:bg-green-700 text-white font-semibold px-8 py-3 rounded-xl shadow whitespace-nowrap">
-            Upload Excel
-        </button>
-    </div>
-</form>
-</div>
 
     {{-- SEARCH --}}
-    <div class="bg-white p-6 rounded-2xl shadow border">
-        <form method="GET" action="{{ route('admin.faq.index') }}">
-            <input type="text"
-                   name="search"
-                   value="{{ request('search') }}"
-                   placeholder="Search question or answer..."
-                   class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none">
-        </form>
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <form method="GET" action="{{ route('admin.faq.index') }}">
+                <div class="input-group">
+                    <input type="text"
+                           name="search"
+                           value="{{ request('search') }}"
+                           class="form-control"
+                           placeholder="Search question or answer...">
+
+                    <button class="btn btn-outline-primary" type="submit">
+                        Search
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 
-    {{-- TABLE --}}
-    <div class="bg-white rounded-2xl shadow border overflow-hidden">
-        <table class="min-w-full text-sm">
-            <thead class="bg-gray-50 border-b">
-                <tr>
-                    <th class="px-6 py-4">Question</th>
-                    <th class="px-6 py-4">Status</th>
-                    <th class="px-6 py-4 text-right">Actions</th>
-                </tr>
-            </thead>
+    {{-- FAQ TABLE --}}
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
 
-            <tbody class="divide-y">
-                @forelse($faqs as $faq)
-                    <tr class="hover:bg-gray-50 transition">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
 
-                        <td class="px-6 py-4">
-                            <p class="font-semibold text-gray-900">
-                                {{ $faq->question }}
-                            </p>
-                            <p class="text-xs text-gray-500 mt-1">
-                                {{ \Illuminate\Support\Str::limit($faq->answer, 120) }}
-                            </p>
-                        </td>
+                    <thead class="table-light">
+                        <tr>
+                            <th>Question</th>
+                            <th width="150">Status</th>
+                            <th width="180" class="text-end">Actions</th>
+                        </tr>
+                    </thead>
 
-                        <td class="px-6 py-4">
-                            @if($faq->is_active)
-                                <span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold">
-                                    Active
-                                </span>
-                            @else
-                                <span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-semibold">
-                                    Disabled
-                                </span>
-                            @endif
-                        </td>
+                    <tbody>
+                        @forelse($faqs as $faq)
+                            <tr>
 
-                        <td class="px-6 py-4 text-right space-x-4">
+                                <td>
+                                    <div class="fw-semibold">
+                                        {{ $faq->question }}
+                                    </div>
+                                    <div class="text-muted small">
+                                        {{ \Illuminate\Support\Str::limit($faq->answer, 120) }}
+                                    </div>
+                                </td>
 
-                            {{-- EDIT --}}
-                            <a href="{{ route('admin.faq.edit', $faq->id) }}"
-                               class="text-blue-600 hover:underline text-sm">
-                                Edit
-                            </a>
+                                <td>
+                                    @if($faq->is_active)
+                                        <span class="badge bg-success">
+                                            Active
+                                        </span>
+                                    @else
+                                        <span class="badge bg-danger">
+                                            Disabled
+                                        </span>
+                                    @endif
+                                </td>
 
-                            {{-- DELETE --}}
-                            <form action="{{ route('admin.faq.destroy', $faq->id) }}"
-                                  method="POST"
-                                  class="inline-block"
-                                  onsubmit="return confirm('Delete this FAQ?')">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit"
-                                        class="text-red-500 hover:underline text-sm">
-                                    Delete
-                                </button>
-                            </form>
+                                <td class="text-end">
 
-                        </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="3" class="text-center py-12 text-gray-400">
-                            No FAQs found.
-                        </td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
+                                    <a href="{{ route('admin.faq.edit', $faq->id) }}"
+                                       class="btn btn-sm btn-outline-primary me-2">
+                                        Edit
+                                    </a>
+
+                                    <form action="{{ route('admin.faq.destroy', $faq->id) }}"
+                                          method="POST"
+                                          class="d-inline"
+                                          onsubmit="return confirm('Delete this FAQ?')">
+
+                                        @csrf
+                                        @method('DELETE')
+
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-danger">
+                                            Delete
+                                        </button>
+                                    </form>
+
+                                </td>
+
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="3" class="text-center py-5 text-muted">
+                                    No FAQs found.
+                                </td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+
+                </table>
+            </div>
+
+        </div>
     </div>
 
     {{-- PAGINATION --}}
-    <div>
-        {{ $faqs->appends(request()->query())->links() }}
+    <div class="mt-4">
+        {{ $faqs->appends(request()->query())->links('pagination::bootstrap-5') }}
     </div>
 
 </div>

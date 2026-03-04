@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Facades\Log;
 
 class Kernel extends ConsoleKernel
 {
@@ -15,47 +16,78 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
-        | WhatsApp Unread Messages Report
+        | Messaging Automation
         |--------------------------------------------------------------------------
+        | Handles WhatsApp / Messenger unread message reporting.
+        | Runs every 5 minutes and prevents overlapping executions.
         */
 
         $schedule->command('report:unread-messages')
             ->everyFiveMinutes()
             ->withoutOverlapping()
-            ->runInBackground();
+            ->onOneServer()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/scheduler.log'));
 
 
         /*
         |--------------------------------------------------------------------------
-        | META ADS AUTO SYNC
+        | META MARKETING AUTO SYNC ENGINE
         |--------------------------------------------------------------------------
-        | Keeps Meta data fresh automatically
-        | Safe for production
+        | Keeps Meta Ads data updated for the SaaS dashboard.
+        | Designed for safe background execution.
         */
 
-        // Sync Ad Accounts
+        // Sync Meta Ad Accounts
         $schedule->command('meta:sync-accounts')
             ->everyThirtyMinutes()
             ->withoutOverlapping()
-            ->runInBackground();
+            ->onOneServer()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/meta-sync.log'));
+
 
         // Sync Campaigns
         $schedule->command('meta:sync-campaigns')
             ->everyThirtyMinutes()
             ->withoutOverlapping()
-            ->runInBackground();
+            ->onOneServer()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/meta-sync.log'));
+
 
         // Sync Ads
         $schedule->command('meta:sync-ads')
             ->everyThirtyMinutes()
             ->withoutOverlapping()
-            ->runInBackground();
+            ->onOneServer()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/meta-sync.log'));
 
-        // Sync Insights / Analytics
+
+        // Sync Insights (analytics data)
         $schedule->command('meta:sync-insights')
             ->hourly()
             ->withoutOverlapping()
-            ->runInBackground();
+            ->onOneServer()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/meta-sync.log'));
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | System Health Monitoring
+        |--------------------------------------------------------------------------
+        | Logs a heartbeat so you know the scheduler is alive.
+        */
+
+        $schedule->call(function () {
+
+            Log::info('Scheduler heartbeat OK', [
+                'timestamp' => now()->toDateTimeString()
+            ]);
+
+        })->hourly();
 
 
         /*
@@ -64,10 +96,16 @@ class Kernel extends ConsoleKernel
         |--------------------------------------------------------------------------
         */
 
-        // $schedule->command('report:daily-summary')->dailyAt('18:00');
-        // $schedule->command('queue:work --stop-when-empty')->everyMinute();
+        // Daily analytics summary
+        // $schedule->command('report:daily-summary')
+        //     ->dailyAt('18:00');
+
+        // Queue worker health restart
+        // $schedule->command('queue:restart')
+        //     ->daily();
 
     }
+
 
     /**
      * Register the commands for the application.

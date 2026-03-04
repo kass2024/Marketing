@@ -2,34 +2,46 @@
 
 @section('content')
 
-<div class="max-w-4xl mx-auto py-10 space-y-8">
+<div class="max-w-5xl mx-auto py-10 space-y-8">
 
-{{-- ================= PAGE HEADER ================= --}}
-<div>
+{{-- ================= HEADER ================= --}}
+<div class="flex items-center justify-between">
 
-    <h1 class="text-3xl font-bold text-gray-900">
-        Create Campaign
-    </h1>
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900">
+            Create Campaign
+        </h1>
 
-    <p class="text-gray-500 mt-2">
-        Define the objective and budget for your advertising campaign.
-    </p>
+        <p class="text-gray-500 mt-2">
+            Define the objective and budget for your advertising campaign.
+        </p>
+    </div>
+
+    <a href="{{ route('admin.campaigns.index') }}"
+       class="text-sm text-gray-500 hover:text-gray-700">
+        ← Back to Campaigns
+    </a>
 
 </div>
 
 
-{{-- ================= FORM CARD ================= --}}
-<div class="bg-white rounded-2xl shadow border overflow-hidden">
+{{-- ================= FORM ================= --}}
+<div class="bg-white border rounded-2xl shadow-sm overflow-hidden">
 
-<form method="POST" action="{{ route('admin.campaigns.store') }}">
+<form method="POST"
+      action="{{ route('admin.campaigns.store') }}"
+      id="campaignForm">
+
 @csrf
 
-<div class="p-10 space-y-8">
 
-{{-- ================= ERROR DISPLAY ================= --}}
+<div class="p-10 space-y-10">
+
+
+{{-- ================= GLOBAL ERRORS ================= --}}
 @if ($errors->any())
-<div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
-    <ul class="list-disc pl-5 text-sm space-y-1">
+<div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-sm">
+    <ul class="list-disc pl-5 space-y-1">
         @foreach ($errors->all() as $error)
             <li>{{ $error }}</li>
         @endforeach
@@ -38,10 +50,11 @@
 @endif
 
 
-{{-- ================= CAMPAIGN NAME ================= --}}
-<div>
 
-<label class="block text-sm font-semibold text-gray-700 mb-2">
+{{-- ================= CAMPAIGN NAME ================= --}}
+<div class="space-y-2">
+
+<label class="block text-sm font-semibold text-gray-700">
 Campaign Name
 </label>
 
@@ -49,12 +62,17 @@ Campaign Name
 type="text"
 name="name"
 value="{{ old('name') }}"
-placeholder="Example: Canada Study Leads"
 required
-class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+placeholder="Example: Canada Study Leads"
+class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+@if($errors->has('name')) border-red-500 @endif">
 
-<p class="text-xs text-gray-400 mt-2">
-This name will only be visible inside your dashboard.
+@error('name')
+<p class="text-sm text-red-500">{{ $message }}</p>
+@enderror
+
+<p class="text-xs text-gray-400">
+This name is internal and only visible in your dashboard.
 </p>
 
 </div>
@@ -62,26 +80,53 @@ This name will only be visible inside your dashboard.
 
 
 {{-- ================= OBJECTIVE ================= --}}
-<div>
+<div class="space-y-2">
 
-<label class="block text-sm font-semibold text-gray-700 mb-2">
+<label class="block text-sm font-semibold text-gray-700">
 Campaign Objective
 </label>
 
 <select
 name="objective"
 required
-class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
+class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500
+@if($errors->has('objective')) border-red-500 @endif">
 
-<option value="MESSAGES">WhatsApp Messages</option>
-<option value="TRAFFIC">Website Traffic</option>
-<option value="LEADS">Lead Generation</option>
-<option value="ENGAGEMENT">Post Engagement</option>
+<option value="">Select objective</option>
+
+<option value="OUTCOME_LEADS"
+{{ old('objective')=='OUTCOME_LEADS'?'selected':'' }}>
+Lead Generation
+</option>
+
+<option value="OUTCOME_TRAFFIC"
+{{ old('objective')=='OUTCOME_TRAFFIC'?'selected':'' }}>
+Website Traffic
+</option>
+
+<option value="OUTCOME_ENGAGEMENT"
+{{ old('objective')=='OUTCOME_ENGAGEMENT'?'selected':'' }}>
+Post Engagement
+</option>
+
+<option value="OUTCOME_AWARENESS"
+{{ old('objective')=='OUTCOME_AWARENESS'?'selected':'' }}>
+Brand Awareness
+</option>
+
+<option value="OUTCOME_SALES"
+{{ old('objective')=='OUTCOME_SALES'?'selected':'' }}>
+Sales / Conversions
+</option>
 
 </select>
 
-<p class="text-xs text-gray-400 mt-2">
-Choose the main goal for this campaign. This determines how Meta optimizes delivery.
+@error('objective')
+<p class="text-sm text-red-500">{{ $message }}</p>
+@enderror
+
+<p class="text-xs text-gray-400">
+This determines how Meta optimizes ad delivery.
 </p>
 
 </div>
@@ -89,23 +134,59 @@ Choose the main goal for this campaign. This determines how Meta optimizes deliv
 
 
 {{-- ================= DAILY BUDGET ================= --}}
-<div>
+<div class="space-y-2">
 
-<label class="block text-sm font-semibold text-gray-700 mb-2">
+<label class="block text-sm font-semibold text-gray-700">
 Daily Budget (CAD)
 </label>
 
+<div class="relative">
+
+<span class="absolute left-3 top-3 text-gray-400 text-sm">$</span>
+
 <input
 type="number"
+step="1"
+min="5"
 name="daily_budget"
 value="{{ old('daily_budget') }}"
-min="1"
 required
-placeholder="Example: 20"
+placeholder="20"
+class="w-full border rounded-xl pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500
+@if($errors->has('daily_budget')) border-red-500 @endif">
+
+</div>
+
+@error('daily_budget')
+<p class="text-sm text-red-500">{{ $message }}</p>
+@enderror
+
+<p class="text-xs text-gray-400">
+Minimum recommended budget: $5/day.
+</p>
+
+</div>
+
+
+
+{{-- ================= STATUS ================= --}}
+<div class="space-y-2">
+
+<label class="block text-sm font-semibold text-gray-700">
+Campaign Status
+</label>
+
+<select
+name="status"
 class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
 
-<p class="text-xs text-gray-400 mt-2">
-The maximum amount you are willing to spend per day.
+<option value="PAUSED">Paused (recommended)</option>
+<option value="ACTIVE">Active immediately</option>
+
+</select>
+
+<p class="text-xs text-gray-400">
+Campaigns usually start in paused mode while ads are prepared.
 </p>
 
 </div>
@@ -115,28 +196,28 @@ The maximum amount you are willing to spend per day.
 
 
 {{-- ================= ACTION BAR ================= --}}
-<div class="bg-gray-50 px-10 py-6 flex justify-between items-center border-t">
+<div class="bg-gray-50 border-t px-10 py-6 flex items-center justify-between">
 
 <a href="{{ route('admin.campaigns.index') }}"
-class="text-gray-500 hover:text-gray-700 text-sm">
+class="text-sm text-gray-500 hover:text-gray-700">
 Cancel
 </a>
 
 <button
 type="submit"
-class="inline-flex items-center gap-3 bg-blue-600 text-white px-6 py-3 rounded-xl shadow hover:bg-blue-700 transition">
+id="submitBtn"
+class="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl shadow hover:bg-blue-700 transition">
 
-Continue
+<span id="btnText">Create Campaign</span>
 
-<svg xmlns="http://www.w3.org/2000/svg"
-class="w-4 h-4"
+<svg id="btnSpinner"
+class="hidden animate-spin w-4 h-4"
+xmlns="http://www.w3.org/2000/svg"
 fill="none"
-viewBox="0 0 24 24"
-stroke="currentColor">
-<path stroke-linecap="round"
-stroke-linejoin="round"
-stroke-width="2"
-d="M9 5l7 7-7 7" />
+viewBox="0 0 24 24">
+<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+<path class="opacity-75" fill="currentColor"
+d="M4 12a8 8 0 018-8v8H4z"></path>
 </svg>
 
 </button>
@@ -148,5 +229,23 @@ d="M9 5l7 7-7 7" />
 </div>
 
 </div>
+
+
+{{-- ================= SUBMIT LOADER ================= --}}
+<script>
+
+document.getElementById('campaignForm').addEventListener('submit',function(){
+
+    const btn = document.getElementById('submitBtn');
+    const spinner = document.getElementById('btnSpinner');
+    const text = document.getElementById('btnText');
+
+    btn.disabled = true;
+    spinner.classList.remove('hidden');
+    text.innerText = "Creating...";
+
+});
+
+</script>
 
 @endsection

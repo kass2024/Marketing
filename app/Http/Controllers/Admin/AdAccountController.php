@@ -33,11 +33,18 @@ class AdAccountController extends Controller
      */
     public function store(Request $request)
     {
+        Log::info('Meta AdAccount Sync Started');
+
         try {
 
             $response = $this->meta->getAdAccounts();
 
+            Log::info('Meta Raw API Response', $response);
+
             if (empty($response['data'])) {
+
+                Log::warning('Meta returned empty ad accounts list');
+
                 return back()->withErrors([
                     'meta' => 'Meta returned no ad accounts. Please verify permissions.'
                 ]);
@@ -47,7 +54,15 @@ class AdAccountController extends Controller
 
                 foreach ($response['data'] as $account) {
 
-                    // Convert Meta numeric status
+                    Log::info('Processing Meta Account', $account);
+
+                    $metaId = $account['id'] ?? null;
+
+                    if (!$metaId) {
+                        Log::warning('Meta account missing ID', $account);
+                        continue;
+                    }
+
                     $statusMap = [
                         1 => 'ACTIVE',
                         2 => 'DISABLED',
@@ -55,19 +70,34 @@ class AdAccountController extends Controller
                         7 => 'PENDING'
                     ];
 
-                    $status = $statusMap[$account['account_status']] ?? 'UNKNOWN';
+                    $statusCode = $account['account_status'] ?? null;
+                    $statusText = $statusMap[$statusCode] ?? 'UNKNOWN';
 
-                    AdAccount::updateOrCreate(
-                        ['meta_id' => $account['id']],
+                    Log::info('Meta Status Mapping', [
+                        'meta_id' => $metaId,
+                        'status_code' => $statusCode,
+                        'status_text' => $statusText
+                    ]);
+
+                    $record = AdAccount::updateOrCreate(
+                        ['meta_id' => $metaId],
                         [
-                            'ad_account_id' => $account['id'],
+                            'ad_account_id' => $metaId,
                             'name' => $account['name'] ?? 'Unknown',
                             'currency' => $account['currency'] ?? null,
-                            'account_status' => $status
+                            'account_status' => $statusText
                         ]
                     );
+
+                    Log::info('Account Stored In Database', [
+                        'id' => $record->id,
+                        'meta_id' => $record->meta_id,
+                        'status' => $record->account_status
+                    ]);
                 }
             });
+
+            Log::info('Meta AdAccount Sync Completed Successfully');
 
             return back()->with('success', 'Ad accounts synced successfully.');
 
@@ -75,7 +105,7 @@ class AdAccountController extends Controller
 
             Log::error('Meta AdAccount Sync Failed', [
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return back()->withErrors([
@@ -90,6 +120,11 @@ class AdAccountController extends Controller
     public function destroy(AdAccount $account)
     {
         try {
+
+            Log::info('Deleting Local Ad Account', [
+                'id' => $account->id,
+                'meta_id' => $account->meta_id
+            ]);
 
             $account->delete();
 

@@ -24,19 +24,24 @@ class Campaign extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Mass Assignment Protection
+    | Mass Assignment
     |--------------------------------------------------------------------------
     */
 
     protected $fillable = [
-        'client_id',
+        'ad_account_id',
+        'meta_id',
         'name',
         'objective',
+        'daily_budget',
         'budget',
-        'start_date',
-        'end_date',
+        'spend',
+        'impressions',
+        'clicks',
+        'leads',
         'status',
-        'activated_at',
+        'started_at',
+        'ended_at'
     ];
 
 
@@ -47,10 +52,14 @@ class Campaign extends Model
     */
 
     protected $casts = [
-        'budget'        => 'decimal:2',
-        'start_date'    => 'date',
-        'end_date'      => 'date',
-        'activated_at'  => 'datetime',
+        'daily_budget' => 'integer',
+        'budget'       => 'decimal:2',
+        'spend'        => 'decimal:2',
+        'impressions'  => 'integer',
+        'clicks'       => 'integer',
+        'leads'        => 'integer',
+        'started_at'   => 'datetime',
+        'ended_at'     => 'datetime'
     ];
 
 
@@ -60,9 +69,9 @@ class Campaign extends Model
     |--------------------------------------------------------------------------
     */
 
-    public function client()
+    public function adAccount()
     {
-        return $this->belongsTo(Client::class);
+        return $this->belongsTo(AdAccount::class);
     }
 
 
@@ -77,25 +86,25 @@ class Campaign extends Model
         return $query->where('status', self::STATUS_ACTIVE);
     }
 
-    public function scopeDraft(Builder $query): Builder
-    {
-        return $query->where('status', self::STATUS_DRAFT);
-    }
-
     public function scopePaused(Builder $query): Builder
     {
         return $query->where('status', self::STATUS_PAUSED);
     }
 
-    public function scopeForClient(Builder $query, int $clientId): Builder
+    public function scopeDraft(Builder $query): Builder
     {
-        return $query->where('client_id', $clientId);
+        return $query->where('status', self::STATUS_DRAFT);
+    }
+
+    public function scopeCompleted(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_COMPLETED);
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Accessors (Computed Attributes)
+    | Computed Attributes
     |--------------------------------------------------------------------------
     */
 
@@ -104,47 +113,49 @@ class Campaign extends Model
         return number_format($this->budget, 2);
     }
 
-    public function getIsActiveAttribute(): bool
+    public function getCtrAttribute(): float
     {
-        return $this->status === self::STATUS_ACTIVE;
+        if ($this->impressions == 0) {
+            return 0;
+        }
+
+        return round(($this->clicks / $this->impressions) * 100, 2);
     }
 
-    public function getIsDraftAttribute(): bool
+    public function getCpcAttribute(): float
     {
-        return $this->status === self::STATUS_DRAFT;
-    }
+        if ($this->clicks == 0) {
+            return 0;
+        }
 
-    public function getIsPausedAttribute(): bool
-    {
-        return $this->status === self::STATUS_PAUSED;
+        return round($this->spend / $this->clicks, 2);
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Business Logic Methods
+    | Business Logic
     |--------------------------------------------------------------------------
     */
 
     public function activate(): void
     {
         $this->update([
-            'status' => self::STATUS_ACTIVE,
-            'activated_at' => now(),
+            'status' => self::STATUS_ACTIVE
         ]);
     }
 
     public function pause(): void
     {
         $this->update([
-            'status' => self::STATUS_PAUSED,
+            'status' => self::STATUS_PAUSED
         ]);
     }
 
     public function complete(): void
     {
         $this->update([
-            'status' => self::STATUS_COMPLETED,
+            'status' => self::STATUS_COMPLETED
         ]);
     }
 }

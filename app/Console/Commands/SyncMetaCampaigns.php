@@ -1,75 +1,88 @@
-public function handle(): int
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
+use App\Services\MetaAdsService;
+use App\Models\Campaign;
+
+class SyncMetaCampaigns extends Command
 {
-    $this->info('Starting Meta Campaign Sync...');
+    /**
+     * Command name used in Artisan
+     */
+    protected $signature = 'meta:sync-campaigns';
 
-    \Log::info('Meta Campaign Sync Started', [
-        'time' => now()->toDateTimeString()
-    ]);
+    /**
+     * Command description
+     */
+    protected $description = 'Sync Meta campaigns from Meta API';
 
-    try {
+    protected MetaAdsService $service;
 
-        $service = app(\App\Services\MetaAdsService::class);
-        $response = $service->getCampaigns();
+    public function __construct(MetaAdsService $service)
+    {
+        parent::__construct();
+        $this->service = $service;
+    }
 
-        if (!isset($response['data']) || !is_array($response['data']) || count($response['data']) === 0) {
+    public function handle(): int
+    {
+        $this->info('Starting Meta Campaign Sync...');
 
-            $this->warn('Meta returned no campaigns.');
+        Log::info('Meta Campaign Sync Started');
 
-            \Log::warning('Meta Campaign Sync: empty response');
+        try {
 
-            return Command::SUCCESS;
-        }
+            $response = $this->service->getCampaigns();
 
-        $count = 0;
+            if (!isset($response['data']) || empty($response['data'])) {
 
-        foreach ($response['data'] as $campaign) {
+                $this->warn('Meta returned no campaigns.');
 
-            if (empty($campaign['id'])) {
-                continue;
+                Log::warning('Meta Campaign Sync: empty response');
+
+                return Command::SUCCESS;
             }
 
-            $metaId = $campaign['id'];
+            $count = 0;
 
-            $record = \App\Models\Campaign::updateOrCreate(
-                [
-                    'meta_id' => $metaId
-                ],
-                [
-                    'name' => $campaign['name'] ?? 'Unnamed Campaign',
-                    'status' => $campaign['status'] ?? 'UNKNOWN',
-                    'objective' => $campaign['objective'] ?? null
-                ]
-            );
+            foreach ($response['data'] as $campaign) {
 
-            $count++;
+                if (empty($campaign['id'])) {
+                    continue;
+                }
 
-            $this->line("Synced: {$record->name}");
+                $record = Campaign::updateOrCreate(
+                    ['meta_id' => $campaign['id']],
+                    [
+                        'name' => $campaign['name'] ?? 'Unnamed Campaign',
+                        'status' => $campaign['status'] ?? 'UNKNOWN',
+                        'objective' => $campaign['objective'] ?? null
+                    ]
+                );
 
-            \Log::info('Meta Campaign Synced', [
-                'meta_id' => $metaId,
-                'name' => $record->name,
-                'status' => $record->status
+                $count++;
+
+                $this->line("Synced: {$record->name}");
+            }
+
+            $this->info("Meta Campaign Sync Completed ({$count} campaigns)");
+
+            Log::info("Meta Campaign Sync Completed ({$count})");
+
+            return Command::SUCCESS;
+
+        } catch (\Throwable $e) {
+
+            Log::error('Meta Campaign Sync Failed', [
+                'error' => $e->getMessage()
             ]);
+
+            $this->error('Meta Campaign Sync Failed: '.$e->getMessage());
+
+            return Command::FAILURE;
         }
-
-        $this->info("Meta Campaign Sync Completed ({$count} campaigns)");
-
-        \Log::info('Meta Campaign Sync Completed', [
-            'count' => $count
-        ]);
-
-        return Command::SUCCESS;
-
-    } catch (\Throwable $e) {
-
-        \Log::error('Meta Campaign Sync Failed', [
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine()
-        ]);
-
-        $this->error('Meta Campaign Sync Failed: '.$e->getMessage());
-
-        return Command::FAILURE;
     }
 }

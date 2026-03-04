@@ -7,41 +7,54 @@ use Illuminate\Support\Facades\Log;
 
 class MetaAdsService
 {
-    protected string $baseUrl = 'https://graph.facebook.com/v19.0';
-    protected ?string $accessToken;
+    protected string $baseUrl;
+    protected string $accessToken;
+    protected string $adAccountId;
 
     public function __construct()
     {
-        $this->accessToken = config('services.meta.access_token');
+        $this->baseUrl = 'https://graph.facebook.com/' . config('services.meta.graph_version', 'v19.0');
+        $this->accessToken = config('services.meta.token');
+        $this->adAccountId = config('services.meta.ad_account_id');
+
+        if (empty($this->accessToken)) {
+            throw new \Exception('META_SYSTEM_USER_TOKEN is not configured.');
+        }
     }
 
-    /**
-     * Get Ad Accounts from Meta
-     */
+    protected function request(string $endpoint, array $params = []): array
+    {
+        $response = Http::timeout(20)
+            ->retry(2, 500)
+            ->get("{$this->baseUrl}/{$endpoint}", array_merge($params, [
+                'access_token' => $this->accessToken,
+            ]));
+
+        if ($response->failed()) {
+            Log::error('Meta API Error', [
+                'endpoint' => $endpoint,
+                'response' => $response->body(),
+            ]);
+
+            throw new \Exception(
+                $response->json()['error']['message'] ?? 'Meta API request failed.'
+            );
+        }
+
+        return $response->json();
+    }
+
     public function getAdAccounts(): array
     {
-        try {
-            $response = Http::get("{$this->baseUrl}/me/adaccounts", [
-                'access_token' => $this->accessToken,
-            ]);
+        return $this->request('me/adaccounts', [
+            'fields' => 'id,name,account_status,currency'
+        ]);
+    }
 
-            if ($response->failed()) {
-                Log::error('Meta API Error', [
-                    'response' => $response->body()
-                ]);
-
-                return [];
-            }
-
-            return $response->json();
-
-        } catch (\Exception $e) {
-
-            Log::error('MetaAdsService Exception', [
-                'error' => $e->getMessage()
-            ]);
-
-            return [];
-        }
+    public function getCampaigns(): array
+    {
+        return $this->request("{$this->adAccountId}/campaigns", [
+            'fields' => 'id,name,status,objective'
+        ]);
     }
 }

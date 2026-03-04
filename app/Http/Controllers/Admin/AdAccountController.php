@@ -11,63 +11,87 @@ use Illuminate\Support\Facades\Log;
 
 class AdAccountController extends Controller
 {
+    protected MetaAdsService $meta;
+
+    public function __construct(MetaAdsService $meta)
+    {
+        $this->meta = $meta;
+    }
+
     /**
-     * Display all ad accounts.
+     * Display all local ad accounts.
      */
     public function index()
     {
-        $accounts = AdAccount::latest()->get();
+        $accounts = AdAccount::latest()->paginate(20);
+
         return view('admin.accounts.index', compact('accounts'));
     }
 
     /**
-     * Sync ad accounts from Meta.
+     * Sync ad accounts from Meta Marketing API.
      */
     public function store(Request $request)
     {
         try {
 
-            $service = new MetaAdsService();
-            $response = $service->getAdAccounts();
+            $response = $this->meta->getAdAccounts();
 
-            if (!isset($response['data'])) {
-                return back()->withErrors(['meta' => 'Unable to fetch ad accounts']);
+            if (empty($response['data'])) {
+                return back()->withErrors([
+                    'meta' => 'Meta returned no ad accounts. Please verify permissions.'
+                ]);
             }
 
-            DB::beginTransaction();
+            DB::transaction(function () use ($response) {
 
-            foreach ($response['data'] as $account) {
+                foreach ($response['data'] as $account) {
 
-                AdAccount::updateOrCreate(
-                    ['meta_id' => $account['id']],
-                    [
-                        'name' => $account['name'] ?? 'Unknown',
-                        'currency' => $account['currency'] ?? 'CAD',
-                        'timezone' => $account['timezone_name'] ?? null,
-                        'status' => $account['account_status'] ?? 'UNKNOWN'
-                    ]
-                );
-            }
-
-            DB::commit();
+                    AdAccount::updateOrCreate(
+                        ['meta_id' => $account['id']],
+                        [
+                            'name'     => $account['name'] ?? 'Unknown',
+                            'currency' => $account['currency'] ?? null,
+                            'status'   => $account['account_status'] ?? null,
+                        ]
+                    );
+                }
+            });
 
             return back()->with('success', 'Ad accounts synced successfully.');
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
 
-            DB::rollBack();
-            Log::error('AdAccount Sync Failed', ['error' => $e->getMessage()]);
+            Log::error('Meta AdAccount Sync Failed', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
 
-            return back()->withErrors(['error' => 'Sync failed.']);
+            return back()->withErrors([
+                'meta' => 'Meta sync failed: ' . $e->getMessage()
+            ]);
         }
     }
 
     /**
-     * Delete local ad account (does NOT delete from Meta).
+     * Remove local ad account (does NOT affect Meta).
      */
     public function destroy(AdAccount $account)
     {
-        $account->delete();
-        return back()->with('success', 'Ad account removed locally.');
+        try {
+            $account->delete();
+
+            return back()->with('success', 'Ad account removed locally.');
+
+        } catch (\Throwable $e) {
+
+            Log::error('AdAccount Delete Failed', [
+                'message' => $e->getMessage()
+            ]);
+
+            return back()->withErrors([
+                'meta' => 'Unable to delete ad account.'
+            ]);
+        }
     }
 }

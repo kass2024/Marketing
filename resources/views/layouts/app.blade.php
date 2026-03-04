@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
 
-    <!-- Tailwind + Alpine (via Vite) -->
+    <!-- Tailwind + Alpine -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
     <style>
@@ -23,8 +23,13 @@
 
 <body class="font-sans antialiased bg-gray-100 text-gray-900">
 
-    {{-- Page Content --}}
-    {{ $slot }}
+    {{-- Support both Blade Components and Classic Layouts --}}
+
+    @isset($slot)
+        {{ $slot }}
+    @else
+        @yield('content')
+    @endisset
 
 </body>
 </html>

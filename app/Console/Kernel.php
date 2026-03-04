@@ -12,14 +12,11 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
+
         /*
         |--------------------------------------------------------------------------
-        | Unread WhatsApp Messages Report
+        | WhatsApp Unread Messages Report
         |--------------------------------------------------------------------------
-        | Sends admin all new unread incoming messages every 5 minutes.
-        | - Prevents overlapping
-        | - Runs in background
-        | - Safe for production
         */
 
         $schedule->command('report:unread-messages')
@@ -27,15 +24,49 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground();
 
+
         /*
         |--------------------------------------------------------------------------
-        | Optional Future Jobs (Examples)
+        | META ADS AUTO SYNC
         |--------------------------------------------------------------------------
-        |
-        | $schedule->command('queue:work --stop-when-empty')->everyMinute();
-        | $schedule->command('report:daily-summary')->dailyAt('18:00');
-        |
+        | Keeps Meta data fresh automatically
+        | Safe for production
         */
+
+        // Sync Ad Accounts
+        $schedule->command('meta:sync-accounts')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // Sync Campaigns
+        $schedule->command('meta:sync-campaigns')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // Sync Ads
+        $schedule->command('meta:sync-ads')
+            ->everyThirtyMinutes()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // Sync Insights / Analytics
+        $schedule->command('meta:sync-insights')
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Optional Future Jobs
+        |--------------------------------------------------------------------------
+        */
+
+        // $schedule->command('report:daily-summary')->dailyAt('18:00');
+        // $schedule->command('queue:work --stop-when-empty')->everyMinute();
+
     }
 
     /**
@@ -43,7 +74,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands(): void
     {
-        $this->load(__DIR__ . '/Commands');
+        $this->load(__DIR__.'/Commands');
 
         require base_path('routes/console.php');
     }

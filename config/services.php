@@ -41,6 +41,10 @@ return [
         'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
         'graph_url'     => env('META_GRAPH_URL', 'https://graph.facebook.com'),
         'oauth_url'     => env('META_OAUTH_URL', 'https://www.facebook.com'),
+         'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
+    'token' => env('META_SYSTEM_USER_TOKEN'),
+    'ad_account_id' => env('META_AD_ACCOUNT_ID'),
+    'refresh_before_days' => env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
 
         /*
         |--------------------------------------------------------------------------

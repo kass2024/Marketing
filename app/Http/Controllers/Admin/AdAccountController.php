@@ -47,12 +47,23 @@ class AdAccountController extends Controller
 
                 foreach ($response['data'] as $account) {
 
+                    // Convert Meta numeric status
+                    $statusMap = [
+                        1 => 'ACTIVE',
+                        2 => 'DISABLED',
+                        3 => 'UNSETTLED',
+                        7 => 'PENDING'
+                    ];
+
+                    $status = $statusMap[$account['account_status']] ?? 'UNKNOWN';
+
                     AdAccount::updateOrCreate(
                         ['meta_id' => $account['id']],
                         [
-                            'name'     => $account['name'] ?? 'Unknown',
+                            'ad_account_id' => $account['id'],
+                            'name' => $account['name'] ?? 'Unknown',
                             'currency' => $account['currency'] ?? null,
-                            'status'   => $account['account_status'] ?? null,
+                            'account_status' => $status
                         ]
                     );
                 }
@@ -64,7 +75,7 @@ class AdAccountController extends Controller
 
             Log::error('Meta AdAccount Sync Failed', [
                 'message' => $e->getMessage(),
-                'trace'   => $e->getTraceAsString(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return back()->withErrors([
@@ -79,6 +90,7 @@ class AdAccountController extends Controller
     public function destroy(AdAccount $account)
     {
         try {
+
             $account->delete();
 
             return back()->with('success', 'Ad account removed locally.');

@@ -144,15 +144,22 @@ class MetaAdsService
     }
 
     public function createCampaign(string $accountId, array $data): array
-    {
-        return $this->post("{$accountId}/campaigns", [
-            'name' => $data['name'],
-            'objective' => $data['objective'],
-            'status' => $data['status'] ?? 'PAUSED',
-            'daily_budget' => $data['daily_budget'],
-            'special_ad_categories' => []
-        ]);
-    }
+{
+    return $this->post("{$accountId}/campaigns", [
+
+        'name' => $data['name'],
+
+        'objective' => $data['objective'],
+
+        'status' => $data['status'] ?? 'PAUSED',
+
+        'daily_budget' => $data['daily_budget'],
+
+        // REQUIRED BY META
+        'special_ad_categories' => json_encode([])
+
+    ]);
+}
 
     public function pauseCampaign(string $campaignId): array
     {

@@ -18,9 +18,12 @@ class CampaignController extends Controller
         $this->meta = $meta;
     }
 
-    /**
-     * Display campaign list
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Campaign List
+    |--------------------------------------------------------------------------
+    */
+
     public function index()
     {
         $campaigns = Campaign::latest()->paginate(20);
@@ -28,14 +31,18 @@ class CampaignController extends Controller
         return view('admin.campaigns.index', compact('campaigns'));
     }
 
-    /**
-     * Show create campaign form
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Create Campaign Page
+    |--------------------------------------------------------------------------
+    */
+
     public function create()
     {
         $account = AdAccount::first();
 
         if (!$account) {
+
             return redirect()
                 ->route('admin.accounts.index')
                 ->withErrors([
@@ -46,14 +53,17 @@ class CampaignController extends Controller
         return view('admin.campaigns.create', compact('account'));
     }
 
-    /**
-     * Store campaign in Meta + Local DB
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Store Campaign
+    |--------------------------------------------------------------------------
+    */
+
     public function store(Request $request)
     {
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'objective' => 'required|string',
+            'objective' => 'required|in:OUTCOME_LEADS,OUTCOME_TRAFFIC,OUTCOME_ENGAGEMENT,OUTCOME_AWARENESS,OUTCOME_SALES',
             'daily_budget' => 'required|numeric|min:5'
         ]);
 
@@ -62,14 +72,34 @@ class CampaignController extends Controller
             $account = AdAccount::first();
 
             if (!$account) {
+
                 return back()->withErrors([
-                    'meta' => 'No ad account available.'
+                    'meta' => 'No ad account connected.'
                 ]);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Prevent duplicate campaign names
+            |--------------------------------------------------------------------------
+            */
+
+            if (Campaign::where('name', $data['name'])->exists()) {
+
+                return back()->withErrors([
+                    'name' => 'A campaign with this name already exists.'
+                ])->withInput();
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Create campaign in Meta
+            |--------------------------------------------------------------------------
+            */
+
             Log::info('Creating Meta Campaign', [
-                'account' => $account->meta_id,
-                'data' => $data
+                'ad_account' => $account->meta_id,
+                'payload' => $data
             ]);
 
             $response = $this->meta->createCampaign(
@@ -90,8 +120,14 @@ class CampaignController extends Controller
 
                 return back()->withErrors([
                     'meta' => $response['error']['message'] ?? 'Meta API failed to create campaign.'
-                ]);
+                ])->withInput();
             }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Save locally
+            |--------------------------------------------------------------------------
+            */
 
             $campaign = Campaign::create([
                 'ad_account_id' => $account->id,
@@ -113,50 +149,96 @@ class CampaignController extends Controller
 
         } catch (\Throwable $e) {
 
-            Log::error('Campaign Store Failed', [
-                'message' => $e->getMessage(),
+            Log::error('Campaign Creation Failed', [
+                'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
 
             return back()->withErrors([
                 'meta' => 'Unable to create campaign: ' . $e->getMessage()
-            ]);
+            ])->withInput();
         }
     }
 
-    /**
-     * Edit campaign
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Edit Campaign
+    |--------------------------------------------------------------------------
+    */
+
     public function edit(Campaign $campaign)
     {
         return view('admin.campaigns.edit', compact('campaign'));
     }
 
-    /**
-     * Update campaign locally
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Update Campaign
+    |--------------------------------------------------------------------------
+    */
+
     public function update(Request $request, Campaign $campaign)
     {
         $data = $request->validate([
             'name' => 'required|string|max:255',
             'daily_budget' => 'required|numeric|min:5',
-            'status' => 'required|string'
+            'status' => 'required|in:PAUSED,ACTIVE'
         ]);
 
-        $campaign->update([
-            'name' => $data['name'],
-            'daily_budget' => $data['daily_budget'] * 100,
-            'status' => $data['status']
-        ]);
+        try {
 
-        return redirect()
-            ->route('admin.campaigns.index')
-            ->with('success', 'Campaign updated.');
+            /*
+            |--------------------------------------------------------------------------
+            | Update locally
+            |--------------------------------------------------------------------------
+            */
+
+            $campaign->update([
+                'name' => $data['name'],
+                'daily_budget' => $data['daily_budget'] * 100,
+                'status' => $data['status']
+            ]);
+
+            /*
+            |--------------------------------------------------------------------------
+            | Sync status with Meta
+            |--------------------------------------------------------------------------
+            */
+
+            if ($campaign->meta_id) {
+
+                if ($data['status'] === 'ACTIVE') {
+
+                    $this->meta->activateCampaign($campaign->meta_id);
+
+                } else {
+
+                    $this->meta->pauseCampaign($campaign->meta_id);
+                }
+            }
+
+            return redirect()
+                ->route('admin.campaigns.index')
+                ->with('success', 'Campaign updated successfully.');
+
+        } catch (\Throwable $e) {
+
+            Log::error('Campaign Update Failed', [
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->withErrors([
+                'meta' => 'Unable to update campaign.'
+            ]);
+        }
     }
 
-    /**
-     * Delete campaign locally
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Delete Campaign
+    |--------------------------------------------------------------------------
+    */
+
     public function destroy(Campaign $campaign)
     {
         try {
@@ -173,7 +255,7 @@ class CampaignController extends Controller
         } catch (\Throwable $e) {
 
             Log::error('Campaign Delete Failed', [
-                'message' => $e->getMessage()
+                'error' => $e->getMessage()
             ]);
 
             return back()->withErrors([

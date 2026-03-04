@@ -24,13 +24,20 @@ class Conversation extends Model
         'status',                // bot | human | closed | escalated
         'assigned_agent_id',
 
-        // 🆕 Onboarding Fields
+        // Onboarding
         'customer_name',
         'customer_email',
         'is_profile_completed',
         'profile_step',
 
-        // Existing
+        // Ads Attribution (Enterprise)
+        'meta_campaign_id',
+        'meta_adset_id',
+        'meta_ad_id',
+        'source',                // organic | paid
+        'first_contact_at',
+
+        // System
         'last_activity_at',
         'last_message_at',
         'escalation_reason',
@@ -46,15 +53,31 @@ class Conversation extends Model
     */
 
     protected $casts = [
-        'metadata'            => 'array',
-        'last_activity_at'    => 'datetime',
-        'last_message_at'     => 'datetime',
-        'conversation_score'  => 'float',
-        'is_active'           => 'boolean',
-        'is_profile_completed'=> 'boolean',
-        'created_at'          => 'datetime',
-        'updated_at'          => 'datetime',
+        'metadata'              => 'array',
+        'last_activity_at'      => 'datetime',
+        'last_message_at'       => 'datetime',
+        'first_contact_at'      => 'datetime',
+        'conversation_score'    => 'float',
+        'is_active'             => 'boolean',
+        'is_profile_completed'  => 'boolean',
+        'created_at'            => 'datetime',
+        'updated_at'            => 'datetime',
     ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | DEFAULT VALUES
+    |--------------------------------------------------------------------------
+    */
+
+    protected static function booted()
+    {
+        static::creating(function ($conversation) {
+            $conversation->is_active ??= true;
+            $conversation->status ??= 'bot';
+            $conversation->source ??= 'organic';
+        });
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -113,7 +136,21 @@ class Conversation extends Model
         return $query->where('status', 'escalated');
     }
 
-    // 🆕 Onboarding scopes
+    public function scopeClosed(Builder $query)
+    {
+        return $query->where('status', 'closed');
+    }
+
+    public function scopePaid(Builder $query)
+    {
+        return $query->where('source', 'paid');
+    }
+
+    public function scopeOrganic(Builder $query)
+    {
+        return $query->where('source', 'organic');
+    }
+
     public function scopeProfileCompleted(Builder $query)
     {
         return $query->where('is_profile_completed', true);
@@ -126,7 +163,7 @@ class Conversation extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | HELPER METHODS
+    | STATUS MANAGEMENT
     |--------------------------------------------------------------------------
     */
 
@@ -162,6 +199,12 @@ class Conversation extends Model
         ]);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | ACTIVITY MANAGEMENT
+    |--------------------------------------------------------------------------
+    */
+
     public function updateActivity(): void
     {
         $this->update([
@@ -179,6 +222,29 @@ class Conversation extends Model
 
     /*
     |--------------------------------------------------------------------------
+    | ATTRIBUTION MANAGEMENT (Enterprise)
+    |--------------------------------------------------------------------------
+    */
+
+    public function assignAttribution(
+        ?string $campaignId,
+        ?string $adsetId,
+        ?string $adId,
+        string $source = 'organic'
+    ): void {
+        // First-touch protection
+        if ($this->source === 'organic' && $source === 'paid') {
+            $this->update([
+                'meta_campaign_id' => $campaignId,
+                'meta_adset_id'    => $adsetId,
+                'meta_ad_id'       => $adId,
+                'source'           => 'paid',
+            ]);
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | ONBOARDING HELPERS
     |--------------------------------------------------------------------------
     */
@@ -186,10 +252,10 @@ class Conversation extends Model
     public function completeProfile(string $name, string $email): void
     {
         $this->update([
-            'customer_name'       => $name,
-            'customer_email'      => strtolower($email),
-            'is_profile_completed'=> true,
-            'profile_step'        => 'completed',
+            'customer_name'        => $name,
+            'customer_email'       => strtolower($email),
+            'is_profile_completed' => true,
+            'profile_step'         => 'completed',
         ]);
     }
 
@@ -200,5 +266,26 @@ class Conversation extends Model
                 'profile_step' => 'ask_name'
             ]);
         }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ANALYTICS HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function isPaid(): bool
+    {
+        return $this->source === 'paid';
+    }
+
+    public function isBotHandled(): bool
+    {
+        return $this->status === 'bot';
+    }
+
+    public function isHumanHandled(): bool
+    {
+        return $this->status === 'human';
     }
 }

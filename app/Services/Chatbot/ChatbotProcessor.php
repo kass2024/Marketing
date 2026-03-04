@@ -33,23 +33,30 @@ class ChatbotProcessor
         $clientId  = $payload['client_id'] ?? null;
         $messageId = $payload['message_id'] ?? Str::uuid()->toString();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Ads Attribution (Enterprise)
+        |--------------------------------------------------------------------------
+        */
+        $metaCampaignId = $payload['meta_campaign_id'] ?? null;
+        $metaAdsetId    = $payload['meta_adset_id'] ?? null;
+        $metaAdId       = $payload['meta_ad_id'] ?? null;
+        $source         = $payload['source'] ?? 'organic';
+
         $this->log('START', compact(
             'clientId','phone','text','messageId'
         ), $requestId);
 
-        // ---------------- VALIDATION ----------------
         if (!$phone || !$text || !$clientId) {
             $this->log('INVALID PAYLOAD', $payload, $requestId);
             return null;
         }
 
-        // ---------------- IDEMPOTENCY ----------------
         if ($this->isDuplicate($messageId)) {
             $this->log('DUPLICATE BLOCKED', ['message_id' => $messageId], $requestId);
             return null;
         }
 
-        // ---------------- RATE LIMIT ----------------
         if (!$this->allowProcessing($clientId, $phone)) {
             $this->log('RATE LIMITED', compact('clientId','phone'), $requestId);
             return null;
@@ -61,6 +68,10 @@ class ChatbotProcessor
                 $clientId,
                 $phone,
                 $text,
+                $metaCampaignId,
+                $metaAdsetId,
+                $metaAdId,
+                $source,
                 $requestId
             ) {
 
@@ -76,17 +87,48 @@ class ChatbotProcessor
                         'phone_number' => $phone,
                     ],
                     [
-                        'status'           => 'bot',
-                        'last_activity_at' => now(),
-                        'is_profile_completed' => 0,
-                        'profile_step' => null
+                        'status'                => 'bot',
+                        'last_activity_at'      => now(),
+                        'is_profile_completed'  => 0,
+                        'profile_step'          => null,
+                        'meta_campaign_id'      => $metaCampaignId,
+                        'meta_adset_id'         => $metaAdsetId,
+                        'meta_ad_id'            => $metaAdId,
+                        'source'                => $source,
+                        'first_contact_at'      => now(),
                     ]
                 );
 
                 $this->log('CONVERSATION RESOLVED', [
                     'conversation_id' => $conversation->id,
-                    'status'          => $conversation->status
+                    'status'          => $conversation->status,
+                    'source'          => $conversation->source
                 ], $requestId);
+
+                /*
+                |--------------------------------------------------------------------------
+                | FIRST-TOUCH ATTRIBUTION PROTECTION
+                |--------------------------------------------------------------------------
+                | If conversation was organic but now paid,
+                | upgrade it ONCE.
+                */
+
+                if (
+                    $source === 'paid' &&
+                    $conversation->source === 'organic'
+                ) {
+                    $conversation->update([
+                        'meta_campaign_id' => $metaCampaignId,
+                        'meta_adset_id'    => $metaAdsetId,
+                        'meta_ad_id'       => $metaAdId,
+                        'source'           => 'paid'
+                    ]);
+
+                    $this->log('ATTRIBUTION UPDATED', [
+                        'conversation_id' => $conversation->id,
+                        'campaign_id'     => $metaCampaignId
+                    ], $requestId);
+                }
 
                 /*
                 |--------------------------------------------------------------------------
@@ -141,7 +183,7 @@ class ChatbotProcessor
 
                 /*
                 |--------------------------------------------------------------------------
-                | CALL AI ENGINE (UNCHANGED LOGIC)
+                | CALL AI ENGINE
                 |--------------------------------------------------------------------------
                 */
 
@@ -178,6 +220,7 @@ class ChatbotProcessor
 
                 $conversation->update([
                     'last_activity_at' => now(),
+                    'last_message_at'  => now(),
                 ]);
 
                 return $aiResponse;
@@ -198,7 +241,6 @@ class ChatbotProcessor
             ];
         }
     }
-
     /*
     |--------------------------------------------------------------------------
     | ONBOARDING FLOW

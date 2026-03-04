@@ -42,7 +42,6 @@ class MetaWebhookController extends Controller
         }
 
         Log::warning('Meta webhook verification failed');
-
         return response('Forbidden', 403);
     }
 
@@ -131,20 +130,48 @@ class MetaWebhookController extends Controller
                 continue;
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Ad Attribution Detection (Enterprise Upgrade)
+            |--------------------------------------------------------------------------
+            */
+            $referral = $incoming['referral'] ?? null;
+
+            $metaCampaignId = null;
+            $metaAdsetId    = null;
+            $metaAdId       = null;
+            $source         = 'organic';
+
+            if ($referral) {
+                $metaCampaignId = $referral['campaign_id'] ?? null;
+                $metaAdsetId    = $referral['adset_id'] ?? null;
+                $metaAdId       = $referral['ad_id'] ?? null;
+                $source         = 'paid';
+
+                Log::info('Ad referral detected', [
+                    'campaign_id' => $metaCampaignId,
+                    'adset_id'    => $metaAdsetId,
+                    'ad_id'       => $metaAdId,
+                ]);
+            }
+
             try {
 
                 $aiResponse = $this->processor->process([
-                    'from'       => $from,
-                    'text'       => $text,
-                    'client_id'  => $clientId,
-                    'message_id' => $messageId,
+                    'from'              => $from,
+                    'text'              => $text,
+                    'client_id'         => $clientId,
+                    'message_id'        => $messageId,
+                    'meta_campaign_id'  => $metaCampaignId,
+                    'meta_adset_id'     => $metaAdsetId,
+                    'meta_ad_id'        => $metaAdId,
+                    'source'            => $source,
                 ]);
 
                 if (empty($aiResponse) || empty($aiResponse['text'])) {
                     return;
                 }
 
-                // Send via dispatcher (structured payload)
                 $results = $this->dispatcher->send(
                     platform: $platform,
                     to: $from,
@@ -271,7 +298,6 @@ class MetaWebhookController extends Controller
         }
 
         Cache::put($key, true, now()->addMinutes(10));
-
         return false;
     }
 

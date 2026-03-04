@@ -24,9 +24,12 @@ class MetaAdsService
         }
     }
 
-    /**
-     * Generic request handler for Meta Graph API
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Generic GET Request
+    |--------------------------------------------------------------------------
+    */
+
     protected function request(string $endpoint, array $params = []): array
     {
         $response = Http::timeout(30)
@@ -51,9 +54,43 @@ class MetaAdsService
         return $response->json();
     }
 
-    /**
-     * Fetch ALL pages automatically
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Generic POST Request
+    |--------------------------------------------------------------------------
+    */
+
+    protected function post(string $endpoint, array $params = []): array
+    {
+        $response = Http::timeout(30)
+            ->retry(2, 500)
+            ->asForm()
+            ->post("{$this->baseUrl}/{$endpoint}", array_merge($params, [
+                'access_token' => $this->accessToken
+            ]));
+
+        if ($response->failed()) {
+
+            Log::error('Meta POST Error', [
+                'endpoint' => $endpoint,
+                'status' => $response->status(),
+                'response' => $response->body()
+            ]);
+
+            $error = $response->json()['error']['message'] ?? 'Meta API POST failed';
+
+            throw new \Exception($error);
+        }
+
+        return $response->json();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pagination handler
+    |--------------------------------------------------------------------------
+    */
+
     protected function fetchAllPages(string $endpoint, array $params = []): array
     {
         $results = [];
@@ -80,9 +117,12 @@ class MetaAdsService
         return ['data' => $results];
     }
 
-    /**
-     * Get all ad accounts
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Ad Accounts
+    |--------------------------------------------------------------------------
+    */
+
     public function getAdAccounts(): array
     {
         return $this->fetchAllPages('me/adaccounts', [
@@ -90,62 +130,184 @@ class MetaAdsService
         ]);
     }
 
-    /**
-     * Get campaigns
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Campaigns
+    |--------------------------------------------------------------------------
+    */
+
     public function getCampaigns(): array
     {
-        if (!$this->adAccountId) {
-            throw new \Exception('Meta ad_account_id not configured.');
-        }
-
         return $this->fetchAllPages("{$this->adAccountId}/campaigns", [
             'fields' => 'id,name,status,objective,daily_budget,lifetime_budget'
         ]);
     }
 
-    /**
-     * Get ad sets
-     */
-    public function getAdSets(): array
+    public function createCampaign(string $accountId, array $data): array
     {
-        if (!$this->adAccountId) {
-            throw new \Exception('Meta ad_account_id not configured.');
-        }
-
-        return $this->fetchAllPages("{$this->adAccountId}/adsets", [
-            'fields' => 'id,name,status,campaign_id,daily_budget,lifetime_budget'
+        return $this->post("{$accountId}/campaigns", [
+            'name' => $data['name'],
+            'objective' => $data['objective'],
+            'status' => $data['status'] ?? 'PAUSED',
+            'daily_budget' => $data['daily_budget'],
+            'special_ad_categories' => []
         ]);
     }
 
-    /**
-     * Get ads
-     */
+    public function pauseCampaign(string $campaignId): array
+    {
+        return $this->post($campaignId, [
+            'status' => 'PAUSED'
+        ]);
+    }
+
+    public function activateCampaign(string $campaignId): array
+    {
+        return $this->post($campaignId, [
+            'status' => 'ACTIVE'
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ad Sets (TARGETING)
+    |--------------------------------------------------------------------------
+    */
+
+    public function createAdSet(string $accountId, array $data): array
+    {
+        return $this->post("{$accountId}/adsets", [
+
+            'name' => $data['name'],
+
+            'campaign_id' => $data['campaign_id'],
+
+            'daily_budget' => $data['daily_budget'],
+
+            'billing_event' => 'IMPRESSIONS',
+
+            'optimization_goal' => 'LINK_CLICKS',
+
+            'targeting' => json_encode([
+
+                'geo_locations' => [
+                    'countries' => $data['countries'] ?? ['CA']
+                ],
+
+                'age_min' => $data['age_min'] ?? 18,
+                'age_max' => $data['age_max'] ?? 65,
+
+                'publisher_platforms' => [
+                    'facebook',
+                    'instagram',
+                    'messenger'
+                ]
+            ]),
+
+            'status' => 'PAUSED'
+        ]);
+    }
+
+    public function getAdSets(): array
+    {
+        return $this->fetchAllPages("{$this->adAccountId}/adsets", [
+            'fields' => 'id,name,status,campaign_id,daily_budget'
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Creatives
+    |--------------------------------------------------------------------------
+    */
+
+    public function createCreative(string $accountId, array $data): array
+    {
+        return $this->post("{$accountId}/adcreatives", [
+
+            'name' => $data['name'],
+
+            'object_story_spec' => json_encode([
+
+                'page_id' => $data['page_id'],
+
+                'link_data' => [
+
+                    'message' => $data['message'],
+
+                    'link' => $data['link'],
+
+                    'call_to_action' => [
+
+                        'type' => 'LEARN_MORE'
+
+                    ]
+                ]
+            ])
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ads
+    |--------------------------------------------------------------------------
+    */
+
+    public function createAd(string $accountId, array $data): array
+    {
+        return $this->post("{$accountId}/ads", [
+
+            'name' => $data['name'],
+
+            'adset_id' => $data['adset_id'],
+
+            'creative' => json_encode([
+                'creative_id' => $data['creative_id']
+            ]),
+
+            'status' => 'PAUSED'
+        ]);
+    }
+
     public function getAds(): array
     {
-        if (!$this->adAccountId) {
-            throw new \Exception('Meta ad_account_id not configured.');
-        }
-
         return $this->fetchAllPages("{$this->adAccountId}/ads", [
             'fields' => 'id,name,status,adset_id,creative'
         ]);
     }
 
-    /**
-     * Get insights (performance metrics)
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | Insights (Analytics)
+    |--------------------------------------------------------------------------
+    */
+
     public function getInsights(array $params = []): array
     {
-        if (!$this->adAccountId) {
-            throw new \Exception('Meta ad_account_id not configured.');
-        }
+        $default = [
 
-        $defaultParams = [
-            'fields' => 'campaign_name,impressions,clicks,spend,cpc,ctr',
+            'fields' => 'campaign_name,impressions,clicks,spend,cpc,ctr,reach',
+
             'date_preset' => 'last_30d'
+
         ];
 
-        return $this->fetchAllPages("{$this->adAccountId}/insights", array_merge($defaultParams, $params));
+        return $this->fetchAllPages(
+            "{$this->adAccountId}/insights",
+            array_merge($default, $params)
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Account Diagnostics
+    |--------------------------------------------------------------------------
+    */
+
+    public function getAccountStatus(): array
+    {
+        return $this->request($this->adAccountId, [
+            'fields' => 'account_status,spend_cap,balance'
+        ]);
     }
 }

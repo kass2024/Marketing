@@ -20,72 +20,118 @@ class AdController extends Controller
         $this->meta = $meta;
     }
 
-    /**
-     * List Ads
-     */
+    /*
+    |--------------------------------------------------------------------------
+    | List Ads
+    |--------------------------------------------------------------------------
+    */
+
     public function index()
     {
-        $ads = Ad::with(['adSet', 'creative'])
+        $ads = Ad::with([
+                'adSet.campaign',
+                'creative'
+            ])
             ->latest()
             ->paginate(20);
 
         return view('admin.ads.index', compact('ads'));
     }
 
-    /**
-     * Show Create Form
-     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Show Create Form
+    |--------------------------------------------------------------------------
+    */
+
     public function create()
     {
-        $adsets = AdSet::with('campaign.adAccount')->get();
-        $creatives = Creative::all();
+        $adsets = AdSet::with([
+                'campaign.adAccount'
+            ])
+            ->latest()
+            ->get();
+
+        $creatives = Creative::latest()->get();
 
         return view('admin.ads.create', compact('adsets', 'creatives'));
     }
 
-    /**
-     * Store New Ad (Meta + Local DB)
-     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Store Ad (Meta + Local DB)
+    |--------------------------------------------------------------------------
+    */
+
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'ad_set_id'  => 'required|exists:ad_sets,id',
-            'creative_id'=> 'required|exists:creatives,id',
-            'name'       => 'required|string|max:255'
+        $data = $request->validate([
+            'ad_set_id'   => 'required|exists:ad_sets,id',
+            'creative_id' => 'required|exists:creatives,id',
+            'name'        => 'required|string|max:255'
         ]);
 
         try {
 
-            return DB::transaction(function () use ($validated) {
+            return DB::transaction(function () use ($data) {
 
-                $adset = AdSet::with('campaign.adAccount')
-                    ->findOrFail($validated['ad_set_id']);
+                $adset = AdSet::with([
+                        'campaign.adAccount'
+                    ])
+                    ->findOrFail($data['ad_set_id']);
 
-                $creative = Creative::findOrFail($validated['creative_id']);
+                $creative = Creative::findOrFail($data['creative_id']);
+
+                /*
+                |--------------------------------------------------------------------------
+                | Validate Meta Sync
+                |--------------------------------------------------------------------------
+                */
 
                 if (!$adset->meta_id) {
-                    throw new \Exception('Selected AdSet is not synced with Meta.');
+                    throw new \Exception(
+                        'Selected AdSet is not synced with Meta.'
+                    );
                 }
 
                 if (!$creative->meta_id) {
-                    throw new \Exception('Selected Creative is not synced with Meta.');
+                    throw new \Exception(
+                        'Selected Creative is not synced with Meta.'
+                    );
                 }
 
                 if (!$adset->campaign || !$adset->campaign->adAccount) {
-                    throw new \Exception('AdSet missing Campaign or AdAccount relation.');
+                    throw new \Exception(
+                        'AdSet missing Campaign or AdAccount relation.'
+                    );
                 }
 
                 $adAccountMetaId = $adset->campaign->adAccount->meta_id;
 
                 if (!$adAccountMetaId) {
-                    throw new \Exception('AdAccount is not synced with Meta.');
+                    throw new \Exception(
+                        'AdAccount is not synced with Meta.'
+                    );
                 }
 
-                // Create Ad on Meta
+                /*
+                |--------------------------------------------------------------------------
+                | Create Ad on Meta
+                |--------------------------------------------------------------------------
+                */
+
+                Log::info('Creating Meta Ad', [
+                    'ad_account_meta_id' => $adAccountMetaId,
+                    'adset_meta_id' => $adset->meta_id,
+                    'creative_meta_id' => $creative->meta_id
+                ]);
+
                 $response = $this->meta->createAd(
                     $adAccountMetaId,
                     [
-                        'name' => $validated['name'],
+                        'name' => $data['name'],
                         'adset_id' => $adset->meta_id,
                         'creative' => [
                             'creative_id' => $creative->meta_id
@@ -95,18 +141,34 @@ class AdController extends Controller
                 );
 
                 if (empty($response['id'])) {
+
+                    Log::error('Meta Ad creation failed', [
+                        'response' => $response
+                    ]);
+
                     throw new \Exception(
-                        $response['error']['message'] ?? 'Meta Ad creation failed.'
+                        $response['error']['message'] ??
+                        'Meta Ad creation failed.'
                     );
                 }
 
-                // Save locally
-                Ad::create([
-                    'ad_set_id'  => $adset->id,
-                    'creative_id'=> $creative->id,
-                    'meta_id'    => $response['id'],
-                    'name'       => $validated['name'],
-                    'status'     => 'PAUSED'
+                /*
+                |--------------------------------------------------------------------------
+                | Save Local Ad
+                |--------------------------------------------------------------------------
+                */
+
+                $ad = Ad::create([
+                    'ad_set_id'   => $adset->id,
+                    'creative_id' => $creative->id,
+                    'meta_id'     => $response['id'],
+                    'name'        => $data['name'],
+                    'status'      => 'PAUSED'
+                ]);
+
+                Log::info('Ad created successfully', [
+                    'ad_id' => $ad->id,
+                    'meta_id' => $response['id']
                 ]);
 
                 return redirect()
@@ -126,6 +188,74 @@ class AdController extends Controller
                 ->withErrors([
                     'meta' => 'Ad creation failed: ' . $e->getMessage()
                 ]);
+        }
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Load Ads for AdSet (AJAX)
+    |--------------------------------------------------------------------------
+    */
+
+    public function byAdset(int $adsetId)
+    {
+        $ads = Ad::where('ad_set_id', $adsetId)
+            ->latest()
+            ->get();
+
+        return response()->json($ads);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Update Ad Status
+    |--------------------------------------------------------------------------
+    */
+
+    public function updateStatus(Request $request, Ad $ad)
+    {
+        $data = $request->validate([
+            'status' => 'required|string'
+        ]);
+
+        $ad->update([
+            'status' => $data['status']
+        ]);
+
+        return back()->with('success', 'Ad status updated.');
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Delete Ad
+    |--------------------------------------------------------------------------
+    */
+
+    public function destroy(Ad $ad)
+    {
+        try {
+
+            Log::info('Deleting Ad', [
+                'ad_id' => $ad->id,
+                'meta_id' => $ad->meta_id
+            ]);
+
+            $ad->delete();
+
+            return back()->with('success', 'Ad deleted.');
+
+        } catch (\Throwable $e) {
+
+            Log::error('Ad deletion failed', [
+                'message' => $e->getMessage()
+            ]);
+
+            return back()->withErrors([
+                'meta' => 'Unable to delete ad.'
+            ]);
         }
     }
 }

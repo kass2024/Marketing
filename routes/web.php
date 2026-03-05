@@ -12,6 +12,8 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\Admin\FaqController;
 use App\Http\Controllers\Admin\InboxController;
+use App\Http\Controllers\Admin\AdsManagerController;
+
 
 /* ================= CLIENT CONTROLLERS ================= */
 use App\Http\Controllers\Client\{
@@ -265,5 +267,22 @@ Route::middleware('auth')->group(function () {
         ->name('profile.destroy');
 });
 
+Route::prefix('admin')->name('admin.')->middleware(['auth'])->group(function () {
 
+    Route::resource('creatives', \App\Http\Controllers\Admin\CreativeController::class);
+
+});
+Route::get(
+'/admin/ads-manager',
+[\App\Http\Controllers\Admin\AdsManagerController::class,'index']
+)->name('admin.ads.manager');
+
+Route::get('/admin/ads-manager', [AdsManagerController::class,'index'])
+    ->name('admin.ads.manager');
+
+Route::get('/admin/campaign/{id}/adsets',
+    [AdsManagerController::class,'adsets']);
+
+Route::get('/admin/adset/{id}/ads',
+    [AdsManagerController::class,'ads']);
 require __DIR__.'/auth.php';

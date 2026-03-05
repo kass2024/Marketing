@@ -10,9 +10,13 @@ $unreadCount = \App\Models\Message::where('direction','incoming')
 
 <div 
 x-data="{
-    openAds: {{ str_contains($route,'admin.accounts') || str_contains($route,'admin.campaigns') || str_contains($route,'admin.ads') || str_contains($route,'admin.analytics') ? 'true':'false' }},
-    openSocial: {{ str_contains($route,'admin.instagram') || str_contains($route,'admin.messenger') || str_contains($route,'admin.whatsapp') ? 'true':'false' }},
-    openAutomation: {{ str_contains($route,'admin.chatbots') || str_contains($route,'admin.templates') || str_contains($route,'admin.leads') || str_contains($route,'admin.faq') || str_contains($route,'admin.inbox') ? 'true':'false' }}
+    openAds: {{ str_contains($route,'admin.accounts') 
+    || str_contains($route,'admin.campaigns')
+    || str_contains($route,'admin.adsets')
+    || str_contains($route,'admin.ads')
+    || str_contains($route,'admin.creatives')
+    || str_contains($route,'admin.analytics')
+    ? 'true':'false' }},
 }"
 class="min-h-screen bg-gray-100 font-sans">
 
@@ -47,43 +51,67 @@ class="min-h-screen bg-gray-100 font-sans">
         </a>
 
         {{-- ================= ADS ================= --}}
-        <div>
-            <button @click="openAds = !openAds"
-                class="w-full flex justify-between items-center px-4 py-3 rounded-xl font-semibold text-gray-800 hover:bg-gray-100 transition">
-                🎯 Ads Management
-                <svg :class="openAds ? 'rotate-90' : ''"
-                     class="w-4 h-4 transition-transform"
-                     fill="none" stroke="currentColor" stroke-width="2"
-                     viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                </svg>
-            </button>
+<div>
+    <button @click="openAds = !openAds"
+        class="w-full flex justify-between items-center px-4 py-3 rounded-xl font-semibold text-gray-800 hover:bg-gray-100 transition">
+        🎯 Ads Management
+        <svg :class="openAds ? 'rotate-90' : ''"
+             class="w-4 h-4 transition-transform"
+             fill="none" stroke="currentColor" stroke-width="2"
+             viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+        </svg>
+    </button>
 
-            <div x-show="openAds" x-transition class="pl-6 mt-2 space-y-2">
+    <div x-show="openAds" x-transition class="pl-6 mt-2 space-y-2">
 
-                <a href="{{ Route::has('admin.accounts.index') ? route('admin.accounts.index') : '#' }}"
-                   class="block py-2 px-3 rounded-lg hover:bg-gray-100 {{ str_contains($route,'admin.accounts')?'text-blue-600 font-semibold':'' }}">
-                    Ad Accounts
-                </a>
+        {{-- Ad Accounts --}}
+        <a href="{{ route('admin.accounts.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.accounts') ? 'text-blue-600 font-semibold' : '' }}">
+            Ad Accounts
+        </a>
 
-                <a href="{{ Route::has('admin.campaigns.index') ? route('admin.campaigns.index') : '#' }}"
-                   class="block py-2 px-3 rounded-lg hover:bg-gray-100 {{ str_contains($route,'admin.campaigns')?'text-blue-600 font-semibold':'' }}">
-                    Campaigns
-                </a>
+        {{-- Campaigns --}}
+        <a href="{{ route('admin.campaigns.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.campaigns') ? 'text-blue-600 font-semibold' : '' }}">
+            Campaigns
+        </a>
 
-                <a href="{{ Route::has('admin.ads.index') ? route('admin.ads.index') : '#' }}"
-                   class="block py-2 px-3 rounded-lg hover:bg-gray-100 {{ str_contains($route,'admin.ads')?'text-blue-600 font-semibold':'' }}">
-                    Ads & Creatives
-                </a>
+        {{-- Ad Sets --}}
+        <a href="{{ route('admin.adsets.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.adsets') ? 'text-blue-600 font-semibold' : '' }}">
+            Ad Sets
+        </a>
 
-                <a href="{{ Route::has('admin.analytics.index') ? route('admin.analytics.index') : '#' }}"
-                   class="block py-2 px-3 rounded-lg hover:bg-gray-100 {{ str_contains($route,'admin.analytics')?'text-blue-600 font-semibold':'' }}">
-                    Insights & Reports
-                </a>
+        {{-- Ads --}}
+        <a href="{{ route('admin.ads.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.ads') ? 'text-blue-600 font-semibold' : '' }}">
+            Ads
+        </a>
 
-            </div>
-        </div>
+        {{-- Creatives --}}
+        <a href="{{ route('admin.creatives.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.creatives') ? 'text-blue-600 font-semibold' : '' }}">
+            Creatives
+        </a>
 
+        {{-- Analytics --}}
+        <a href="{{ route('admin.analytics.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.analytics') ? 'text-blue-600 font-semibold' : '' }}">
+            Insights & Reports
+        </a>
+<a href="{{ route('admin.ads.manager') }}"
+class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100">
+📢 Ads Manager
+</a>
+    </div>
+</div>
         {{-- ================= SOCIAL ================= --}}
         <div>
             <button @click="openSocial = !openSocial"

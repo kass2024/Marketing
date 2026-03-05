@@ -91,15 +91,30 @@
 
                     {{-- BID STRATEGY --}}
                     <div>
-                        <label class="font-semibold block mb-2 text-gray-700">
-                            Bid Strategy
-                        </label>
-                        <select name="bid_strategy" id="bid-strategy" class="w-full border rounded-xl px-4 py-3 bg-white">
-                            <option value="lowest_cost_without_cap">Lowest Cost (No Cap)</option>
-                            <option value="lowest_cost_with_bid_cap">Lowest Cost (With Bid Cap)</option>
-                            <option value="cost_cap">Cost Cap</option>
-                        </select>
-                    </div>
+    <label class="font-semibold block mb-2 text-gray-700">
+        Bid Strategy
+    </label>
+
+    <select name="bid_strategy" id="bid-strategy"
+        class="w-full border rounded-xl px-4 py-3 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+
+        <option value="LOWEST_COST_WITHOUT_CAP"
+            {{ old('bid_strategy') == 'LOWEST_COST_WITHOUT_CAP' ? 'selected' : '' }}>
+            Lowest Cost (No Cap)
+        </option>
+
+        <option value="LOWEST_COST_WITH_BID_CAP"
+            {{ old('bid_strategy') == 'LOWEST_COST_WITH_BID_CAP' ? 'selected' : '' }}>
+            Lowest Cost (With Bid Cap)
+        </option>
+
+        <option value="COST_CAP"
+            {{ old('bid_strategy') == 'COST_CAP' ? 'selected' : '' }}>
+            Cost Cap
+        </option>
+
+    </select>
+</div>
 
                     {{-- OPTIMIZATION GOAL --}}
                     <div>

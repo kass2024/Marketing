@@ -686,20 +686,6 @@ if (!empty($data['interests'])) {
             $targeting['flexible_spec'] = $flexibleSpec;
         }
 
-        // Handle raw flexible spec if provided
-        if (!empty($data['flexible_spec'])) {
-            $decoded = json_decode($data['flexible_spec'], true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                $targeting['flexible_spec'] = $decoded;
-            }
-        }
-
-        if (!empty($data['flexible_spec_json'])) {
-            $decoded = json_decode($data['flexible_spec_json'], true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                $targeting['flexible_spec'] = $decoded;
-            }
-        }
 
         /**
          * CONNECTIONS

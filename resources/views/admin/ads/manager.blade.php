@@ -2,46 +2,45 @@
 
 @section('content')
 
-<div class="max-w-7xl mx-auto space-y-8">
+<div class="max-w-7xl mx-auto space-y-6">
 
-{{-- ================= HEADER ================= --}}
-<div class="flex justify-between items-center">
+{{-- HEADER --}}
+<div class="flex justify-between items-center flex-wrap gap-4">
 
 <div>
-<h1 class="text-3xl font-bold text-gray-900">
+<h1 class="text-2xl font-semibold text-gray-900">
 Ads Manager
 </h1>
 
-<p class="text-sm text-gray-500 mt-1">
+<p class="text-sm text-gray-500">
 Manage Campaigns, Ad Sets and Ads in one workspace.
 </p>
 </div>
 
-<div class="flex gap-3">
+<div class="flex gap-3 flex-wrap">
 
 <a href="{{ route('admin.campaigns.create') }}"
 class="bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700">
 + Campaign
 </a>
 
-<button
-class="bg-green-600 text-white px-4 py-2 rounded-lg shadow opacity-70 cursor-not-allowed">
+<a id="createAdSetBtn"
+class="bg-green-600 text-white px-4 py-2 rounded-lg shadow opacity-50 cursor-not-allowed pointer-events-none">
 + Ad Set
-</button>
+</a>
 
-<button
-class="bg-purple-600 text-white px-4 py-2 rounded-lg shadow opacity-70 cursor-not-allowed">
+<a id="createAdBtn"
+class="bg-purple-600 text-white px-4 py-2 rounded-lg shadow opacity-50 cursor-not-allowed pointer-events-none">
 + Ad
-</button>
+</a>
 
 </div>
 
 </div>
 
 
-
-{{-- ================= FILTER BAR ================= --}}
-<div class="flex items-center justify-between bg-white p-4 rounded-xl shadow">
+{{-- FILTER BAR --}}
+<div class="flex justify-between items-center bg-white p-4 rounded-xl shadow flex-wrap gap-3">
 
 <div class="flex gap-3">
 
@@ -49,7 +48,6 @@ class="bg-purple-600 text-white px-4 py-2 rounded-lg shadow opacity-70 cursor-no
 <option>All Campaigns</option>
 <option>Active</option>
 <option>Paused</option>
-<option>Completed</option>
 </select>
 
 <select class="border rounded-lg px-3 py-2 text-sm">
@@ -68,7 +66,7 @@ class="bg-purple-600 text-white px-4 py-2 rounded-lg shadow opacity-70 cursor-no
 
 
 
-{{-- ================= CAMPAIGNS ================= --}}
+{{-- CAMPAIGNS --}}
 <div class="bg-white rounded-xl shadow overflow-hidden">
 
 <div class="p-4 border-b font-semibold">
@@ -80,10 +78,7 @@ Campaigns
 <thead class="bg-gray-50 text-gray-600">
 
 <tr>
-<th class="p-3 w-10">
-<input type="checkbox">
-</th>
-
+<th class="p-3 w-10"><input type="checkbox"></th>
 <th class="text-left">Campaign</th>
 <th>Objective</th>
 <th>Budget</th>
@@ -101,9 +96,8 @@ Campaigns
 @foreach($campaigns as $campaign)
 
 <tr
-class="border-t hover:bg-gray-50 cursor-pointer campaign-row"
-data-id="{{ $campaign->id }}"
->
+class="border-t hover:bg-blue-50 cursor-pointer campaign-row"
+data-id="{{ $campaign->id }}">
 
 <td class="p-3">
 <input type="checkbox" onclick="event.stopPropagation()">
@@ -113,9 +107,7 @@ data-id="{{ $campaign->id }}"
 {{ $campaign->name }}
 </td>
 
-<td>
-{{ $campaign->objective }}
-</td>
+<td>{{ $campaign->objective }}</td>
 
 <td>
 ${{ number_format(($campaign->daily_budget ?? 0) / 100,2) }}
@@ -130,8 +122,7 @@ bg-green-100 text-green-700
 bg-yellow-100 text-yellow-700
 @else
 bg-gray-100 text-gray-700
-@endif
-">
+@endif">
 
 {{ $campaign->status }}
 
@@ -163,38 +154,77 @@ Edit
 
 
 
-{{-- ================= ADSETS SECTION ================= --}}
+{{-- ADSETS --}}
 <div id="adsets-container"></div>
 
 
 
-{{-- ================= ADS SECTION ================= --}}
+{{-- ADS --}}
 <div id="ads-container"></div>
 
 </div>
 
 
 
-{{-- ================= SCRIPT ================= --}}
 <script>
+
+let selectedCampaign = null;
+let selectedAdset = null;
 
 const adsetsContainer = document.getElementById('adsets-container');
 const adsContainer = document.getElementById('ads-container');
 
+const adsetBtn = document.getElementById('createAdSetBtn');
+const adBtn = document.getElementById('createAdBtn');
+
 
 /*
 |--------------------------------------------------------------------------
-| Campaign Click
+| CAMPAIGN CLICK
 |--------------------------------------------------------------------------
 */
 
 document.addEventListener('click', function(e){
 
 const row = e.target.closest('.campaign-row');
-
 if(!row) return;
 
-const campaignId = row.dataset.id;
+document.querySelectorAll('.campaign-row').forEach(r=>r.classList.remove('bg-blue-100'));
+
+row.classList.add('bg-blue-100');
+
+selectedCampaign = row.dataset.id;
+
+enableAdSetButton();
+
+loadAdsets(selectedCampaign);
+
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| ENABLE ADSET BUTTON
+|--------------------------------------------------------------------------
+*/
+
+function enableAdSetButton(){
+
+adsetBtn.classList.remove('opacity-50','cursor-not-allowed','pointer-events-none');
+
+adsetBtn.href = `/admin/campaigns/${selectedCampaign}/adsets/create`;
+
+}
+
+
+
+/*
+|--------------------------------------------------------------------------
+| LOAD ADSETS
+|--------------------------------------------------------------------------
+*/
+
+function loadAdsets(campaignId){
 
 adsetsContainer.innerHTML =
 `<div class="p-6 text-gray-500">Loading Ad Sets...</div>`;
@@ -204,24 +234,27 @@ adsContainer.innerHTML = '';
 fetch(`/admin/campaigns/${campaignId}/adsets`)
 .then(res => res.json())
 .then(renderAdsets)
-.catch(() => {
+.catch(()=>{
+
 adsetsContainer.innerHTML =
 `<div class="p-6 text-red-500">Failed to load Ad Sets</div>`;
-});
 
 });
+
+}
+
 
 
 /*
 |--------------------------------------------------------------------------
-| Render AdSets
+| RENDER ADSETS
 |--------------------------------------------------------------------------
 */
 
 function renderAdsets(adsets){
 
 let html = `
-<div class="bg-white rounded-xl shadow mt-8 overflow-hidden">
+<div class="bg-white rounded-xl shadow mt-6 overflow-hidden">
 
 <div class="p-4 border-b font-semibold">
 Ad Sets
@@ -252,17 +285,14 @@ No Ad Sets found
 
 }
 
-adsets.forEach(adset => {
+adsets.forEach(adset=>{
 
 html += `
-<tr
-class="border-t hover:bg-gray-50 cursor-pointer adset-row"
+<tr class="border-t hover:bg-blue-50 cursor-pointer adset-row"
 data-id="${adset.id}">
 
 <td>${adset.name}</td>
-
 <td>$${(adset.daily_budget / 100).toFixed(2)}</td>
-
 <td>${adset.status}</td>
 
 </tr>
@@ -270,11 +300,7 @@ data-id="${adset.id}">
 
 });
 
-html += `
-</tbody>
-</table>
-</div>
-`;
+html += `</tbody></table></div>`;
 
 adsetsContainer.innerHTML = html;
 
@@ -284,44 +310,79 @@ adsetsContainer.innerHTML = html;
 
 /*
 |--------------------------------------------------------------------------
-| AdSet Click
+| ADSET CLICK
 |--------------------------------------------------------------------------
 */
 
 document.addEventListener('click', function(e){
 
 const row = e.target.closest('.adset-row');
-
 if(!row) return;
 
-const adsetId = row.dataset.id;
+document.querySelectorAll('.adset-row').forEach(r=>r.classList.remove('bg-blue-100'));
 
-adsContainer.innerHTML =
-`<div class="p-6 text-gray-500">Loading Ads...</div>`;
+row.classList.add('bg-blue-100');
 
-fetch(`/admin/adsets/${adsetId}/ads`)
-.then(res => res.json())
-.then(renderAds)
-.catch(() => {
+selectedAdset = row.dataset.id;
 
-adsContainer.innerHTML =
-`<div class="p-6 text-red-500">Failed to load Ads</div>`;
+enableAdButton();
 
-});
+loadAds(selectedAdset);
 
 });
 
 
 /*
 |--------------------------------------------------------------------------
-| Render Ads
+| ENABLE AD BUTTON
+|--------------------------------------------------------------------------
+*/
+
+function enableAdButton(){
+
+adBtn.classList.remove('opacity-50','cursor-not-allowed','pointer-events-none');
+
+adBtn.href = `/admin/adsets/${selectedAdset}/ads/create`;
+
+}
+
+
+
+/*
+|--------------------------------------------------------------------------
+| LOAD ADS
+|--------------------------------------------------------------------------
+*/
+
+function loadAds(adsetId){
+
+adsContainer.innerHTML =
+`<div class="p-6 text-gray-500">Loading Ads...</div>`;
+
+fetch(`/admin/adsets/${adsetId}/ads`)
+.then(res=>res.json())
+.then(renderAds)
+.catch(()=>{
+
+adsContainer.innerHTML =
+`<div class="p-6 text-red-500">Failed to load Ads</div>`;
+
+});
+
+}
+
+
+
+/*
+|--------------------------------------------------------------------------
+| RENDER ADS
 |--------------------------------------------------------------------------
 */
 
 function renderAds(ads){
 
 let html = `
-<div class="bg-white rounded-xl shadow mt-8 overflow-hidden">
+<div class="bg-white rounded-xl shadow mt-6 overflow-hidden">
 
 <div class="p-4 border-b font-semibold">
 Ads
@@ -354,19 +415,15 @@ No Ads found
 
 }
 
-ads.forEach(ad => {
+ads.forEach(ad=>{
 
 html += `
 <tr class="border-t">
 
 <td>${ad.name}</td>
-
 <td>${ad.status}</td>
-
 <td>${ad.impressions ?? 0}</td>
-
 <td>${ad.clicks ?? 0}</td>
-
 <td>$${parseFloat(ad.spend ?? 0).toFixed(2)}</td>
 
 </tr>
@@ -374,11 +431,7 @@ html += `
 
 });
 
-html += `
-</tbody>
-</table>
-</div>
-`;
+html += `</tbody></table></div>`;
 
 adsContainer.innerHTML = html;
 

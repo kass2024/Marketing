@@ -163,20 +163,20 @@
                         </div>
                     </div>
 
-                    {{-- STATUS --}}
-                    <div>
-                        <label class="font-semibold block mb-2 text-gray-700">Initial Status</label>
-                        <div class="flex space-x-4">
-                            <label class="flex items-center space-x-2">
-                                <input type="radio" name="status" value="active" checked class="text-blue-600">
-                                <span>Active (Start immediately)</span>
-                            </label>
-                            <label class="flex items-center space-x-2">
-                                <input type="radio" name="status" value="paused" class="text-blue-600">
-                                <span>Paused (Create but don't run)</span>
-                            </label>
-                        </div>
-                    </div>
+                  {{-- STATUS --}}
+<div>
+    <label class="font-semibold block mb-2 text-gray-700">Initial Status</label>
+    <div class="flex space-x-4">
+        <label class="flex items-center space-x-2">
+            <input type="radio" name="status" value="ACTIVE" checked class="text-blue-600">
+            <span>Active (Start immediately)</span>
+        </label>
+        <label class="flex items-center space-x-2">
+            <input type="radio" name="status" value="PAUSED" class="text-blue-600">
+            <span>Paused (Create but don't run)</span>
+        </label>
+    </div>
+</div>
 
                     {{-- PROMOTED OBJECT --}}
                     <div class="border rounded-xl p-4 bg-gray-50">

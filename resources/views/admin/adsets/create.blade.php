@@ -4,22 +4,81 @@
 
 <link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
 
-<div class="max-w-4xl mx-auto">
+<div class="max-w-5xl mx-auto space-y-8">
 
+{{-- HEADER --}}
+<div class="flex justify-between items-center">
+
+<div>
+<h1 class="text-3xl font-bold text-gray-900">
+Create Ad Set
+</h1>
+
+<p class="text-sm text-gray-500">
+Configure targeting and delivery for your campaign.
+</p>
+</div>
+
+<a href="{{ route('admin.adsets.index') }}"
+class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700">
+Back
+</a>
+
+</div>
+
+
+
+{{-- FORM CARD --}}
 <div class="bg-white shadow rounded-2xl p-10">
 
-<h2 class="text-2xl font-bold mb-6">
-Create Ad Set for: {{ $campaign->name }}
-</h2>
+@if($errors->any())
+<div class="mb-6 bg-red-50 border border-red-200 text-red-600 p-4 rounded-lg">
+<ul class="list-disc pl-5">
+@foreach ($errors->all() as $error)
+<li>{{ $error }}</li>
+@endforeach
+</ul>
+</div>
+@endif
+
 
 <form method="POST" action="{{ route('admin.adsets.store') }}">
 @csrf
 
-<input type="hidden" name="campaign_id" value="{{ $campaign->id }}">
+
+{{-- CAMPAIGN --}}
+<div class="mb-6">
+
+<label class="font-semibold block mb-2">
+Campaign
+</label>
+
+<select
+name="campaign_id"
+id="campaign-select"
+class="w-full border rounded-xl px-4 py-3"
+required
+>
+
+<option value="">Select Campaign</option>
+
+@foreach($campaigns as $campaign)
+
+<option value="{{ $campaign->id }}">
+{{ $campaign->name }}
+</option>
+
+@endforeach
+
+</select>
+
+</div>
+
 
 
 {{-- NAME --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">
 Ad Set Name
 </label>
@@ -30,11 +89,14 @@ name="name"
 class="w-full border rounded-xl px-4 py-3"
 required
 >
+
 </div>
+
 
 
 {{-- BUDGET --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">
 Daily Budget (CAD)
 </label>
@@ -45,35 +107,47 @@ name="daily_budget"
 class="w-full border rounded-xl px-4 py-3"
 required
 >
+
 </div>
+
 
 
 {{-- AGE --}}
 <div class="grid grid-cols-2 gap-6 mb-6">
 
 <div>
-<label class="font-semibold block mb-2">Age Min</label>
+
+<label class="font-semibold block mb-2">
+Age Min
+</label>
 
 <input
 type="number"
 name="age_min"
 class="w-full border rounded-xl px-4 py-3"
-value="22"
+value="18"
 >
+
 </div>
 
+
 <div>
-<label class="font-semibold block mb-2">Age Max</label>
+
+<label class="font-semibold block mb-2">
+Age Max
+</label>
 
 <input
 type="number"
 name="age_max"
 class="w-full border rounded-xl px-4 py-3"
-value="45"
+value="65"
 >
+
 </div>
 
 </div>
+
 
 
 {{-- GENDER --}}
@@ -98,6 +172,7 @@ class="w-full border rounded-xl px-4 py-3"
 </div>
 
 
+
 {{-- COUNTRIES --}}
 <div class="mb-6">
 
@@ -110,6 +185,7 @@ name="countries[]"
 multiple
 id="country-select"
 class="w-full border rounded-xl px-4 py-3"
+required
 >
 
 @foreach($countries as $code => $country)
@@ -123,27 +199,29 @@ class="w-full border rounded-xl px-4 py-3"
 </select>
 
 <p class="text-sm text-gray-500 mt-2">
-Select one or more countries for your audience.
+Select one or more countries.
 </p>
 
 </div>
+
 
 
 {{-- INTERESTS --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">
-Interests
+Audience Interests
 </label>
 
 <input
 type="text"
 name="interests"
-placeholder="study abroad, university, scholarships"
+placeholder="study abroad, scholarships, university"
 class="w-full border rounded-xl px-4 py-3"
 >
 
 </div>
+
 
 
 {{-- PLACEMENTS --}}
@@ -170,6 +248,7 @@ class="w-full border rounded-xl px-4 py-3"
 </div>
 
 
+
 {{-- DEVICES --}}
 <div class="mb-6">
 
@@ -192,6 +271,7 @@ class="w-full border rounded-xl px-4 py-3"
 </div>
 
 
+
 <div class="flex justify-end">
 
 <button
@@ -210,14 +290,18 @@ Create Ad Set
 </div>
 
 
+
+{{-- TOMSELECT --}}
 <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
 
 <script>
 
+new TomSelect("#campaign-select");
+
 new TomSelect("#country-select",{
 plugins:['remove_button'],
 maxItems:null,
-placeholder:'Select countries...'
+placeholder:'Select countries'
 });
 
 new TomSelect("#gender-select",{

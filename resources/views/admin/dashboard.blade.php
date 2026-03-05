@@ -11,12 +11,24 @@ $unreadCount = \App\Models\Message::where('direction','incoming')
 <div 
 x-data="{
     openAds: {{ str_contains($route,'admin.accounts') 
-    || str_contains($route,'admin.campaigns')
-    || str_contains($route,'admin.adsets')
-    || str_contains($route,'admin.ads')
-    || str_contains($route,'admin.creatives')
-    || str_contains($route,'admin.analytics')
-    ? 'true':'false' }},
+        || str_contains($route,'admin.campaigns')
+        || str_contains($route,'admin.adsets')
+        || str_contains($route,'admin.ads')
+        || str_contains($route,'admin.creatives')
+        || str_contains($route,'admin.analytics')
+        ? 'true':'false' }},
+
+    openSocial: {{ str_contains($route,'admin.instagram')
+        || str_contains($route,'admin.messenger')
+        || str_contains($route,'admin.whatsapp')
+        ? 'true':'false' }},
+
+    openAutomation: {{ str_contains($route,'admin.inbox')
+        || str_contains($route,'admin.chatbots')
+        || str_contains($route,'admin.faq')
+        || str_contains($route,'admin.templates')
+        || str_contains($route,'admin.leads')
+        ? 'true':'false' }},
 }"
 class="min-h-screen bg-gray-100 font-sans">
 

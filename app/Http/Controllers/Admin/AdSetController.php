@@ -22,6 +22,21 @@ class AdSetController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | List Ad Sets
+    |--------------------------------------------------------------------------
+    */
+
+    public function index()
+    {
+        $adsets = AdSet::with('campaign')
+            ->latest()
+            ->paginate(20);
+
+        return view('admin.adsets.index', compact('adsets'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Create AdSet Form
     |--------------------------------------------------------------------------
     */
@@ -42,9 +57,7 @@ class AdSetController extends Controller
             ]);
         }
 
-        return view('admin.adsets.create', [
-            'campaign' => $campaign
-        ]);
+        return view('admin.adsets.create', compact('campaign'));
     }
 
     /*
@@ -56,10 +69,8 @@ class AdSetController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-
             'campaign_id'   => 'required|exists:campaigns,id',
             'name'          => 'required|string|max:255',
-
             'daily_budget'  => 'required|numeric|min:5',
 
             'age_min'       => 'required|integer|min:18|max:65',
@@ -128,12 +139,6 @@ class AdSetController extends Controller
                 $targeting['device_platforms'] = $data['devices'];
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Interests Parsing
-            |--------------------------------------------------------------------------
-            */
-
             if (!empty($data['interests'])) {
 
                 $interests = array_map(
@@ -201,7 +206,7 @@ class AdSetController extends Controller
                 'optimization_goal' => 'REACH',
                 'billing_event'     => 'IMPRESSIONS',
 
-                'targeting'         => $targeting,
+                'targeting'         => json_encode($targeting),
 
                 'status'            => 'PAUSED'
             ]);
@@ -219,7 +224,9 @@ class AdSetController extends Controller
 
         } catch (\Throwable $e) {
 
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
 
             Log::error('AdSet Creation Failed', [
                 'error' => $e->getMessage(),

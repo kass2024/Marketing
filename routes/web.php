@@ -498,7 +498,8 @@ Route::middleware(['auth','verified','role:admin'])
 
     });
 
-
+Route::get('/admin/meta/interests', [\App\Http\Controllers\Admin\MetaTargetingController::class, 'searchInterests'])
+    ->name('admin.meta.interests');
 
 /*
 |--------------------------------------------------------------------------

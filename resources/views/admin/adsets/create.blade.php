@@ -385,16 +385,7 @@
                         </div>
                     </div>
 
-                    {{-- FLEXIBLE SPEC --}}
-                    <div class="md:col-span-2">
-                        <label class="font-semibold block mb-2 text-gray-700">
-                            Flexible Targeting (JSON)
-                        </label>
-                        <textarea name="flexible_spec" id="flexible-spec" rows="2" class="w-full border border-gray-300 rounded-xl px-4 py-3 font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                  placeholder='{"interests":[{"id":"6003139266461","name":"Study abroad"}]}'>{{ old('flexible_spec', '{"interests":[]}') }}</textarea>
-                        <p class="text-sm text-gray-500 mt-2">Advanced: Raw targeting JSON for Meta API - Must be valid JSON object</p>
-                        <p class="text-xs text-red-500 mt-1 hidden" id="json-error">Invalid JSON format</p>
-                    </div>
+            
 
                     {{-- HIDDEN TARGETING FIELD (optional, can be removed if not needed) --}}
                     {{-- <input type="hidden" name="targeting_json" id="targeting-json"> --}}
@@ -779,27 +770,6 @@ const interestSelect = new TomSelect("#interest-select", {
             });
         }
 
-        // JSON validation for flexible spec
-        const flexibleSpec = document.getElementById('flexible-spec');
-        const jsonError = document.getElementById('json-error');
-        
-        if (flexibleSpec) {
-            flexibleSpec.addEventListener('input', function() {
-                try {
-                    if (this.value.trim()) {
-                        JSON.parse(this.value);
-                        this.classList.remove('border-red-500');
-                        jsonError.classList.add('hidden');
-                    } else {
-                        this.classList.remove('border-red-500');
-                        jsonError.classList.add('hidden');
-                    }
-                } catch (e) {
-                    this.classList.add('border-red-500');
-                    jsonError.classList.remove('hidden');
-                }
-            });
-        }
     });
 </script>
 

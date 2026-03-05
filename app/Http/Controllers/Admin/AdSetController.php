@@ -12,6 +12,7 @@ use App\Models\AdSet;
 use App\Models\AdAccount;
 use App\Services\MetaAdsService;
 use Carbon\Carbon;
+use Exception;
 
 class AdSetController extends Controller
 {
@@ -25,6 +26,7 @@ class AdSetController extends Controller
     const PUBLISHER_PLATFORMS = ['facebook', 'instagram', 'messenger', 'audience_network'];
     const DEVICE_PLATFORMS = ['mobile', 'desktop'];
     const GENDERS = [1 => 'male', 2 => 'female', 3 => 'unknown'];
+    const VALID_PLACEMENTS = ['feed', 'story', 'marketplace', 'video_feeds', 'right_column', 'instant_article', 'in_stream', 'stream', 'explore', 'reels', 'shop', 'messenger_home', 'sponsored_messages', 'inbox', 'native', 'banner', 'interstitial', 'rewarded_video'];
     
     // Location types mapping
     const LOCATION_TYPES = [
@@ -33,6 +35,12 @@ class AdSetController extends Controller
         'recent' => ['recent'],
         'traveling' => ['travel_in']
     ];
+
+    // Audience size thresholds
+    const AUDIENCE_SIZE_MIN = 1000;
+    const AUDIENCE_SIZE_WARNING = 20000;
+    const AUDIENCE_SIZE_GOOD = 100000;
+    const AUDIENCE_SIZE_GREAT = 1000000;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -44,32 +52,38 @@ class AdSetController extends Controller
      */
     public function index(Request $request)
     {
-        $query = AdSet::with('campaign');
+        try {
+            $query = AdSet::with('campaign');
 
-        if ($request->filled('campaign_id')) {
-            $query->where('campaign_id', $request->campaign_id);
+            if ($request->filled('campaign_id')) {
+                $query->where('campaign_id', $request->campaign_id);
+            }
+
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            }
+
+            if ($request->filled('search')) {
+                $query->where('name', 'like', '%' . $request->search . '%');
+            }
+
+            $adsets = $query->latest()->paginate(20);
+            
+            $campaigns = Campaign::orderBy('name')->get(['id', 'name']);
+            
+            $stats = [
+                'total' => AdSet::count(),
+                'active' => AdSet::where('status', 'ACTIVE')->count(),
+                'paused' => AdSet::where('status', 'PAUSED')->count(),
+                'draft' => AdSet::where('status', 'DRAFT')->count(),
+            ];
+
+            return view('admin.adsets.index', compact('adsets', 'campaigns', 'stats'));
+
+        } catch (Exception $e) {
+            Log::error('AdSet index error', ['error' => $e->getMessage()]);
+            return back()->with('error', 'Unable to load ad sets: ' . $e->getMessage());
         }
-
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%');
-        }
-
-        $adsets = $query->latest()->paginate(20);
-        
-        $campaigns = Campaign::orderBy('name')->get(['id', 'name']);
-        
-        $stats = [
-            'total' => AdSet::count(),
-            'active' => AdSet::where('status', 'ACTIVE')->count(),
-            'paused' => AdSet::where('status', 'PAUSED')->count(),
-            'draft' => AdSet::where('status', 'DRAFT')->count(),
-        ];
-
-        return view('admin.adsets.index', compact('adsets', 'campaigns', 'stats'));
     }
 
     /**
@@ -77,18 +91,32 @@ class AdSetController extends Controller
      */
     public function show($id)
     {
-        $adset = AdSet::with(['campaign', 'ads'])->findOrFail($id);
+        try {
+            $adset = AdSet::with(['campaign', 'ads'])->findOrFail($id);
 
-        $insights = null;
-        if ($adset->meta_id) {
-            try {
-                $insights = $this->meta->getAdSetInsights($adset->meta_id);
-            } catch (\Exception $e) {
-                Log::warning('Failed to fetch Meta insights', ['error' => $e->getMessage()]);
+            $insights = null;
+            if ($adset->meta_id) {
+                try {
+                    $insights = $this->meta->getAdSetInsights($adset->meta_id);
+                } catch (Exception $e) {
+                    Log::warning('Failed to fetch Meta insights', [
+                        'adset_id' => $id,
+                        'error' => $e->getMessage()
+                    ]);
+                    $insights = ['error' => 'Unable to fetch insights from Meta'];
+                }
             }
-        }
 
-        return view('admin.adsets.show', compact('adset', 'insights'));
+            // Parse targeting for display
+            $targeting = json_decode($adset->targeting, true) ?? [];
+
+            return view('admin.adsets.show', compact('adset', 'insights', 'targeting'));
+
+        } catch (Exception $e) {
+            Log::error('AdSet show error', ['adset_id' => $id, 'error' => $e->getMessage()]);
+            return redirect()->route('admin.adsets.index')
+                ->with('error', 'Ad Set not found or unable to load.');
+        }
     }
 
     /**
@@ -96,26 +124,33 @@ class AdSetController extends Controller
      */
     public function create(Request $request)
     {
-        $campaigns = Campaign::whereIn('status', ['ACTIVE', 'PAUSED'])
-            ->orderBy('name')
-            ->get(['id', 'name', 'objective', 'meta_id']);
+        try {
+            $campaigns = Campaign::whereIn('status', ['ACTIVE', 'PAUSED'])
+                ->orderBy('name')
+                ->get(['id', 'name', 'objective', 'meta_id']);
 
-        $selectedCampaignId = $request->campaign_id;
-        
-        $countries = $this->getTargetingCountries();
-        $languages = $this->getTargetingLanguages();
-        
-        $adAccount = AdAccount::first();
-        $accountCurrency = $adAccount->currency ?? 'USD';
+            $selectedCampaignId = $request->campaign_id;
+            
+            $countries = $this->getTargetingCountries();
+            $languages = $this->getTargetingLanguages();
+            
+            $adAccount = AdAccount::first();
+            $accountCurrency = $adAccount->currency ?? 'USD';
 
-        return view('admin.adsets.create', compact(
-            'campaigns',
-            'selectedCampaignId',
-            'countries',
-            'languages',
-            'accountCurrency',
-            'adAccount'
-        ));
+            return view('admin.adsets.create', compact(
+                'campaigns',
+                'selectedCampaignId',
+                'countries',
+                'languages',
+                'accountCurrency',
+                'adAccount'
+            ));
+
+        } catch (Exception $e) {
+            Log::error('AdSet create form error', ['error' => $e->getMessage()]);
+            return redirect()->route('admin.adsets.index')
+                ->with('error', 'Unable to load create form: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -161,7 +196,7 @@ class AdSetController extends Controller
                 'accountCurrency'
             ));
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Error in createFromCampaign', [
                 'campaign_id' => $campaignId,
                 'error' => $e->getMessage()
@@ -173,10 +208,231 @@ class AdSetController extends Controller
     }
 
     /**
+     * Pre-validate ad set data before Meta API call
+     */
+    private function preValidateAdSet(array $data, array $targeting): array
+    {
+        $errors = [];
+        $warnings = [];
+
+        // Check for required fields
+        if (empty($data['name'])) {
+            $errors[] = 'Ad set name is required';
+        } elseif (strlen($data['name']) > 255) {
+            $errors[] = 'Ad set name must be less than 255 characters';
+        }
+
+        // Budget validation
+        if (empty($data['daily_budget']) || $data['daily_budget'] < 1) {
+            $errors[] = 'Daily budget must be at least 1';
+        } elseif ($data['daily_budget'] > 1000000) {
+            $errors[] = 'Daily budget cannot exceed 1,000,000';
+        }
+
+        // GEO validation
+        if (empty($targeting['geo_locations'])) {
+            $errors[] = 'Geographic targeting is required';
+        } else {
+            $hasGeo = !empty($targeting['geo_locations']['countries']) || 
+                      !empty($targeting['geo_locations']['cities']) || 
+                      !empty($targeting['geo_locations']['regions']) || 
+                      !empty($targeting['geo_locations']['zips']);
+            
+            if (!$hasGeo) {
+                $errors[] = 'At least one country, city, region, or zip code must be targeted';
+            }
+
+            // Check for location conflicts
+            if (!empty($targeting['geo_locations']['countries']) && 
+                !empty($targeting['excluded_geo_locations']['countries'])) {
+                $conflicts = array_intersect(
+                    $targeting['geo_locations']['countries'],
+                    $targeting['excluded_geo_locations']['countries']
+                );
+                if (!empty($conflicts)) {
+                    $errors[] = 'Countries cannot be both targeted and excluded: ' . implode(', ', $conflicts);
+                }
+            }
+        }
+
+        // Age validation
+        if (isset($targeting['age_min']) && $targeting['age_min'] < 13) {
+            $errors[] = 'Minimum age must be at least 13';
+        }
+        if (isset($targeting['age_max']) && $targeting['age_max'] > 65) {
+            $errors[] = 'Maximum age cannot exceed 65';
+        }
+        if (isset($targeting['age_min'], $targeting['age_max']) && $targeting['age_min'] > $targeting['age_max']) {
+            $errors[] = 'Minimum age cannot be greater than maximum age';
+        }
+
+        // Check for detailed targeting count
+        $detailedCount = 0;
+        if (!empty($targeting['flexible_spec'])) {
+            foreach ($targeting['flexible_spec'] as $spec) {
+                $detailedCount += count($spec);
+            }
+        }
+        
+        if ($detailedCount > 10) {
+            $errors[] = 'Cannot have more than 10 detailed targeting items (interests, behaviors, etc.)';
+        } elseif ($detailedCount > 5) {
+            $warnings[] = 'Using many detailed targeting options may limit reach significantly';
+        }
+
+        // Check for placement compatibility issues
+        if (!empty($targeting['flexible_spec']) && !empty($targeting['publisher_platforms'])) {
+            if (in_array('audience_network', $targeting['publisher_platforms'])) {
+                $warnings[] = 'Detailed targeting (interests/behaviors) may have limited availability on Audience Network';
+            }
+        }
+
+        // Check for language compatibility
+        if (!empty($targeting['geo_locations']['countries']) && !empty($targeting['locales'])) {
+            $primaryCountry = $targeting['geo_locations']['countries'][0] ?? null;
+            if ($primaryCountry === 'KE' && !in_array(6, $targeting['locales'])) {
+                $warnings[] = 'Targeting Kenya without English language may limit reach';
+            }
+        }
+
+        // Validate bid strategy
+        if (!empty($data['bid_strategy'])) {
+            if (in_array($data['bid_strategy'], ['LOWEST_COST_WITH_BID_CAP', 'COST_CAP']) && 
+                empty($data['bid_amount'])) {
+                $errors[] = 'Bid amount is required when using bid cap or cost cap strategy';
+            }
+        }
+
+        return [
+            'errors' => $errors,
+            'warnings' => $warnings,
+            'detailed_count' => $detailedCount
+        ];
+    }
+
+    /**
+     * Validate interest IDs with Meta API
+     */
+    private function validateInterests(array $interestIds): array
+    {
+        $validInterests = [];
+        $invalidInterests = [];
+        $validatedIds = [];
+
+        foreach ($interestIds as $id) {
+            try {
+                // Call Meta API to validate interest
+                $interest = $this->meta->validateInterest($id);
+                if ($interest && isset($interest['id'])) {
+                    $validInterests[] = $interest;
+                    $validatedIds[] = $id;
+                } else {
+                    $invalidInterests[] = $id;
+                    Log::warning('Invalid interest ID detected', ['id' => $id]);
+                }
+            } catch (Exception $e) {
+                Log::warning('Interest validation failed', [
+                    'id' => $id,
+                    'error' => $e->getMessage()
+                ]);
+                $invalidInterests[] = $id;
+            }
+        }
+
+        return [
+            'valid' => $validatedIds,
+            'valid_full' => $validInterests,
+            'invalid' => $invalidInterests
+        ];
+    }
+
+    /**
+     * Estimate audience size (mock - replace with actual Meta API call)
+     */
+    private function estimateAudienceSize(array $targeting): array
+    {
+        // This would be replaced with actual Meta API reach estimation
+        // For now, return a mock estimation based on targeting criteria
+        
+        $baseSize = 1000000; // 1M base
+        
+        // Reduce based on targeting specificity
+        if (!empty($targeting['geo_locations']['countries'])) {
+            $countryCount = count($targeting['geo_locations']['countries']);
+            $baseSize = $baseSize * ($countryCount * 0.3);
+        }
+        
+        if (!empty($targeting['age_min']) || !empty($targeting['age_max'])) {
+            $baseSize = $baseSize * 0.7;
+        }
+        
+        if (!empty($targeting['genders']) && count($targeting['genders']) === 1) {
+            $baseSize = $baseSize * 0.5;
+        }
+        
+        if (!empty($targeting['flexible_spec'])) {
+            $detailedCount = 0;
+            foreach ($targeting['flexible_spec'] as $spec) {
+                $detailedCount += count($spec);
+            }
+            $baseSize = $baseSize * pow(0.5, $detailedCount);
+        }
+        
+        if (!empty($targeting['locales'])) {
+            $baseSize = $baseSize * 0.8;
+        }
+        
+        // Ensure within reasonable bounds
+        $baseSize = max(1000, min(50000000, $baseSize));
+        
+        $level = 'unknown';
+        if ($baseSize < self::AUDIENCE_SIZE_MIN) {
+            $level = 'too_small';
+        } elseif ($baseSize < self::AUDIENCE_SIZE_WARNING) {
+            $level = 'small';
+        } elseif ($baseSize < self::AUDIENCE_SIZE_GOOD) {
+            $level = 'good';
+        } elseif ($baseSize < self::AUDIENCE_SIZE_GREAT) {
+            $level = 'great';
+        } else {
+            $level = 'excellent';
+        }
+        
+        return [
+            'estimated' => (int)$baseSize,
+            'formatted' => $baseSize > 1000000 ? 
+                round($baseSize / 1000000, 1) . 'M' : 
+                round($baseSize / 1000, 1) . 'K',
+            'level' => $level,
+            'message' => $this->getAudienceSizeMessage($level)
+        ];
+    }
+
+    /**
+     * Get audience size message
+     */
+    private function getAudienceSizeMessage(string $level): string
+    {
+        $messages = [
+            'too_small' => 'Audience too small - may not deliver',
+            'small' => 'Narrow audience - good for specific targeting',
+            'good' => 'Good audience size for balanced reach',
+            'great' => 'Great audience size for optimization',
+            'excellent' => 'Excellent reach potential',
+            'unknown' => 'Unable to estimate audience size'
+        ];
+        
+        return $messages[$level] ?? $messages['unknown'];
+    }
+
+    /**
      * Store Ad Set
      */
     public function store(Request $request)
     {
+        // Start timing for performance monitoring
+        $startTime = microtime(true);
+
         // Comprehensive validation rules
         $validator = Validator::make($request->all(), [
             // Basic fields
@@ -198,7 +454,7 @@ class AdSetController extends Controller
             'genders' => 'nullable|array',
             'genders.*' => 'integer|in:1,2',
             
-            // Location targeting - COMPREHENSIVE COUNTRY LIST
+            // Location targeting
             'countries' => 'required_without:excluded_countries|array|min:1',
             'countries.*' => 'string|size:2|in:' . implode(',', array_keys($this->getTargetingCountries())),
             'excluded_countries' => 'nullable|array',
@@ -212,7 +468,7 @@ class AdSetController extends Controller
             'location_type' => 'nullable|string|in:living_or_recent,living,recent,traveling',
             'exclude_locations' => 'nullable|boolean',
             
-            // City/Region targeting (optional)
+            // City/Region targeting
             'cities' => 'nullable|array',
             'cities.*.key' => 'required_with:cities|string',
             'cities.*.name' => 'required_with:cities|string',
@@ -228,11 +484,11 @@ class AdSetController extends Controller
             'zips.*.name' => 'required_with:zips|string',
             'zips.*.country' => 'required_with:zips|string|size:2',
             
-            // Languages (Meta locale IDs)
+            // Languages
             'languages' => 'nullable|array',
             'languages.*' => 'integer|in:' . implode(',', array_keys($this->getTargetingLanguages())),
             
-            // Interests/detailed targeting
+            // Interests
             'interests' => 'nullable|array|max:10',
             'interests.*' => 'string',
             
@@ -296,10 +552,6 @@ class AdSetController extends Controller
             // Status
             'status' => 'nullable|in:ACTIVE,PAUSED',
             
-            // Flexible spec (advanced)
-            'flexible_spec' => 'nullable|json',
-            'flexible_spec_json' => 'nullable|json',
-            
             // Promoted object
             'promoted_object_type' => 'nullable|string|in:page,event,instagram,application',
             'promoted_object_id' => 'nullable|string|required_with:promoted_object_type',
@@ -322,6 +574,10 @@ class AdSetController extends Controller
         ]);
 
         if ($validator->fails()) {
+            Log::warning('AdSet validation failed', [
+                'errors' => $validator->errors()->toArray(),
+                'input' => $request->except(['_token'])
+            ]);
             return back()->withErrors($validator)->withInput();
         }
 
@@ -336,7 +592,7 @@ class AdSetController extends Controller
             if (!$campaign->adAccount) {
                 $adAccount = AdAccount::first();
                 if (!$adAccount) {
-                    throw new \Exception('No Meta Ad Account found. Please connect an ad account first.');
+                    throw new Exception('No Meta Ad Account found. Please connect an ad account first.');
                 }
                 $campaign->ad_account_id = $adAccount->id;
                 $campaign->save();
@@ -348,11 +604,62 @@ class AdSetController extends Controller
              */
             $targeting = $this->buildTargetingSpec($data);
 
-            // Validate targeting before sending to Meta
+            // Validate interests if present
+            if (!empty($data['interests'])) {
+                $interestValidation = $this->validateInterests($data['interests']);
+                if (!empty($interestValidation['invalid'])) {
+                    Log::warning('Invalid interests detected and filtered', [
+                        'invalid' => $interestValidation['invalid'],
+                        'original' => $data['interests']
+                    ]);
+                    
+                    // Update data with only valid interests
+                    $data['interests'] = $interestValidation['valid'];
+                    
+                    // Rebuild targeting with valid interests only
+                    $targeting = $this->buildTargetingSpec($data);
+                    
+                    // Add warning message
+                    if (!empty($interestValidation['invalid'])) {
+                        session()->flash('warning', count($interestValidation['invalid']) . ' invalid interest(s) were removed.');
+                    }
+                }
+            }
+
+            // Pre-validate targeting
+            $preValidation = $this->preValidateAdSet($data, $targeting);
+            
+            if (!empty($preValidation['errors'])) {
+                throw new Exception('Validation failed: ' . implode(', ', $preValidation['errors']));
+            }
+
+            // Estimate audience size
+            $audienceEstimate = $this->estimateAudienceSize($targeting);
+            
+            // Check if audience is too small
+            if ($audienceEstimate['level'] === 'too_small' && $campaign->meta_id) {
+                throw new Exception('Audience too small (estimated ' . $audienceEstimate['formatted'] . 
+                    '). Please broaden your targeting criteria.');
+            }
+
+            // Store warnings in session
+            if (!empty($preValidation['warnings'])) {
+                session()->flash('warning', implode(' ', $preValidation['warnings']));
+            }
+
+            // Store audience estimate in session for display
+            session()->flash('audience_estimate', $audienceEstimate);
+
+            // Validate targeting for Meta API
             $this->validateTargetingForMeta($targeting);
 
-            Log::info('Creating AdSet with targeting', [
-                'targeting' => $targeting,
+            Log::info('Creating AdSet', [
+                'targeting_summary' => [
+                    'countries' => $targeting['geo_locations']['countries'] ?? [],
+                    'age_range' => ($targeting['age_min'] ?? 18) . '-' . ($targeting['age_max'] ?? 65),
+                    'interests_count' => count($data['interests'] ?? []),
+                    'audience_estimate' => $audienceEstimate
+                ],
                 'campaign_id' => $campaign->id,
                 'campaign_meta_id' => $campaign->meta_id,
             ]);
@@ -395,35 +702,52 @@ class AdSetController extends Controller
                 if (!empty($data['promoted_object_type']) && !empty($data['promoted_object_id'])) {
                     $adSetParams['promoted_object'] = $this->buildPromotedObject($data);
                 }
-Log::debug('META ADSET REQUEST', [
-    'campaign_id' => $campaign->id,
-    'campaign_meta_id' => $campaign->meta_id,
-    'ad_account_id' => $campaign->adAccount->meta_id,
-    'params' => $adSetParams,
-    'targeting' => $targeting,
-]);
+
+                Log::debug('META ADSET REQUEST', [
+                    'campaign_id' => $campaign->id,
+                    'campaign_meta_id' => $campaign->meta_id,
+                    'ad_account_id' => $campaign->adAccount->meta_id,
+                    'params' => $adSetParams,
+                ]);
 
                 $metaResponse = $this->meta->createAdSet(
                     $campaign->adAccount->meta_id,
                     $adSetParams
                 );
-                 Log::debug('META ADSET RESPONSE', [
-    'response' => $metaResponse
-]);
-       if (isset($metaResponse['error'])) {
+                
+                Log::debug('META ADSET RESPONSE', [
+                    'response' => $metaResponse
+                ]);
 
-    Log::error('META ADSET ERROR', [
-        'error' => $metaResponse['error'],
-        'request_payload' => $adSetParams,
-        'targeting' => $targeting
-    ]);
+                if (isset($metaResponse['error'])) {
+                    Log::error('META ADSET ERROR', [
+                        'error' => $metaResponse['error'],
+                        'request_payload' => $adSetParams,
+                    ]);
 
-    throw new \Exception($metaResponse['error']['message'] ?? 'Meta API error');
-}
+                    // Parse specific error codes
+                    $errorCode = $metaResponse['error']['code'] ?? 0;
+                    $errorSubCode = $metaResponse['error']['error_subcode'] ?? 0;
+                    
+                    $errorMessage = $metaResponse['error']['message'] ?? 'Meta API error';
+                    
+                    // Handle specific targeting errors
+                    if ($errorSubCode === 1815857) {
+                        throw new Exception('Targeting conflict: Some options are unavailable for selected placements. ' .
+                            'Try using automatic placements or simplifying your targeting.');
+                    } elseif ($errorSubCode === 1815855) {
+                        throw new Exception('Audience too narrow. Please broaden your targeting criteria.');
+                    } elseif ($errorSubCode === 1815862) {
+                        throw new Exception('One or more interests are invalid. Please remove and try again.');
+                    } elseif ($errorCode === 100) {
+                        throw new Exception('Invalid parameter: ' . $this->getTargetingErrorMessage($errorMessage));
+                    } else {
+                        throw new Exception($errorMessage);
+                    }
+                }
 
                 Log::info('Meta AdSet created successfully', [
                     'meta_id' => $metaResponse['id'],
-                    'response' => $metaResponse
                 ]);
             }
 
@@ -448,22 +772,36 @@ Log::debug('META ADSET REQUEST', [
 
             DB::commit();
 
+            // Log performance
+            $executionTime = round((microtime(true) - $startTime) * 1000, 2);
+            Log::info('AdSet creation completed', [
+                'adset_id' => $adset->id,
+                'execution_time_ms' => $executionTime,
+                'synced_to_meta' => !is_null($metaResponse)
+            ]);
+
             $message = $campaign->meta_id 
                 ? 'Ad Set created and synced with Meta successfully.'
                 : 'Ad Set created locally. Sync with Meta to activate.';
+
+            // Add audience estimate to message
+            if ($audienceEstimate['level'] !== 'unknown') {
+                $message .= ' Estimated audience: ' . $audienceEstimate['formatted'];
+            }
 
             return redirect()
                 ->route('admin.campaigns.show', $campaign->id)
                 ->with('success', $message);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
 
             Log::error('ADSET CREATION FAILED', [
-    'error' => $e->getMessage(),
-    'campaign_id' => $data['campaign_id'] ?? null,
-    'request_data' => $data,
-]);
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'campaign_id' => $data['campaign_id'] ?? null,
+                'request_data' => $data,
+            ]);
 
             // Check for specific Meta API errors
             if (strpos($e->getMessage(), '1815857') !== false) {
@@ -497,7 +835,7 @@ Log::debug('META ADSET REQUEST', [
         }
 
         /**
-         * GEO LOCATIONS - COMPREHENSIVE SUPPORT
+         * GEO LOCATIONS
          */
         $targeting['geo_locations'] = [];
 
@@ -558,7 +896,7 @@ Log::debug('META ADSET REQUEST', [
             }, $data['zips']);
         }
 
-        // Excluded countries (alternative method)
+        // Excluded countries
         if (!empty($data['excluded_countries'])) {
             if (!isset($targeting['excluded_geo_locations'])) {
                 $targeting['excluded_geo_locations'] = [];
@@ -574,30 +912,27 @@ Log::debug('META ADSET REQUEST', [
         }
 
         /**
-         * DETAILED TARGETING (Interests, Behaviors, etc.)
+         * DETAILED TARGETING
          */
         $flexibleSpec = [];
 
         // Interests
-      // Interests
-if (!empty($data['interests'])) {
-
-    $interests = array_values(array_filter($data['interests']));
-
-    $flexibleSpec[] = [
-        'interests' => array_map(function ($id) {
-            return [
-                'id' => (string) $id
-            ];
-        }, $interests)
-    ];
-}
+        if (!empty($data['interests'])) {
+            $interests = array_values(array_filter($data['interests']));
+            if (!empty($interests)) {
+                $flexibleSpec[] = [
+                    'interests' => array_map(function ($id) {
+                        return ['id' => (string) $id];
+                    }, $interests)
+                ];
+            }
+        }
 
         // Behaviors
         if (!empty($data['behaviors'])) {
             $flexibleSpec[] = [
                 'behaviors' => array_map(function($behavior) {
-                    return ['id' => $behavior, 'name' => ''];
+                    return ['id' => $behavior];
                 }, $data['behaviors'])
             ];
         }
@@ -606,7 +941,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['life_events'])) {
             $flexibleSpec[] = [
                 'life_events' => array_map(function($event) {
-                    return ['id' => $event, 'name' => ''];
+                    return ['id' => $event];
                 }, $data['life_events'])
             ];
         }
@@ -615,7 +950,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['industries'])) {
             $flexibleSpec[] = [
                 'industries' => array_map(function($industry) {
-                    return ['id' => $industry, 'name' => ''];
+                    return ['id' => $industry];
                 }, $data['industries'])
             ];
         }
@@ -624,7 +959,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['income'])) {
             $flexibleSpec[] = [
                 'income' => array_map(function($inc) {
-                    return ['id' => $inc, 'name' => ''];
+                    return ['id' => $inc];
                 }, $data['income'])
             ];
         }
@@ -633,7 +968,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['family_statuses'])) {
             $flexibleSpec[] = [
                 'family_statuses' => array_map(function($status) {
-                    return ['id' => $status, 'name' => ''];
+                    return ['id' => $status];
                 }, $data['family_statuses'])
             ];
         }
@@ -642,7 +977,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['user_device'])) {
             $flexibleSpec[] = [
                 'user_device' => array_map(function($device) {
-                    return ['id' => $device, 'name' => ''];
+                    return ['id' => $device];
                 }, $data['user_device'])
             ];
         }
@@ -651,7 +986,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['user_os'])) {
             $flexibleSpec[] = [
                 'user_os' => array_map(function($os) {
-                    return ['id' => $os, 'name' => ''];
+                    return ['id' => $os];
                 }, $data['user_os'])
             ];
         }
@@ -660,7 +995,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['wireless_carrier'])) {
             $flexibleSpec[] = [
                 'wireless_carrier' => array_map(function($carrier) {
-                    return ['id' => $carrier, 'name' => ''];
+                    return ['id' => $carrier];
                 }, $data['wireless_carrier'])
             ];
         }
@@ -669,7 +1004,7 @@ if (!empty($data['interests'])) {
         if (!empty($data['custom_audiences'])) {
             $flexibleSpec[] = [
                 'custom_audiences' => array_map(function($audience) {
-                    return ['id' => $audience, 'name' => ''];
+                    return ['id' => $audience];
                 }, $data['custom_audiences'])
             ];
         }
@@ -677,7 +1012,7 @@ if (!empty($data['interests'])) {
         // Excluded custom audiences
         if (!empty($data['excluded_custom_audiences'])) {
             $targeting['excluded_custom_audiences'] = array_map(function($audience) {
-                return ['id' => $audience, 'name' => ''];
+                return ['id' => $audience];
             }, $data['excluded_custom_audiences']);
         }
 
@@ -686,7 +1021,6 @@ if (!empty($data['interests'])) {
             $targeting['flexible_spec'] = $flexibleSpec;
         }
 
-
         /**
          * CONNECTIONS
          */
@@ -694,24 +1028,18 @@ if (!empty($data['interests'])) {
             $connections = [];
             
             foreach ($data['connections'] as $connection) {
-
-    if (is_numeric($connection)) {
-        $connections[] = [
-            'id' => (string) $connection
-        ];
-    }
-
-}
+                if (is_numeric($connection)) {
+                    $connections[] = [
+                        'id' => (string) $connection
+                    ];
+                }
+            }
             
             if (!empty($connections)) {
                 $targeting['connections'] = $connections;
                 
                 if (!empty($data['connections_type'])) {
                     $targeting['connections_type'] = $data['connections_type'];
-                }
-                
-                if (!empty($data['connections_fields'])) {
-                    $targeting['connections_fields'] = $data['connections_fields'];
                 }
             }
         }
@@ -818,7 +1146,7 @@ if (!empty($data['interests'])) {
     {
         // Check for geo_locations
         if (empty($targeting['geo_locations'])) {
-            throw new \Exception('geo_locations targeting is required');
+            throw new Exception('Geographic location targeting is required');
         }
 
         // Check for at least one targeting method
@@ -828,32 +1156,32 @@ if (!empty($data['interests'])) {
                   !empty($targeting['geo_locations']['zips']);
         
         if (!$hasGeo && empty($targeting['geo_locations']['location_types'])) {
-            throw new \Exception('At least one geographic location must be specified');
+            throw new Exception('At least one geographic location must be specified');
         }
 
         // Validate location types
         if (isset($targeting['geo_locations']['location_types'])) {
             foreach ($targeting['geo_locations']['location_types'] as $type) {
                 if (!in_array($type, ['home', 'recent', 'travel_in'])) {
-                    throw new \Exception("Invalid location type: {$type}");
+                    throw new Exception("Invalid location type: {$type}");
                 }
             }
         }
 
         // Age range validation
         if (isset($targeting['age_min']) && $targeting['age_min'] < 13) {
-            throw new \Exception('Minimum age must be at least 13');
+            throw new Exception('Minimum age must be at least 13');
         }
 
         if (isset($targeting['age_max']) && $targeting['age_max'] > 65) {
-            throw new \Exception('Maximum age cannot exceed 65');
+            throw new Exception('Maximum age cannot exceed 65');
         }
 
         // Publisher platforms validation
         if (isset($targeting['publisher_platforms'])) {
             foreach ($targeting['publisher_platforms'] as $platform) {
                 if (!in_array($platform, self::PUBLISHER_PLATFORMS)) {
-                    throw new \Exception("Invalid publisher platform: {$platform}");
+                    throw new Exception("Invalid publisher platform: {$platform}");
                 }
             }
         }
@@ -862,7 +1190,20 @@ if (!empty($data['interests'])) {
         if (isset($targeting['device_platforms'])) {
             foreach ($targeting['device_platforms'] as $device) {
                 if (!in_array($device, self::DEVICE_PLATFORMS)) {
-                    throw new \Exception("Invalid device platform: {$device}");
+                    throw new Exception("Invalid device platform: {$device}");
+                }
+            }
+        }
+
+        // Check for flexible_spec structure
+        if (isset($targeting['flexible_spec'])) {
+            foreach ($targeting['flexible_spec'] as $spec) {
+                foreach ($spec as $key => $items) {
+                    if (!in_array($key, ['interests', 'behaviors', 'life_events', 'industries', 
+                        'income', 'family_statuses', 'user_device', 'user_os', 'wireless_carrier', 
+                        'custom_audiences'])) {
+                        throw new Exception("Invalid flexible spec type: {$key}");
+                    }
                 }
             }
         }
@@ -873,14 +1214,21 @@ if (!empty($data['interests'])) {
      */
     public function edit($id)
     {
-        $adset = AdSet::with('campaign')->findOrFail($id);
-        
-        $campaigns = Campaign::all();
-        $countries = $this->getTargetingCountries();
-        $languages = $this->getTargetingLanguages();
-        $targeting = json_decode($adset->targeting, true) ?? [];
+        try {
+            $adset = AdSet::with('campaign')->findOrFail($id);
+            
+            $campaigns = Campaign::all();
+            $countries = $this->getTargetingCountries();
+            $languages = $this->getTargetingLanguages();
+            $targeting = json_decode($adset->targeting, true) ?? [];
 
-        return view('admin.adsets.edit', compact('adset', 'campaigns', 'countries', 'languages', 'targeting'));
+            return view('admin.adsets.edit', compact('adset', 'campaigns', 'countries', 'languages', 'targeting'));
+
+        } catch (Exception $e) {
+            Log::error('AdSet edit error', ['adset_id' => $id, 'error' => $e->getMessage()]);
+            return redirect()->route('admin.adsets.index')
+                ->with('error', 'Unable to load edit form: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -892,16 +1240,18 @@ if (!empty($data['interests'])) {
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'daily_budget' => 'required|numeric|min:1',
+            'daily_budget' => 'required|numeric|min:1|max:1000000',
             'status' => 'nullable|in:ACTIVE,PAUSED',
             'age_min' => 'nullable|integer|min:13|max:65',
             'age_max' => 'nullable|integer|min:13|max:65|gte:age_min',
             'genders' => 'nullable|array',
+            'genders.*' => 'integer|in:1,2',
             'countries' => 'required_without:excluded_countries|array',
             'countries.*' => 'string|size:2|in:' . implode(',', array_keys($this->getTargetingCountries())),
             'excluded_countries' => 'nullable|array',
             'excluded_countries.*' => 'string|size:2|in:' . implode(',', array_keys($this->getTargetingCountries())),
             'languages' => 'nullable|array',
+            'languages.*' => 'integer|in:' . implode(',', array_keys($this->getTargetingLanguages())),
             'start_time' => 'nullable|date',
             'end_time' => 'nullable|date|after:start_time',
             'location_types' => 'nullable|array',
@@ -918,8 +1268,10 @@ if (!empty($data['interests'])) {
         try {
             DB::beginTransaction();
 
-            // Update targeting
+            // Get current targeting
             $targeting = json_decode($adset->targeting, true) ?? [];
+            
+            // Update age range
             $targeting['age_min'] = (int)($data['age_min'] ?? 18);
             $targeting['age_max'] = (int)($data['age_max'] ?? 65);
             
@@ -929,6 +1281,7 @@ if (!empty($data['interests'])) {
                 unset($targeting['geo_locations']['countries']);
             } else {
                 $targeting['geo_locations']['countries'] = $data['countries'];
+                unset($targeting['excluded_geo_locations']['countries']);
             }
             
             // Update excluded countries
@@ -960,6 +1313,12 @@ if (!empty($data['interests'])) {
                 unset($targeting['locales']);
             }
 
+            // Clean targeting array
+            $targeting = $this->cleanTargetingArray($targeting);
+
+            // Validate updated targeting
+            $this->validateTargetingForMeta($targeting);
+
             // Update on Meta if synced
             if ($adset->meta_id) {
                 $metaUpdate = [
@@ -979,8 +1338,13 @@ if (!empty($data['interests'])) {
                 $response = $this->meta->updateAdSet($adset->meta_id, $metaUpdate);
 
                 if (isset($response['error'])) {
-                    throw new \Exception($response['error']['message'] ?? 'Failed to update on Meta');
+                    throw new Exception($response['error']['message'] ?? 'Failed to update on Meta');
                 }
+
+                Log::info('AdSet updated on Meta', [
+                    'adset_id' => $adset->id,
+                    'meta_id' => $adset->meta_id
+                ]);
             }
 
             // Update locally
@@ -999,12 +1363,13 @@ if (!empty($data['interests'])) {
                 ->route('admin.adsets.show', $adset->id)
                 ->with('success', 'Ad Set updated successfully.');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
 
             Log::error('AdSet Update Failed', [
                 'adset_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return back()
@@ -1024,10 +1389,15 @@ if (!empty($data['interests'])) {
             DB::beginTransaction();
 
             if ($adset->meta_id) {
+                Log::info('Deleting AdSet from Meta', [
+                    'adset_id' => $adset->id,
+                    'meta_id' => $adset->meta_id
+                ]);
+
                 $response = $this->meta->deleteAdSet($adset->meta_id);
                 
                 if (isset($response['error'])) {
-                    throw new \Exception($response['error']['message'] ?? 'Failed to delete from Meta');
+                    throw new Exception($response['error']['message'] ?? 'Failed to delete from Meta');
                 }
             }
 
@@ -1040,7 +1410,7 @@ if (!empty($data['interests'])) {
                 ->route('admin.campaigns.show', $campaignId)
                 ->with('success', 'Ad Set deleted successfully.');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
 
             Log::error('AdSet Delete Failed', [
@@ -1073,15 +1443,21 @@ if (!empty($data['interests'])) {
      */
     private function updateStatus($id, $status)
     {
-        $adset = AdSet::findOrFail($id);
-
         try {
+            $adset = AdSet::findOrFail($id);
+
             if ($adset->meta_id) {
                 $response = $this->meta->updateAdSet($adset->meta_id, ['status' => $status]);
                 
                 if (isset($response['error'])) {
-                    throw new \Exception($response['error']['message']);
+                    throw new Exception($response['error']['message']);
                 }
+
+                Log::info('AdSet status updated on Meta', [
+                    'adset_id' => $adset->id,
+                    'meta_id' => $adset->meta_id,
+                    'status' => $status
+                ]);
             }
 
             $adset->update(['status' => $status]);
@@ -1091,7 +1467,13 @@ if (!empty($data['interests'])) {
                 'message' => 'Ad Set ' . strtolower($status)
             ]);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
+            Log::error('AdSet status update failed', [
+                'adset_id' => $id,
+                'status' => $status,
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
@@ -1104,9 +1486,9 @@ if (!empty($data['interests'])) {
      */
     public function duplicate(Request $request, $id)
     {
-        $adset = AdSet::with('campaign.adAccount')->findOrFail($id);
-
         try {
+            $adset = AdSet::with('campaign.adAccount')->findOrFail($id);
+
             DB::beginTransaction();
 
             $newName = $adset->name . ' (Copy)';
@@ -1135,6 +1517,11 @@ if (!empty($data['interests'])) {
                     $params['bid_amount'] = $adset->bid_amount;
                 }
 
+                Log::info('Duplicating AdSet on Meta', [
+                    'original_id' => $adset->id,
+                    'meta_id' => $adset->meta_id
+                ]);
+
                 $response = $this->meta->createAdSet(
                     $adset->campaign->adAccount->meta_id,
                     $params
@@ -1142,6 +1529,9 @@ if (!empty($data['interests'])) {
 
                 if (!empty($response['id'])) {
                     $metaId = $response['id'];
+                    Log::info('AdSet duplicated on Meta', [
+                        'new_meta_id' => $metaId
+                    ]);
                 }
             }
 
@@ -1166,12 +1556,13 @@ if (!empty($data['interests'])) {
                 ->route('admin.adsets.show', $newAdSet->id)
                 ->with('success', 'Ad Set duplicated successfully.');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             DB::rollBack();
 
             Log::error('AdSet Duplicate Failed', [
                 'adset_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return back()->withErrors(['error' => 'Unable to duplicate Ad Set: ' . $e->getMessage()]);
@@ -1183,11 +1574,19 @@ if (!empty($data['interests'])) {
      */
     public function bulkStatusUpdate(Request $request)
     {
-        $request->validate([
+        $validator = Validator::make($request->all(), [
             'adset_ids' => 'required|array',
             'adset_ids.*' => 'exists:adsets,id',
             'status' => 'required|in:ACTIVE,PAUSED',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid parameters',
+                'errors' => $validator->errors()->toArray()
+            ], 422);
+        }
 
         $count = 0;
         $errors = [];
@@ -1203,13 +1602,13 @@ if (!empty($data['interests'])) {
                         $adset->update(['status' => $request->status]);
                         $count++;
                     } else {
-                        $errors[] = "Failed to update Ad Set ID: {$id}";
+                        $errors[] = "Failed to update Ad Set ID: {$id} - " . ($response['error']['message'] ?? 'Unknown error');
                     }
                 } elseif ($adset) {
                     $adset->update(['status' => $request->status]);
                     $count++;
                 }
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $errors[] = "Error with Ad Set ID: {$id} - {$e->getMessage()}";
             }
         }
@@ -1219,9 +1618,17 @@ if (!empty($data['interests'])) {
             $message .= " Errors: " . implode(', ', $errors);
         }
 
+        Log::info('Bulk status update completed', [
+            'updated_count' => $count,
+            'error_count' => count($errors),
+            'status' => $request->status
+        ]);
+
         return response()->json([
             'success' => true,
-            'message' => $message
+            'message' => $message,
+            'updated' => $count,
+            'errors' => $errors
         ]);
     }
 
@@ -1230,14 +1637,27 @@ if (!empty($data['interests'])) {
      */
     public function byCampaign($campaignId)
     {
-        $adsets = AdSet::where('campaign_id', $campaignId)
-            ->latest()
-            ->get(['id', 'name', 'status', 'daily_budget', 'meta_id']);
+        try {
+            $adsets = AdSet::where('campaign_id', $campaignId)
+                ->latest()
+                ->get(['id', 'name', 'status', 'daily_budget', 'meta_id']);
 
-        return response()->json([
-            'success' => true,
-            'data' => $adsets
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => $adsets
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Failed to get ad sets by campaign', [
+                'campaign_id' => $campaignId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to load ad sets'
+            ], 500);
+        }
     }
 
     /**
@@ -1245,15 +1665,15 @@ if (!empty($data['interests'])) {
      */
     public function syncToMeta($id)
     {
-        $adset = AdSet::with('campaign.adAccount')->findOrFail($id);
-
         try {
+            $adset = AdSet::with('campaign.adAccount')->findOrFail($id);
+
             if (!$adset->campaign->meta_id) {
-                throw new \Exception('Campaign must be synced with Meta first.');
+                throw new Exception('Campaign must be synced with Meta first.');
             }
 
             if (!$adset->campaign->adAccount) {
-                throw new \Exception('Campaign has no linked Ad Account.');
+                throw new Exception('Campaign has no linked Ad Account.');
             }
 
             $targeting = json_decode($adset->targeting, true);
@@ -1279,6 +1699,11 @@ if (!empty($data['interests'])) {
                 $params['bid_amount'] = $adset->bid_amount;
             }
 
+            Log::info('Syncing AdSet to Meta', [
+                'adset_id' => $adset->id,
+                'ad_account_id' => $adset->campaign->adAccount->meta_id
+            ]);
+
             $response = $this->meta->createAdSet(
                 $adset->campaign->adAccount->meta_id,
                 $params
@@ -1286,19 +1711,25 @@ if (!empty($data['interests'])) {
 
             if (empty($response['id'])) {
                 $errorMsg = $response['error']['message'] ?? 'Failed to create AdSet on Meta';
-                throw new \Exception($errorMsg);
+                throw new Exception($errorMsg);
             }
 
             $adset->update(['meta_id' => $response['id']]);
+
+            Log::info('AdSet synced to Meta successfully', [
+                'adset_id' => $adset->id,
+                'meta_id' => $response['id']
+            ]);
 
             return redirect()
                 ->route('admin.adsets.show', $id)
                 ->with('success', 'Ad Set synced with Meta successfully.');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('AdSet Sync Failed', [
                 'adset_id' => $id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return back()->withErrors(['error' => 'Unable to sync Ad Set: ' . $e->getMessage()]);
@@ -1310,24 +1741,29 @@ if (!empty($data['interests'])) {
      */
     public function insights($id)
     {
-        $adset = AdSet::findOrFail($id);
-
-        if (!$adset->meta_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Ad Set not synced with Meta'
-            ], 400);
-        }
-
         try {
+            $adset = AdSet::findOrFail($id);
+
+            if (!$adset->meta_id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ad Set not synced with Meta'
+                ], 400);
+            }
+
             $insights = $this->meta->getAdSetInsights($adset->meta_id);
 
-            return response()->json([
+            return response->json([
                 'success' => true,
                 'data' => $insights
             ]);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
+            Log::error('Failed to fetch AdSet insights', [
+                'adset_id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
@@ -1348,7 +1784,7 @@ if (!empty($data['interests'])) {
             'interests' => 'Interest targeting is invalid',
             '1815855' => 'Your targeting criteria is too narrow. Please expand your audience.',
             '1815856' => 'Invalid targeting combination. Please check your selections.',
-            '1815857' => 'Some targeting options are unavailable for your selected placements.',
+            '1815857' => 'Some targeting options are unavailable for your selected placements. Try using automatic placements or simplifying your targeting.',
             '1815858' => 'Location targeting is required.',
             '1815859' => 'Age range is invalid.',
             '1815860' => 'Gender selection is invalid.',
@@ -1356,6 +1792,9 @@ if (!empty($data['interests'])) {
             '1815862' => 'Interest targeting contains invalid interest IDs.',
             '1815863' => 'Custom audience is invalid or unavailable.',
             '1815864' => 'Excluded locations cannot be the same as targeted locations.',
+            '1487351' => 'Budget too low for selected optimization goal.',
+            '1487352' => 'Bid amount is too low for selected targeting.',
+            '1487353' => 'Campaign is not active. Please activate the campaign first.',
         ];
 
         foreach ($errorMap as $key => $message) {
@@ -1365,6 +1804,90 @@ if (!empty($data['interests'])) {
         }
 
         return 'Invalid targeting parameters. Please check your selections.';
+    }
+
+    /**
+     * Validate and search interests (AJAX endpoint)
+     */
+    public function searchInterests(Request $request)
+    {
+        $query = $request->get('q');
+        
+        if (strlen($query) < 2) {
+            return response()->json(['success' => false, 'data' => []]);
+        }
+
+        try {
+            $interests = $this->meta->searchInterests($query);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $interests
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Interest search failed', [
+                'query' => $query,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'data' => [],
+                'message' => 'Unable to search interests'
+            ]);
+        }
+    }
+
+    /**
+     * Validate single interest (AJAX endpoint)
+     */
+    public function validateInterest(Request $request)
+    {
+        $interestId = $request->get('id');
+
+        try {
+            $interest = $this->meta->validateInterest($interestId);
+            
+            return response()->json([
+                'success' => true,
+                'valid' => !is_null($interest),
+                'data' => $interest
+            ]);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'valid' => false,
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Get audience estimate (AJAX endpoint)
+     */
+    public function estimateAudience(Request $request)
+    {
+        try {
+            $targeting = $this->buildTargetingSpec($request->all());
+            $estimate = $this->estimateAudienceSize($targeting);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $estimate
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('Audience estimation failed', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to estimate audience size'
+            ]);
+        }
     }
 
     /**

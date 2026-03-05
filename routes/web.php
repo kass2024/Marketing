@@ -264,25 +264,68 @@ Route::middleware(['auth','verified','role:admin'])
         |--------------------------------------------------------------------------
         */
 
-        Route::resource('accounts',AdAccountController::class)->names('accounts');
+        // Ad Accounts
+        Route::resource('accounts', AdAccountController::class)->names('accounts');
 
-        Route::resource('campaigns',AdminCampaignController::class)->names('campaigns');
+        // Campaigns - Full resource with all methods
+        Route::resource('campaigns', AdminCampaignController::class)->names('campaigns');
+
+        // Campaign-specific actions
+        Route::prefix('campaigns')->name('campaigns.')->group(function () {
+            Route::patch('{campaign}/activate', [AdminCampaignController::class, 'activate'])->name('activate');
+            Route::patch('{campaign}/pause', [AdminCampaignController::class, 'pause'])->name('pause');
+            Route::post('{campaign}/duplicate', [AdminCampaignController::class, 'duplicate'])->name('duplicate');
+            Route::get('{campaign}/insights', [AdminCampaignController::class, 'insights'])->name('insights');
+        });
 
 
         /*
         |--------------------------------------------------------------------------
-        | ADSETS
+        | AD SETS - Complete Resource with All Routes
         |--------------------------------------------------------------------------
         */
 
-        Route::resource('adsets',AdSetController::class)
-            ->except(['create','show'])
-            ->names('adsets');
+        Route::resource('adsets', AdSetController::class)->names('adsets');
 
-        Route::get(
-            'campaigns/{campaign}/adsets/create',
-            [AdSetController::class,'create']
-        )->name('campaigns.adsets.create');
+        // Additional Ad Set routes (preserves all resource methods)
+        Route::prefix('adsets')->name('adsets.')->group(function () {
+            
+            // Bulk operations
+            Route::post('bulk-status-update', [AdSetController::class, 'bulkStatusUpdate'])
+                ->name('bulk-status-update');
+            
+            Route::post('bulk-duplicate', [AdSetController::class, 'bulkDuplicate'])
+                ->name('bulk-duplicate');
+            
+            Route::delete('bulk-destroy', [AdSetController::class, 'bulkDestroy'])
+                ->name('bulk-destroy');
+
+            // Individual actions
+            Route::patch('{adset}/activate', [AdSetController::class, 'activate'])
+                ->name('activate');
+            
+            Route::patch('{adset}/pause', [AdSetController::class, 'pause'])
+                ->name('pause');
+            
+            Route::post('{adset}/duplicate', [AdSetController::class, 'duplicate'])
+                ->name('duplicate');
+            
+            Route::get('{adset}/insights', [AdSetController::class, 'insights'])
+                ->name('insights');
+            
+            Route::post('{adset}/sync', [AdSetController::class, 'syncToMeta'])
+                ->name('sync');
+        });
+
+        // Campaign-specific Ad Set creation (THIS IS THE KEY ROUTE YOU NEED)
+        Route::get('campaigns/{campaign}/adsets/create', 
+            [AdSetController::class, 'createFromCampaign'])
+            ->name('campaigns.adsets.create');
+
+        // List Ad Sets by campaign
+        Route::get('campaigns/{campaign}/adsets', 
+            [AdSetController::class, 'indexByCampaign'])
+            ->name('campaigns.adsets.index');
 
 
         /*
@@ -291,48 +334,167 @@ Route::middleware(['auth','verified','role:admin'])
         |--------------------------------------------------------------------------
         */
 
-        Route::resource('ads',AdController::class)->names('ads');
+        Route::resource('ads', AdController::class)->names('ads');
 
-        Route::resource('creatives',CreativeController::class)->names('creatives');
+        // Additional Ad routes
+        Route::prefix('ads')->name('ads.')->group(function () {
+            Route::post('bulk-status-update', [AdController::class, 'bulkStatusUpdate'])
+                ->name('bulk-status-update');
+            
+            Route::patch('{ad}/activate', [AdController::class, 'activate'])
+                ->name('activate');
+            
+            Route::patch('{ad}/pause', [AdController::class, 'pause'])
+                ->name('pause');
+            
+            Route::post('{ad}/duplicate', [AdController::class, 'duplicate'])
+                ->name('duplicate');
+        });
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | META ADS MANAGER
-        |--------------------------------------------------------------------------
-        */
-
-        Route::get('/ads-manager',[AdsManagerController::class,'index'])
-            ->name('ads.manager');
-
-        Route::get('/campaigns/{campaign}/adsets',
-            [AdsManagerController::class,'adsets'])
-            ->name('ads.manager.adsets');
-
-        Route::get('/adsets/{adset}/ads',
-            [AdsManagerController::class,'ads'])
-            ->name('ads.manager.ads');
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | ANALYTICS
-        |--------------------------------------------------------------------------
-        */
-
-        Route::get('analytics',[AnalyticsController::class,'index'])
-            ->name('analytics.index');
+        // Ad Set-specific Ad creation
+        Route::get('adsets/{adset}/ads/create', 
+            [AdController::class, 'createFromAdSet'])
+            ->name('adsets.ads.create');
 
 
         /*
         |--------------------------------------------------------------------------
-        | SYSTEM
+        | CREATIVES
         |--------------------------------------------------------------------------
         */
 
-        Route::view('/system','admin.system.index')->name('system.index');
+        Route::resource('creatives', CreativeController::class)->names('creatives');
 
-        Route::view('/settings','admin.settings.index')->name('settings.index');
+        // Additional Creative routes
+        Route::prefix('creatives')->name('creatives.')->group(function () {
+            Route::post('{creative}/duplicate', [CreativeController::class, 'duplicate'])
+                ->name('duplicate');
+            
+            Route::get('{creative}/preview', [CreativeController::class, 'preview'])
+                ->name('preview');
+        });
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | META ADS MANAGER - Unified Interface
+        |--------------------------------------------------------------------------
+        */
+
+        Route::prefix('ads-manager')->name('ads.manager.')->group(function () {
+            
+            Route::get('/', [AdsManagerController::class, 'index'])
+                ->name('index');
+            
+            Route::get('/campaigns', [AdsManagerController::class, 'campaigns'])
+                ->name('campaigns');
+            
+            Route::get('/campaigns/{campaign}', [AdsManagerController::class, 'showCampaign'])
+                ->name('campaigns.show');
+            
+            Route::get('/campaigns/{campaign}/adsets', [AdsManagerController::class, 'adsets'])
+                ->name('adsets');
+            
+            Route::get('/adsets/{adset}', [AdsManagerController::class, 'showAdSet'])
+                ->name('adsets.show');
+            
+            Route::get('/adsets/{adset}/ads', [AdsManagerController::class, 'ads'])
+                ->name('ads');
+            
+            Route::get('/ads/{ad}', [AdsManagerController::class, 'showAd'])
+                ->name('ads.show');
+            
+            Route::get('/creatives', [AdsManagerController::class, 'creatives'])
+                ->name('creatives');
+            
+            Route::get('/insights', [AdsManagerController::class, 'insights'])
+                ->name('insights');
+        });
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | ANALYTICS & REPORTING
+        |--------------------------------------------------------------------------
+        */
+
+        Route::prefix('analytics')->name('analytics.')->group(function () {
+            
+            Route::get('/', [AnalyticsController::class, 'index'])
+                ->name('index');
+            
+            Route::get('/campaigns', [AnalyticsController::class, 'campaigns'])
+                ->name('campaigns');
+            
+            Route::get('/adsets', [AnalyticsController::class, 'adsets'])
+                ->name('adsets');
+            
+            Route::get('/ads', [AnalyticsController::class, 'ads'])
+                ->name('ads');
+            
+            Route::get('/export', [AnalyticsController::class, 'export'])
+                ->name('export');
+            
+            Route::get('/reports/create', [AnalyticsController::class, 'createReport'])
+                ->name('reports.create');
+            
+            Route::post('/reports', [AnalyticsController::class, 'storeReport'])
+                ->name('reports.store');
+            
+            Route::get('/reports/{report}', [AnalyticsController::class, 'showReport'])
+                ->name('reports.show');
+        });
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | SYSTEM & SETTINGS
+        |--------------------------------------------------------------------------
+        */
+
+        Route::prefix('system')->name('system.')->group(function () {
+            
+            Route::get('/', fn() => view('admin.system.index'))->name('index');
+            
+            Route::get('/logs', [\App\Http\Controllers\Admin\SystemController::class, 'logs'])
+                ->name('logs');
+            
+            Route::get('/queue', [\App\Http\Controllers\Admin\SystemController::class, 'queue'])
+                ->name('queue');
+            
+            Route::get('/cache', [\App\Http\Controllers\Admin\SystemController::class, 'cache'])
+                ->name('cache');
+            
+            Route::post('/cache/clear', [\App\Http\Controllers\Admin\SystemController::class, 'clearCache'])
+                ->name('cache.clear');
+            
+            Route::get('/info', fn() => view('admin.system.info'))
+                ->name('info');
+        });
+
+        Route::prefix('settings')->name('settings.')->group(function () {
+            
+            Route::get('/', fn() => view('admin.settings.index'))->name('index');
+            
+            Route::get('/general', fn() => view('admin.settings.general'))->name('general');
+            
+            Route::post('/general', [\App\Http\Controllers\Admin\SettingsController::class, 'updateGeneral'])
+                ->name('general.update');
+            
+            Route::get('/meta', fn() => view('admin.settings.meta'))->name('meta');
+            
+            Route::post('/meta', [\App\Http\Controllers\Admin\SettingsController::class, 'updateMeta'])
+                ->name('meta.update');
+            
+            Route::get('/team', [\App\Http\Controllers\Admin\TeamController::class, 'index'])
+                ->name('team');
+            
+            Route::post('/team', [\App\Http\Controllers\Admin\TeamController::class, 'store'])
+                ->name('team.store');
+            
+            Route::delete('/team/{user}', [\App\Http\Controllers\Admin\TeamController::class, 'destroy'])
+                ->name('team.destroy');
+        });
 
     });
 

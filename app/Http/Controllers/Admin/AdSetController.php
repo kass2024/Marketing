@@ -669,15 +669,7 @@ class AdSetController extends Controller
              */
             $metaResponse = null;
             if ($campaign->meta_id) {
-                $adSetParams = [
-                    'name' => $data['name'],
-                    'campaign_id' => $campaign->meta_id,
-                    'daily_budget' => (int)($data['daily_budget'] * 100), // Convert to cents
-                    'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
-                    'optimization_goal' => $data['optimization_goal'] ?? 'REACH',
-                    'targeting' => $targeting,
-                    'status' => $data['status'] ?? 'PAUSED',
-                ];
+               $adSetParams = $this->buildMetaSafeAdSetParams($data, $campaign, $targeting);
 
                 // Add bid strategy and amount if specified
                 if (!empty($data['bid_strategy'])) {
@@ -1659,7 +1651,145 @@ class AdSetController extends Controller
             ], 500);
         }
     }
+private function buildMetaSafeAdSetParams(array $data, Campaign $campaign, array $targeting): array
+{
+    /*
+    |--------------------------------------------------------------------------
+    | 1. Match campaign objective → optimization goal
+    |--------------------------------------------------------------------------
+    */
 
+    $objectiveMap = [
+        'AWARENESS' => 'REACH',
+        'TRAFFIC' => 'LINK_CLICKS',
+        'ENGAGEMENT' => 'POST_ENGAGEMENT',
+        'LEADS' => 'LEAD',
+        'SALES' => 'CONVERSIONS',
+        'APP_PROMOTION' => 'APP_INSTALLS'
+    ];
+
+    $optimizationGoal = $objectiveMap[$campaign->objective] ?? 'REACH';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | 2. Clean invalid targeting fields
+    |--------------------------------------------------------------------------
+    */
+
+    // Remove empty interests
+    if (isset($targeting['flexible_spec'])) {
+        foreach ($targeting['flexible_spec'] as $k => $spec) {
+            if (empty($spec)) {
+                unset($targeting['flexible_spec'][$k]);
+            }
+        }
+
+        if (empty($targeting['flexible_spec'])) {
+            unset($targeting['flexible_spec']);
+        }
+    }
+
+    // Remove empty arrays
+    foreach ($targeting as $key => $value) {
+        if (is_array($value) && empty($value)) {
+            unset($targeting[$key]);
+        }
+    }
+
+    // Remove unsupported fields that trigger 1815857
+    unset($targeting['connections']);
+    unset($targeting['connections_type']);
+    unset($targeting['connections_fields']);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | 3. Build base AdSet payload
+    |--------------------------------------------------------------------------
+    */
+
+    $params = [
+        'name' => $data['name'],
+        'campaign_id' => $campaign->meta_id,
+        'daily_budget' => (int)($data['daily_budget'] * 100),
+        'optimization_goal' => $optimizationGoal,
+        
+        'targeting' => $targeting,
+        'status' => $data['status'] ?? 'PAUSED',
+        'bid_strategy' => 'LOWEST_COST_WITHOUT_CAP'
+    ];
+$billingMap = [
+    'REACH' => 'IMPRESSIONS',
+    'LINK_CLICKS' => 'LINK_CLICKS',
+    'POST_ENGAGEMENT' => 'IMPRESSIONS',
+    'LEAD' => 'IMPRESSIONS',
+    'CONVERSIONS' => 'IMPRESSIONS',
+    'APP_INSTALLS' => 'IMPRESSIONS'
+];
+
+$params['billing_event'] = $billingMap[$optimizationGoal] ?? 'IMPRESSIONS';
+
+    /*
+    |--------------------------------------------------------------------------
+    | 4. Add required promoted_object automatically
+    |--------------------------------------------------------------------------
+    */
+
+    if ($optimizationGoal === 'LINK_CLICKS') {
+
+        if (!empty($campaign->page_id)) {
+            $params['promoted_object'] = [
+                'page_id' => $campaign->page_id
+            ];
+        }
+
+    }
+
+    if ($optimizationGoal === 'LEAD') {
+
+        if (!empty($campaign->page_id)) {
+            $params['promoted_object'] = [
+                'page_id' => $campaign->page_id
+            ];
+        }
+
+    }
+
+    if ($optimizationGoal === 'CONVERSIONS') {
+
+        if (!empty($campaign->pixel_id)) {
+            $params['promoted_object'] = [
+                'pixel_id' => $campaign->pixel_id
+            ];
+        }
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | 5. Remove gender if invalid
+    |--------------------------------------------------------------------------
+    */
+
+    if (isset($targeting['genders']) && count($targeting['genders']) === 0) {
+        unset($targeting['genders']);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | 6. Final payload
+    |--------------------------------------------------------------------------
+    */
+
+    $params['targeting'] = $targeting;
+
+    Log::debug('META SAFE ADSET PAYLOAD', $params);
+
+    return $params;
+}
     /**
      * Sync AdSet with Meta
      */

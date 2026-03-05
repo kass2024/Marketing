@@ -395,22 +395,31 @@ class AdSetController extends Controller
                 if (!empty($data['promoted_object_type']) && !empty($data['promoted_object_id'])) {
                     $adSetParams['promoted_object'] = $this->buildPromotedObject($data);
                 }
-
-                Log::info('Meta AdSet Payload', [
-                    'account_id' => $campaign->adAccount->meta_id,
-                    'params' => $adSetParams
-                ]);
+Log::debug('META ADSET REQUEST', [
+    'campaign_id' => $campaign->id,
+    'campaign_meta_id' => $campaign->meta_id,
+    'ad_account_id' => $campaign->adAccount->meta_id,
+    'params' => $adSetParams,
+    'targeting' => $targeting,
+]);
 
                 $metaResponse = $this->meta->createAdSet(
                     $campaign->adAccount->meta_id,
                     $adSetParams
                 );
+                 Log::debug('META ADSET RESPONSE', [
+    'response' => $metaResponse
+]);
+       if (isset($metaResponse['error'])) {
 
-                if (empty($metaResponse['id'])) {
-                    $errorMsg = $metaResponse['error']['message'] 
-    ?? json_encode($metaResponse);
-                    throw new \Exception($errorMsg);
-                }
+    Log::error('META ADSET ERROR', [
+        'error' => $metaResponse['error'],
+        'request_payload' => $adSetParams,
+        'targeting' => $targeting
+    ]);
+
+    throw new \Exception($metaResponse['error']['message'] ?? 'Meta API error');
+}
 
                 Log::info('Meta AdSet created successfully', [
                     'meta_id' => $metaResponse['id'],
@@ -450,10 +459,11 @@ class AdSetController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            Log::error('AdSet Creation Failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
+            Log::error('ADSET CREATION FAILED', [
+    'error' => $e->getMessage(),
+    'campaign_id' => $data['campaign_id'] ?? null,
+    'request_data' => $data,
+]);
 
             // Check for specific Meta API errors
             if (strpos($e->getMessage(), '1815857') !== false) {

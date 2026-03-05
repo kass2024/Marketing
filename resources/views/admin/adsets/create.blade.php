@@ -610,7 +610,7 @@
         });
 
         // FIXED: Using 'interests[]' to match controller
-       const interestSelect = new TomSelect("#interest-select", {
+const interestSelect = new TomSelect("#interest-select", {
     plugins: ['remove_button'],
     maxItems: 10,
     valueField: 'id',
@@ -620,21 +620,18 @@
 
     load: function(query, callback) {
 
-        if (!query.length) return callback();
+        if (query.length < 2) return callback();
 
-        fetch(`/admin/meta/interests?q=${encodeURIComponent(query)}`)
+        fetch(`{{ route('admin.meta.interests') }}?q=${encodeURIComponent(query)}`)
             .then(response => response.json())
             .then(json => {
 
-                if (!json.data) return callback();
+                if (!json.success) return callback([]);
 
-                callback(json.data.map(item => ({
-                    id: item.id,
-                    name: item.name
-                })));
+                callback(json.data);
 
             })
-            .catch(() => callback());
+            .catch(() => callback([]));
     }
 });
 

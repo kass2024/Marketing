@@ -118,9 +118,10 @@ class="min-h-screen bg-gray-100 font-sans">
            {{ str_contains($route,'admin.analytics') ? 'text-blue-600 font-semibold' : '' }}">
             Insights & Reports
         </a>
-<a href="{{ route('admin.ads.manager') }}"
-class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100">
-📢 Ads Manager
+{{-- Ads Manager --}}
+<a href="{{ route('admin.ads.manager.index') }}"
+   class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100">
+   📊 Ads Manager
 </a>
     </div>
 </div>

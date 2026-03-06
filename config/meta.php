@@ -209,30 +209,40 @@ return [
 
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Languages (Meta locales)
-    |--------------------------------------------------------------------------
-    */
+   /*
+|--------------------------------------------------------------------------
+| Languages (Meta Locale IDs)
+| Used by targeting.locales
+|--------------------------------------------------------------------------
+*/
 
-    'languages' => [
+'languages' => [
 
-        'en' => 'English',
-        'es' => 'Spanish',
-        'fr' => 'French',
-        'de' => 'German',
-        'it' => 'Italian',
-        'pt' => 'Portuguese',
-        'nl' => 'Dutch',
-        'sv' => 'Swedish',
-        'da' => 'Danish',
-        'fi' => 'Finnish',
-        'ru' => 'Russian',
-        'zh' => 'Chinese',
-        'ja' => 'Japanese',
-        'ko' => 'Korean',
-        'ar' => 'Arabic'
+1000 => 'English (All)',
+1001 => 'Arabic',
+1002 => 'Spanish',
+1003 => 'Hindi',
+1004 => 'French',
+1005 => 'German',
+1006 => 'Italian',
+1007 => 'Portuguese',
+1008 => 'Russian',
+1009 => 'Chinese (Simplified)',
+1010 => 'Chinese (Traditional)',
+1011 => 'Japanese',
+1012 => 'Korean',
+1013 => 'Dutch',
+1014 => 'Swedish',
+1015 => 'Danish',
+1016 => 'Finnish',
+1017 => 'Norwegian',
+1018 => 'Polish',
+1019 => 'Turkish',
+1020 => 'Thai',
+1021 => 'Vietnamese',
+1022 => 'Indonesian',
+1023 => 'Malay'
 
-    ]
+]
 
 ];

@@ -54,7 +54,6 @@ class AdSetController extends Controller
         Log::info('META_ADSET_STORE_REQUEST', $request->all());
 
         $data = $request->validate([
-
             'campaign_id' => 'required|exists:campaigns,id',
             'name' => 'required|string|max:255',
             'daily_budget' => 'required|numeric|min:5',
@@ -96,7 +95,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | BUILD TARGETING
+            | BUILD SAFE TARGETING
             |--------------------------------------------------------------------------
             */
 
@@ -106,8 +105,8 @@ class AdSetController extends Controller
                     'countries' => array_values($data['countries'])
                 ],
 
-                'age_min' => (int)$data['age_min'],
-                'age_max' => (int)$data['age_max'],
+                'age_min' => (int) $data['age_min'],
+                'age_max' => (int) $data['age_max'],
             ];
 
 
@@ -120,28 +119,24 @@ class AdSetController extends Controller
             if (!empty($data['genders'])) {
 
                 $targeting['genders'] = array_map('intval', $data['genders']);
-
-                Log::info('TARGETING_GENDERS', $targeting['genders']);
             }
 
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (META LOCALES)
+            | LANGUAGES (optional – often causes Meta conflicts)
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['languages'])) {
+            if (!empty($data['languages']) && count($data['countries']) > 1) {
 
                 $targeting['locales'] = array_map('intval', $data['languages']);
-
-                Log::info('TARGETING_LANGUAGES', $targeting['locales']);
             }
 
 
             /*
             |--------------------------------------------------------------------------
-            | INTEREST TARGETING
+            | INTEREST TARGETING (Meta Safe)
             |--------------------------------------------------------------------------
             */
 
@@ -149,16 +144,12 @@ class AdSetController extends Controller
 
                 $interests = collect($data['interests'])
                     ->map(fn ($id) => [
-                        'id' => (string)$id
+                        'id' => (string) $id
                     ])
                     ->values()
                     ->toArray();
 
-                $targeting['flexible_spec'] = [[
-                    'interests' => $interests
-                ]];
-
-                Log::info('TARGETING_INTERESTS', $interests);
+                $targeting['interests'] = $interests;
             }
 
 
@@ -171,17 +162,17 @@ class AdSetController extends Controller
             if ($data['placement_type'] === 'manual') {
 
                 if (empty($data['publisher_platforms'])) {
-                    throw new Exception('Select at least one platform for manual placement');
+                    throw new Exception('Select at least one platform');
                 }
 
                 $targeting['publisher_platforms'] = $data['publisher_platforms'];
 
                 if (in_array('facebook', $data['publisher_platforms'])) {
-                    $targeting['facebook_positions'] = ['feed', 'story', 'video_feeds'];
+                    $targeting['facebook_positions'] = ['feed', 'story'];
                 }
 
                 if (in_array('instagram', $data['publisher_platforms'])) {
-                    $targeting['instagram_positions'] = ['stream', 'story', 'reels'];
+                    $targeting['instagram_positions'] = ['stream', 'story'];
                 }
 
                 if (in_array('messenger', $data['publisher_platforms'])) {
@@ -191,9 +182,10 @@ class AdSetController extends Controller
                 if (in_array('audience_network', $data['publisher_platforms'])) {
                     $targeting['audience_network_positions'] = ['classic'];
                 }
-
-                Log::info('TARGETING_MANUAL_PLACEMENTS', $targeting);
             }
+
+            Log::info('META_TARGETING_FINAL', $targeting);
+
 
             /*
             |--------------------------------------------------------------------------
@@ -207,7 +199,7 @@ class AdSetController extends Controller
 
                 'campaign_id' => $campaign->meta_id,
 
-                'daily_budget' => (int)$data['daily_budget'] * 100,
+                'daily_budget' => (int) $data['daily_budget'] * 100,
 
                 'billing_event' => 'IMPRESSIONS',
 
@@ -235,8 +227,6 @@ class AdSetController extends Controller
             Log::info('META_RESPONSE', $response);
 
             if (!isset($response['id'])) {
-
-                Log::error('META_API_ERROR', $response);
 
                 throw new Exception(
                     $response['error']['message'] ?? 'Meta API error'
@@ -277,10 +267,10 @@ class AdSetController extends Controller
                 'local_id' => $adset->id
             ]);
 
-
             return redirect()
                 ->route('admin.campaigns.show', $campaign->id)
                 ->with('success', 'Ad Set created successfully');
+
         }
 
         catch (Throwable $e) {
@@ -288,8 +278,7 @@ class AdSetController extends Controller
             DB::rollBack();
 
             Log::error('META_ADSET_FAILED', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error' => $e->getMessage()
             ]);
 
             return back()

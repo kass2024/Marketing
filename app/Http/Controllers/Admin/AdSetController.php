@@ -81,8 +81,6 @@ class AdSetController extends Controller
 
         try {
 
-            Log::info('META_ADSET_TRANSACTION_START');
-
             $campaign = Campaign::with('adAccount')->findOrFail($data['campaign_id']);
 
             if (!$campaign->meta_id) {
@@ -95,36 +93,53 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | BUILD SAFE TARGETING
+            | TARGETING (Meta Safe Structure)
             |--------------------------------------------------------------------------
             */
 
             $targeting = [
-
                 'geo_locations' => [
                     'countries' => array_values($data['countries'])
-                ],
-
-                'age_min' => (int) $data['age_min'],
-                'age_max' => (int) $data['age_max'],
+                ]
             ];
-
 
             /*
             |--------------------------------------------------------------------------
-            | GENDERS
+            | AGE
+            |--------------------------------------------------------------------------
+            */
+
+            $targeting['age_min'] = (int) $data['age_min'];
+            $targeting['age_max'] = (int) $data['age_max'];
+
+            /*
+            |--------------------------------------------------------------------------
+            | GENDER
             |--------------------------------------------------------------------------
             */
 
             if (!empty($data['genders'])) {
-
                 $targeting['genders'] = array_map('intval', $data['genders']);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | INTERESTS (Safe Usage)
+            |--------------------------------------------------------------------------
+            */
+
+            if (!empty($data['interests'])) {
+
+                $targeting['interests'] = collect($data['interests'])
+                    ->take(5) // limit interests to avoid conflicts
+                    ->map(fn($id) => ['id' => (string)$id])
+                    ->values()
+                    ->toArray();
+            }
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (optional – often causes Meta conflicts)
+            | LANGUAGES (only if multiple countries)
             |--------------------------------------------------------------------------
             */
 
@@ -132,26 +147,6 @@ class AdSetController extends Controller
 
                 $targeting['locales'] = array_map('intval', $data['languages']);
             }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | INTEREST TARGETING (Meta Safe)
-            |--------------------------------------------------------------------------
-            */
-
-            if (!empty($data['interests'])) {
-
-                $interests = collect($data['interests'])
-                    ->map(fn ($id) => [
-                        'id' => (string) $id
-                    ])
-                    ->values()
-                    ->toArray();
-
-                $targeting['interests'] = $interests;
-            }
-
 
             /*
             |--------------------------------------------------------------------------
@@ -182,10 +177,17 @@ class AdSetController extends Controller
                 if (in_array('audience_network', $data['publisher_platforms'])) {
                     $targeting['audience_network_positions'] = ['classic'];
                 }
+
+            } else {
+
+                // Automatic placements recommended by Meta
+                $targeting['publisher_platforms'] = [
+                    'facebook',
+                    'instagram'
+                ];
             }
 
             Log::info('META_TARGETING_FINAL', $targeting);
-
 
             /*
             |--------------------------------------------------------------------------
@@ -199,7 +201,7 @@ class AdSetController extends Controller
 
                 'campaign_id' => $campaign->meta_id,
 
-                'daily_budget' => (int) $data['daily_budget'] * 100,
+                'daily_budget' => (int)$data['daily_budget'] * 100,
 
                 'billing_event' => 'IMPRESSIONS',
 
@@ -212,10 +214,9 @@ class AdSetController extends Controller
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 
-
             /*
             |--------------------------------------------------------------------------
-            | CALL META API
+            | CREATE META ADSET
             |--------------------------------------------------------------------------
             */
 
@@ -233,10 +234,9 @@ class AdSetController extends Controller
                 );
             }
 
-
             /*
             |--------------------------------------------------------------------------
-            | SAVE LOCAL
+            | SAVE LOCAL COPY
             |--------------------------------------------------------------------------
             */
 
@@ -258,7 +258,6 @@ class AdSetController extends Controller
 
                 'status' => 'PAUSED'
             ]);
-
 
             DB::commit();
 

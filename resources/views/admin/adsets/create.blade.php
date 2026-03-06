@@ -8,7 +8,6 @@
 
 {{-- HEADER --}}
 <div class="flex justify-between items-center">
-
 <div>
 <h1 class="text-3xl font-bold text-gray-900">Create Ad Set</h1>
 <p class="text-sm text-gray-500 mt-1">
@@ -20,11 +19,10 @@ Configure audience targeting and delivery
 class="bg-gray-600 text-white px-4 py-3 rounded-xl hover:bg-gray-700">
 Back
 </a>
-
 </div>
 
 
-{{-- VALIDATION ERRORS --}}
+{{-- ERRORS --}}
 @if($errors->any())
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
 <ul class="list-disc ml-6">
@@ -34,7 +32,6 @@ Back
 </ul>
 </div>
 @endif
-
 
 
 <div class="bg-white shadow border rounded-2xl p-8">
@@ -48,7 +45,6 @@ id="adsetForm">
 
 {{-- CAMPAIGN --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Campaign</label>
 
 <select name="campaign_id"
@@ -58,23 +54,19 @@ required>
 <option value="">Select campaign</option>
 
 @foreach($campaigns as $campaign)
-
 <option value="{{ $campaign->id }}"
 {{ old('campaign_id',$selectedCampaign) == $campaign->id ? 'selected' : '' }}>
 {{ $campaign->name }}
 </option>
-
 @endforeach
 
 </select>
-
 </div>
 
 
 
 {{-- ADSET NAME --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Ad Set Name</label>
 
 <input
@@ -84,14 +76,12 @@ value="{{ old('name') }}"
 class="w-full border rounded-xl px-4 py-3"
 placeholder="Example: Canada Students 18-30"
 required>
-
 </div>
 
 
 
 {{-- BUDGET --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Daily Budget ($)</label>
 
 <input
@@ -106,18 +96,15 @@ required>
 <p class="text-xs text-gray-500 mt-1">
 Minimum recommended budget: $5/day
 </p>
-
 </div>
 
 
 
-{{-- AGE TARGETING --}}
+{{-- AGE --}}
 <div class="grid grid-cols-2 gap-4 mb-6">
 
 <div>
-
 <label class="font-semibold block mb-2">Minimum Age</label>
-
 <input
 type="number"
 name="age_min"
@@ -125,13 +112,10 @@ value="{{ old('age_min',18) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
-
 </div>
 
 <div>
-
 <label class="font-semibold block mb-2">Maximum Age</label>
-
 <input
 type="number"
 name="age_max"
@@ -139,7 +123,6 @@ value="{{ old('age_max',65) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
-
 </div>
 
 </div>
@@ -148,11 +131,9 @@ class="w-full border rounded-xl px-4 py-3">
 
 {{-- GENDER --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Gender</label>
 
-<select name="genders[]"
-multiple
+<select name="genders[]" multiple
 id="gender-select"
 class="w-full border rounded-xl px-4 py-3">
 
@@ -164,19 +145,15 @@ class="w-full border rounded-xl px-4 py-3">
 <p class="text-xs text-gray-500 mt-1">
 Leave empty to target all genders
 </p>
-
 </div>
 
 
 
 {{-- COUNTRIES --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Countries</label>
 
-<select
-name="countries[]"
-multiple
+<select name="countries[]" multiple
 id="country-select"
 class="w-full border rounded-xl px-4 py-3"
 required>
@@ -192,18 +169,19 @@ required>
 
 </select>
 
+<p class="text-xs text-gray-500 mt-1">
+At least one country must be selected.
+</p>
+
 </div>
 
 
 
 {{-- LANGUAGES --}}
 <div class="mb-6">
+<label class="font-semibold block mb-2">Languages (Optional)</label>
 
-<label class="font-semibold block mb-2">Languages</label>
-
-<select
-name="languages[]"
-multiple
+<select name="languages[]" multiple
 id="language-select"
 class="w-full border rounded-xl px-4 py-3">
 
@@ -218,13 +196,16 @@ class="w-full border rounded-xl px-4 py-3">
 
 </select>
 
+<p class="text-xs text-gray-500 mt-1">
+Avoid combining languages with very small countries.
+</p>
+
 </div>
 
 
 
-{{-- INTEREST TARGETING --}}
+{{-- INTERESTS --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Interest Targeting</label>
 
 <select
@@ -234,16 +215,14 @@ multiple
 class="w-full border rounded-xl px-4 py-3"></select>
 
 <p class="text-xs text-gray-500 mt-1">
-Start typing to search Meta interests
+Maximum 5 interests recommended to avoid targeting conflicts.
 </p>
-
 </div>
 
 
 
-{{-- PLACEMENTS --}}
+{{-- PLACEMENT --}}
 <div class="mb-6">
-
 <label class="font-semibold block mb-2">Placement Strategy</label>
 
 <select
@@ -255,7 +234,6 @@ class="w-full border rounded-xl px-4 py-3">
 <option value="manual">Manual Placement</option>
 
 </select>
-
 </div>
 
 
@@ -265,8 +243,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 <label class="font-semibold block mb-2">Platforms</label>
 
-<select
-name="publisher_platforms[]"
+<select name="publisher_platforms[]"
 multiple
 id="platform-select"
 class="w-full border rounded-xl px-4 py-3">
@@ -288,13 +265,10 @@ class="w-full border rounded-xl px-4 py-3">
 <button
 type="submit"
 class="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700">
-
 Create Ad Set
-
 </button>
 
 </div>
-
 
 </form>
 
@@ -311,21 +285,16 @@ Create Ad Set
 document.addEventListener("DOMContentLoaded", function(){
 
 function initSelect(id){
-
 if(document.querySelector(id)){
-
-new TomSelect(id,{
-plugins:['remove_button']
-});
-
+new TomSelect(id,{plugins:['remove_button']});
 }
-
 }
 
 initSelect("#country-select");
 initSelect("#gender-select");
 initSelect("#language-select");
 initSelect("#platform-select");
+
 
 
 let interestTimeout;
@@ -336,6 +305,8 @@ plugins:['remove_button'],
 valueField:'id',
 labelField:'name',
 searchField:'name',
+
+maxItems:5,
 
 load:function(query,callback){
 
@@ -355,6 +326,7 @@ fetch("/admin/meta/interests?q="+query)
 }
 
 });
+
 
 
 document.getElementById("placement-type").addEventListener("change",function(){
@@ -377,16 +349,15 @@ platforms.disabled=false;
 });
 
 
+
 document.getElementById("adsetForm").addEventListener("submit",function(e){
 
 let min=parseInt(document.querySelector("[name='age_min']").value);
 let max=parseInt(document.querySelector("[name='age_max']").value);
 
 if(min > max){
-
 e.preventDefault();
 alert("Minimum age cannot be greater than maximum age");
-
 }
 
 });

@@ -318,9 +318,9 @@ Route::middleware(['auth','verified','role:admin'])
         });
 
         // Campaign-specific Ad Set creation (THIS IS THE KEY ROUTE YOU NEED)
-        Route::get('campaigns/{campaign}/adsets/create', 
-            [AdSetController::class, 'createFromCampaign'])
-            ->name('campaigns.adsets.create');
+      Route::get('campaigns/{campaign}/adsets/create', 
+    [AdSetController::class, 'create'])
+    ->name('campaigns.adsets.create');
 
         // List Ad Sets by campaign
         Route::get('campaigns/{campaign}/adsets', 
@@ -507,14 +507,12 @@ Route::get('/admin/meta/interests', [\App\Http\Controllers\Admin\MetaTargetingCo
 |--------------------------------------------------------------------------
 */
 
-Route::middleware('auth')->group(function () {
-
     Route::get('/profile',[ProfileController::class,'edit'])->name('profile.edit');
 
     Route::patch('/profile',[ProfileController::class,'update'])->name('profile.update');
 
     Route::delete('/profile',[ProfileController::class,'destroy'])->name('profile.destroy');
-});
+
 
 
 require __DIR__.'/auth.php';

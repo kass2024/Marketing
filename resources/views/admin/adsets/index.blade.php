@@ -4,10 +4,11 @@
 
 <div class="max-w-7xl mx-auto space-y-8">
 
-{{-- HEADER --}}
-<div class="flex items-center justify-between">
+{{-- ================= HEADER ================= --}}
+<div class="flex items-center justify-between flex-wrap gap-4">
 
 <div>
+
 <h1 class="text-3xl font-bold text-gray-900">
 Ad Sets
 </h1>
@@ -15,12 +16,15 @@ Ad Sets
 <p class="text-sm text-gray-500 mt-1">
 Manage targeting, budgets and delivery for your campaigns.
 </p>
+
 </div>
 
 <div class="flex gap-3">
 
-<a href="{{ route('admin.campaigns.index') }}"
-class="bg-gray-600 text-white px-4 py-2 rounded-lg shadow hover:bg-gray-700">
+<a
+href="{{ route('admin.campaigns.index') }}"
+class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+>
 Back to Campaigns
 </a>
 
@@ -30,16 +34,16 @@ Back to Campaigns
 
 
 
-{{-- FILTER BAR --}}
-<div class="bg-white p-4 rounded-xl shadow flex items-center justify-between">
+{{-- ================= FILTER BAR ================= --}}
+<div class="bg-white p-4 rounded-xl shadow flex items-center justify-between flex-wrap gap-3">
 
 <div class="flex gap-3">
 
 <select class="border rounded-lg px-3 py-2 text-sm">
 <option>All Status</option>
-<option>Active</option>
-<option>Paused</option>
-<option>Archived</option>
+<option>ACTIVE</option>
+<option>PAUSED</option>
+<option>DRAFT</option>
 </select>
 
 <select class="border rounded-lg px-3 py-2 text-sm">
@@ -51,14 +55,16 @@ Back to Campaigns
 </div>
 
 <div class="text-sm text-gray-500">
+
 {{ $adsets->total() }} Ad Sets
-</div>
 
 </div>
 
+</div>
 
 
-{{-- ADSETS TABLE --}}
+
+{{-- ================= TABLE ================= --}}
 <div class="bg-white rounded-xl shadow overflow-hidden">
 
 <table class="w-full text-sm">
@@ -87,6 +93,8 @@ Back to Campaigns
 
 </thead>
 
+
+
 <tbody>
 
 @forelse($adsets as $adset)
@@ -97,21 +105,56 @@ Back to Campaigns
 <input type="checkbox">
 </td>
 
+
+
+{{-- NAME --}}
 <td class="font-medium">
+
 {{ $adset->name }}
+
+@if($adset->meta_id)
+
+<div class="text-xs text-gray-400 mt-1">
+Meta Synced
+</div>
+
+@endif
+
 </td>
 
+
+
+{{-- CAMPAIGN --}}
 <td>
+
 {{ $adset->campaign->name ?? '-' }}
+
 </td>
 
+
+
+{{-- BUDGET --}}
 <td>
+
+@if($adset->daily_budget)
+
 ${{ number_format($adset->daily_budget / 100,2) }}
+
+@else
+
+<span class="text-gray-400">No Budget</span>
+
+@endif
+
 </td>
 
+
+
+{{-- STATUS --}}
 <td>
 
 <span class="px-2 py-1 text-xs rounded
+
 @if($adset->status=='ACTIVE')
 bg-green-100 text-green-700
 @elseif($adset->status=='PAUSED')
@@ -119,6 +162,7 @@ bg-yellow-100 text-yellow-700
 @else
 bg-gray-100 text-gray-700
 @endif
+
 ">
 
 {{ $adset->status }}
@@ -127,27 +171,53 @@ bg-gray-100 text-gray-700
 
 </td>
 
+
+
+{{-- META ID --}}
 <td class="text-xs text-gray-500">
+
+@if($adset->meta_id)
+
 {{ $adset->meta_id }}
+
+@else
+
+<span class="text-gray-400">Not synced</span>
+
+@endif
+
 </td>
 
+
+
+{{-- ACTIONS --}}
 <td class="text-right pr-6 space-x-4">
 
 {{-- CREATE AD --}}
-<a href="{{ route('admin.ads.create',['adset'=>$adset->id]) }}"
-class="text-purple-600 hover:underline text-sm">
+<a
+href="{{ route('admin.ads.create',['adset'=>$adset->id]) }}"
+class="text-purple-600 hover:underline text-sm"
+>
 Create Ad
 </a>
 
-{{-- EDIT ADSET --}}
-<a href="{{ route('admin.adsets.edit',$adset->id) }}"
-class="text-blue-600 hover:underline text-sm">
+
+
+{{-- EDIT --}}
+<a
+href="{{ route('admin.adsets.edit',$adset->id) }}"
+class="text-blue-600 hover:underline text-sm"
+>
 Edit
 </a>
 
+
+
 {{-- VIEW ADS --}}
-<a href="{{ route('admin.ads.index',['adset'=>$adset->id]) }}"
-class="text-gray-600 hover:underline text-sm">
+<a
+href="{{ route('admin.ads.index',['adset'=>$adset->id]) }}"
+class="text-gray-600 hover:underline text-sm"
+>
 View Ads
 </a>
 
@@ -171,8 +241,10 @@ No Ad Sets Yet
 Create an Ad Set from a Campaign first.
 </p>
 
-<a href="{{ route('admin.campaigns.index') }}"
-class="bg-blue-600 text-white px-4 py-2 rounded-lg shadow hover:bg-blue-700">
+<a
+href="{{ route('admin.campaigns.index') }}"
+class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+>
 Go to Campaigns
 </a>
 
@@ -192,10 +264,42 @@ Go to Campaigns
 
 
 
-{{-- PAGINATION --}}
+{{-- ================= PAGINATION ================= --}}
+@if($adsets->hasPages())
+
 <div>
+
 {{ $adsets->links() }}
+
 </div>
+
+@endif
+
+
+
+{{-- ================= META WARNING ================= --}}
+@if(!isset($hasMetaConnection) || !$hasMetaConnection)
+
+<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+
+<p class="text-sm text-yellow-700">
+
+<strong>Meta connection inactive.</strong>
+
+You can still create AdSets locally for testing.
+
+<a
+href="{{ route('admin.accounts.index') }}"
+class="underline ml-1"
+>
+Connect Meta →
+</a>
+
+</p>
+
+</div>
+
+@endif
 
 </div>
 

@@ -1,5 +1,7 @@
 @extends('layouts.app')
 
+@section('title','Ads Manager')
+
 @section('content')
 
 <div class="max-w-7xl mx-auto space-y-6">
@@ -39,6 +41,13 @@ class="bg-purple-600 text-white px-4 py-2 rounded-lg shadow opacity-50 cursor-no
 </div>
 
 
+
+{{-- MAIN GRID --}}
+<div class="grid grid-cols-3 gap-6">
+
+<div class="col-span-2 space-y-6">
+
+
 {{-- FILTER BAR --}}
 <div class="flex justify-between items-center bg-white p-4 rounded-xl shadow flex-wrap gap-3">
 
@@ -66,7 +75,7 @@ class="bg-purple-600 text-white px-4 py-2 rounded-lg shadow opacity-50 cursor-no
 
 
 
-{{-- CAMPAIGNS --}}
+{{-- CAMPAIGNS TABLE --}}
 <div class="bg-white rounded-xl shadow overflow-hidden">
 
 <div class="p-4 border-b font-semibold">
@@ -162,6 +171,36 @@ Edit
 {{-- ADS --}}
 <div id="ads-container"></div>
 
+
+</div>
+
+
+
+{{-- PREVIEW PANEL --}}
+<div>
+
+<div class="bg-white rounded-xl shadow p-4 sticky top-6">
+
+<h2 class="font-semibold mb-4">
+Ad Preview
+</h2>
+
+<div id="ad-preview">
+
+<div class="text-gray-400 text-sm">
+Select an Ad to preview
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+
+</div>
+
+
 </div>
 
 
@@ -173,9 +212,11 @@ let selectedAdset = null;
 
 const adsetsContainer = document.getElementById('adsets-container');
 const adsContainer = document.getElementById('ads-container');
+const preview = document.getElementById('ad-preview');
 
 const adsetBtn = document.getElementById('createAdSetBtn');
 const adBtn = document.getElementById('createAdBtn');
+
 
 
 /*
@@ -189,30 +230,30 @@ document.addEventListener('click', function(e){
 const row = e.target.closest('.campaign-row');
 if(!row) return;
 
-document.querySelectorAll('.campaign-row').forEach(r=>r.classList.remove('bg-blue-100'));
+document.querySelectorAll('.campaign-row')
+.forEach(r=>r.classList.remove('bg-blue-100'));
 
 row.classList.add('bg-blue-100');
 
 selectedCampaign = row.dataset.id;
 
 enableAdSetButton();
-
 loadAdsets(selectedCampaign);
 
 });
 
 
-/*
-|--------------------------------------------------------------------------
-| ENABLE ADSET BUTTON
-|--------------------------------------------------------------------------
-*/
 
 function enableAdSetButton(){
 
-adsetBtn.classList.remove('opacity-50','cursor-not-allowed','pointer-events-none');
+adsetBtn.classList.remove(
+'opacity-50',
+'cursor-not-allowed',
+'pointer-events-none'
+);
 
-adsetBtn.href = `/admin/campaigns/${selectedCampaign}/adsets/create`;
+adsetBtn.href =
+`/admin/campaigns/${selectedCampaign}/adsets/create`;
 
 }
 
@@ -230,26 +271,15 @@ adsetsContainer.innerHTML =
 `<div class="p-6 text-gray-500">Loading Ad Sets...</div>`;
 
 adsContainer.innerHTML = '';
+preview.innerHTML = '';
 
 fetch(`/admin/campaigns/${campaignId}/adsets`)
 .then(res => res.json())
-.then(renderAdsets)
-.catch(()=>{
-
-adsetsContainer.innerHTML =
-`<div class="p-6 text-red-500">Failed to load Ad Sets</div>`;
-
-});
+.then(renderAdsets);
 
 }
 
 
-
-/*
-|--------------------------------------------------------------------------
-| RENDER ADSETS
-|--------------------------------------------------------------------------
-*/
 
 function renderAdsets(adsets){
 
@@ -273,7 +303,7 @@ Ad Sets
 <tbody>
 `;
 
-if(adsets.length === 0){
+if(!adsets.length){
 
 html += `
 <tr>
@@ -292,7 +322,7 @@ html += `
 data-id="${adset.id}">
 
 <td>${adset.name}</td>
-<td>$${(adset.daily_budget / 100).toFixed(2)}</td>
+<td>$${((adset.daily_budget || 0) / 100).toFixed(2)}</td>
 <td>${adset.status}</td>
 
 </tr>
@@ -319,30 +349,30 @@ document.addEventListener('click', function(e){
 const row = e.target.closest('.adset-row');
 if(!row) return;
 
-document.querySelectorAll('.adset-row').forEach(r=>r.classList.remove('bg-blue-100'));
+document.querySelectorAll('.adset-row')
+.forEach(r=>r.classList.remove('bg-blue-100'));
 
 row.classList.add('bg-blue-100');
 
 selectedAdset = row.dataset.id;
 
 enableAdButton();
-
 loadAds(selectedAdset);
 
 });
 
 
-/*
-|--------------------------------------------------------------------------
-| ENABLE AD BUTTON
-|--------------------------------------------------------------------------
-*/
 
 function enableAdButton(){
 
-adBtn.classList.remove('opacity-50','cursor-not-allowed','pointer-events-none');
+adBtn.classList.remove(
+'opacity-50',
+'cursor-not-allowed',
+'pointer-events-none'
+);
 
-adBtn.href = `/admin/adsets/${selectedAdset}/ads/create`;
+adBtn.href =
+`/admin/adsets/${selectedAdset}/ads/create`;
 
 }
 
@@ -361,23 +391,11 @@ adsContainer.innerHTML =
 
 fetch(`/admin/adsets/${adsetId}/ads`)
 .then(res=>res.json())
-.then(renderAds)
-.catch(()=>{
-
-adsContainer.innerHTML =
-`<div class="p-6 text-red-500">Failed to load Ads</div>`;
-
-});
+.then(renderAds);
 
 }
 
 
-
-/*
-|--------------------------------------------------------------------------
-| RENDER ADS
-|--------------------------------------------------------------------------
-*/
 
 function renderAds(ads){
 
@@ -403,7 +421,7 @@ Ads
 <tbody>
 `;
 
-if(ads.length === 0){
+if(!ads.length){
 
 html += `
 <tr>
@@ -418,7 +436,8 @@ No Ads found
 ads.forEach(ad=>{
 
 html += `
-<tr class="border-t">
+<tr class="border-t cursor-pointer ad-row"
+data-id="${ad.id}">
 
 <td>${ad.name}</td>
 <td>${ad.status}</td>
@@ -436,6 +455,60 @@ html += `</tbody></table></div>`;
 adsContainer.innerHTML = html;
 
 }
+
+
+
+/*
+|--------------------------------------------------------------------------
+| AD PREVIEW
+|--------------------------------------------------------------------------
+*/
+
+document.addEventListener('click', function(e){
+
+const row = e.target.closest('.ad-row');
+if(!row) return;
+
+const adId = row.dataset.id;
+
+preview.innerHTML = `
+<div class="text-gray-500 text-sm">
+Loading preview...
+</div>
+`;
+
+fetch(`/admin/ads/${adId}/preview`)
+.then(res=>res.json())
+.then(data=>{
+
+preview.innerHTML = `
+<div class="border rounded-lg overflow-hidden bg-white">
+
+${data.image_url ? `<img src="${data.image_url}" class="w-full">` : ''}
+
+<div class="p-4">
+
+<h3 class="font-semibold mb-2">
+${data.title || ''}
+</h3>
+
+<p class="text-sm text-gray-600 mb-3">
+${data.body || ''}
+</p>
+
+${data.call_to_action ?
+`<button class="bg-blue-600 text-white px-4 py-2 rounded text-sm">
+${data.call_to_action}
+</button>` : ''}
+
+</div>
+
+</div>
+`;
+
+});
+
+});
 
 </script>
 

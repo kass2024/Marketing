@@ -17,7 +17,19 @@ class AdSet extends Model
     |--------------------------------------------------------------------------
     */
 
-    protected $table = 'ad_sets';
+    protected $table = 'adsets';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Status Constants
+    |--------------------------------------------------------------------------
+    */
+
+    const STATUS_ACTIVE = 'ACTIVE';
+    const STATUS_PAUSED = 'PAUSED';
+    const STATUS_DRAFT  = 'DRAFT';
+    const STATUS_ARCHIVED = 'ARCHIVED';
 
 
     /*
@@ -28,13 +40,31 @@ class AdSet extends Model
 
     protected $fillable = [
         'campaign_id',
-        'meta_id',          // Meta AdSet ID
+
+        // Meta identifiers
+        'meta_adset_id',
+
+        // basic info
         'name',
+        'status',
+
+        // budget & bidding
         'daily_budget',
+        'bid_strategy',
+        'bid_amount',
+
+        // optimization
         'optimization_goal',
         'billing_event',
+
+        // targeting JSON
         'targeting',
-        'status',
+
+        // schedule
+        'start_time',
+        'end_time',
+
+        // cached metrics
         'impressions',
         'clicks',
         'spend'
@@ -43,16 +73,23 @@ class AdSet extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Casting
+    | Casts
     |--------------------------------------------------------------------------
     */
 
     protected $casts = [
+
         'targeting' => 'array',
-        'daily_budget' => 'integer',
+
+        'daily_budget' => 'float',
+        'bid_amount' => 'float',
+
         'impressions' => 'integer',
         'clicks' => 'integer',
         'spend' => 'float',
+
+        'start_time' => 'datetime',
+        'end_time' => 'datetime'
     ];
 
 
@@ -88,13 +125,30 @@ class AdSet extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('status', 'ACTIVE');
+        return $query->where('status', self::STATUS_ACTIVE);
     }
-
 
     public function scopePaused($query)
     {
-        return $query->where('status', 'PAUSED');
+        return $query->where('status', self::STATUS_PAUSED);
+    }
+
+    public function scopeDraft($query)
+    {
+        return $query->where('status', self::STATUS_DRAFT);
+    }
+
+    public function scopeRunning($query)
+    {
+        return $query->where('status', self::STATUS_ACTIVE)
+                     ->where(function ($q) {
+                         $q->whereNull('start_time')
+                           ->orWhere('start_time', '<=', now());
+                     })
+                     ->where(function ($q) {
+                         $q->whereNull('end_time')
+                           ->orWhere('end_time', '>=', now());
+                     });
     }
 
 
@@ -104,19 +158,51 @@ class AdSet extends Model
     |--------------------------------------------------------------------------
     */
 
+    /**
+     * Format budget
+     */
     public function getBudgetFormattedAttribute(): string
     {
-        return '$' . number_format($this->daily_budget / 100, 2);
+        return '$' . number_format($this->daily_budget, 2);
     }
 
 
-    public function getCtrAttribute(): string
+    /**
+     * Click Through Rate
+     */
+    public function getCtrAttribute(): float
     {
         if ($this->impressions == 0) {
-            return '0%';
+            return 0;
         }
 
-        return number_format(($this->clicks / $this->impressions) * 100, 2) . '%';
+        return round(($this->clicks / $this->impressions) * 100, 2);
+    }
+
+
+    /**
+     * Cost Per Click
+     */
+    public function getCpcAttribute(): float
+    {
+        if ($this->clicks == 0) {
+            return 0;
+        }
+
+        return round($this->spend / $this->clicks, 2);
+    }
+
+
+    /**
+     * Cost Per 1000 impressions
+     */
+    public function getCpmAttribute(): float
+    {
+        if ($this->impressions == 0) {
+            return 0;
+        }
+
+        return round(($this->spend / $this->impressions) * 1000, 2);
     }
 
 
@@ -128,12 +214,67 @@ class AdSet extends Model
 
     public function isActive(): bool
     {
-        return $this->status === 'ACTIVE';
+        return $this->status === self::STATUS_ACTIVE;
     }
-
 
     public function isPaused(): bool
     {
-        return $this->status === 'PAUSED';
+        return $this->status === self::STATUS_PAUSED;
+    }
+
+    public function isDraft(): bool
+    {
+        return $this->status === self::STATUS_DRAFT;
+    }
+
+    public function hasEnded(): bool
+    {
+        if (!$this->end_time) {
+            return false;
+        }
+
+        return now()->greaterThan($this->end_time);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Targeting Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    public function getCountries(): array
+    {
+        return $this->targeting['geo_locations']['countries'] ?? [];
+    }
+
+    public function getAgeRange(): array
+    {
+        return [
+            'min' => $this->targeting['age_min'] ?? null,
+            'max' => $this->targeting['age_max'] ?? null,
+        ];
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Metrics Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    public function increaseImpressions(int $count = 1): void
+    {
+        $this->increment('impressions', $count);
+    }
+
+    public function increaseClicks(int $count = 1): void
+    {
+        $this->increment('clicks', $count);
+    }
+
+    public function addSpend(float $amount): void
+    {
+        $this->increment('spend', $amount);
     }
 }

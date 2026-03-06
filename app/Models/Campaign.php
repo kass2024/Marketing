@@ -5,10 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Campaign extends Model
 {
     use HasFactory;
+
+    /*
+    |--------------------------------------------------------------------------
+    | Table
+    |--------------------------------------------------------------------------
+    */
+
+    protected $table = 'campaigns';
+
 
     /*
     |--------------------------------------------------------------------------
@@ -20,6 +31,7 @@ class Campaign extends Model
     public const STATUS_ACTIVE    = 'active';
     public const STATUS_PAUSED    = 'paused';
     public const STATUS_COMPLETED = 'completed';
+    public const STATUS_ARCHIVED  = 'archived';
 
 
     /*
@@ -30,16 +42,28 @@ class Campaign extends Model
 
     protected $fillable = [
         'ad_account_id',
+
+        // Meta API ID
         'meta_id',
+
+        // basic info
         'name',
         'objective',
+
+        // budgets
         'daily_budget',
         'budget',
+
+        // metrics cache
         'spend',
         'impressions',
         'clicks',
         'leads',
+
+        // status
         'status',
+
+        // schedule
         'started_at',
         'ended_at'
     ];
@@ -52,12 +76,14 @@ class Campaign extends Model
     */
 
     protected $casts = [
-        'daily_budget' => 'integer',
-        'budget'       => 'decimal:2',
-        'spend'        => 'decimal:2',
+        'daily_budget' => 'float',
+        'budget'       => 'float',
+        'spend'        => 'float',
+
         'impressions'  => 'integer',
         'clicks'       => 'integer',
         'leads'        => 'integer',
+
         'started_at'   => 'datetime',
         'ended_at'     => 'datetime'
     ];
@@ -69,9 +95,33 @@ class Campaign extends Model
     |--------------------------------------------------------------------------
     */
 
-    public function adAccount()
+    /**
+     * Campaign belongs to Ad Account
+     */
+    public function adAccount(): BelongsTo
     {
         return $this->belongsTo(AdAccount::class);
+    }
+
+
+    /**
+     * Campaign has many AdSets
+     */
+    public function adsets(): HasMany
+    {
+        return $this->hasMany(AdSet::class);
+    }
+
+
+    /**
+     * Campaign has many Ads through AdSets
+     */
+    public function ads()
+    {
+        return $this->hasManyThrough(
+            Ad::class,
+            AdSet::class
+        );
     }
 
 
@@ -101,6 +151,19 @@ class Campaign extends Model
         return $query->where('status', self::STATUS_COMPLETED);
     }
 
+    public function scopeRunning(Builder $query): Builder
+    {
+        return $query->where('status', self::STATUS_ACTIVE)
+            ->where(function ($q) {
+                $q->whereNull('started_at')
+                  ->orWhere('started_at', '<=', now());
+            })
+            ->where(function ($q) {
+                $q->whereNull('ended_at')
+                  ->orWhere('ended_at', '>=', now());
+            });
+    }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -110,8 +173,9 @@ class Campaign extends Model
 
     public function getFormattedBudgetAttribute(): string
     {
-        return number_format($this->budget, 2);
+        return '$' . number_format($this->budget, 2);
     }
+
 
     public function getCtrAttribute(): float
     {
@@ -122,6 +186,7 @@ class Campaign extends Model
         return round(($this->clicks / $this->impressions) * 100, 2);
     }
 
+
     public function getCpcAttribute(): float
     {
         if ($this->clicks == 0) {
@@ -129,6 +194,38 @@ class Campaign extends Model
         }
 
         return round($this->spend / $this->clicks, 2);
+    }
+
+
+    public function getCpmAttribute(): float
+    {
+        if ($this->impressions == 0) {
+            return 0;
+        }
+
+        return round(($this->spend / $this->impressions) * 1000, 2);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Status Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    public function isActive(): bool
+    {
+        return $this->status === self::STATUS_ACTIVE;
+    }
+
+    public function isPaused(): bool
+    {
+        return $this->status === self::STATUS_PAUSED;
+    }
+
+    public function isDraft(): bool
+    {
+        return $this->status === self::STATUS_DRAFT;
     }
 
 
@@ -156,6 +253,24 @@ class Campaign extends Model
     {
         $this->update([
             'status' => self::STATUS_COMPLETED
+        ]);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Metrics Aggregation
+    |--------------------------------------------------------------------------
+    */
+
+    public function refreshMetrics(): void
+    {
+        $ads = $this->ads;
+
+        $this->update([
+            'impressions' => $ads->sum('impressions'),
+            'clicks'      => $ads->sum('clicks'),
+            'spend'       => $ads->sum('spend'),
         ]);
     }
 }

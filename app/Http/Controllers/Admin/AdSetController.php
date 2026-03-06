@@ -34,6 +34,10 @@ class AdSetController extends Controller
 
     public function create(int $campaignId = null): View
     {
+        Log::info('META_ADSET_FORM_OPENED',[
+            'campaign_id'=>$campaignId
+        ]);
+
         return view('admin.adsets.create',[
             'campaigns' => Campaign::latest()->get(),
             'selectedCampaign' => $campaignId,
@@ -50,6 +54,9 @@ class AdSetController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
+
+        Log::info('META_ADSET_STORE_REQUEST',$request->all());
+
         $data = $request->validate([
 
             'campaign_id' => ['required','exists:campaigns,id'],
@@ -70,7 +77,12 @@ class AdSetController extends Controller
             'publisher_platforms' => ['nullable','array']
         ]);
 
+        Log::info('META_ADSET_VALIDATED_DATA',$data);
+
         if ($data['age_min'] >= $data['age_max']) {
+
+            Log::warning('META_ADSET_AGE_INVALID',$data);
+
             return back()->withErrors([
                 'age' => 'Maximum age must be greater than minimum age.'
             ]);
@@ -80,7 +92,14 @@ class AdSetController extends Controller
 
         try {
 
+            Log::info('META_ADSET_DB_TRANSACTION_START');
+
             $campaign = Campaign::with('adAccount')->findOrFail($data['campaign_id']);
+
+            Log::info('META_CAMPAIGN_FOUND',[
+                'campaign_id'=>$campaign->id,
+                'meta_id'=>$campaign->meta_id
+            ]);
 
             if (!$campaign->meta_id) {
                 throw new Exception('Campaign is not synced with Meta.');
@@ -107,6 +126,8 @@ class AdSetController extends Controller
 
             ];
 
+            Log::info('META_TARGETING_BASE',$targeting);
+
             /*
             |--------------------------------------------------------------------------
             | Genders
@@ -116,28 +137,32 @@ class AdSetController extends Controller
             if (!empty($data['genders'])) {
 
                 $targeting['genders'] = collect($data['genders'])
-                    ->map(fn($g) => (int)$g)
+                    ->map(fn($g)=>(int)$g)
                     ->values()
                     ->toArray();
+
+                Log::info('META_TARGETING_GENDERS',$targeting['genders']);
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Languages (Meta Locale IDs)
+            | Languages
             |--------------------------------------------------------------------------
             */
 
             if (!empty($data['languages'])) {
 
                 $targeting['locales'] = collect($data['languages'])
-                    ->map(fn($l) => (int)$l)
+                    ->map(fn($l)=>(int)$l)
                     ->values()
                     ->toArray();
+
+                Log::info('META_TARGETING_LANGUAGES',$targeting['locales']);
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Interests (Meta requires flexible_spec)
+            | Interests
             |--------------------------------------------------------------------------
             */
 
@@ -153,6 +178,8 @@ class AdSetController extends Controller
                         ->toArray()
 
                 ]];
+
+                Log::info('META_TARGETING_INTERESTS',$targeting['flexible_spec']);
             }
 
             /*
@@ -165,11 +192,14 @@ class AdSetController extends Controller
 
                 $targeting['publisher_platforms'] = array_values($data['publisher_platforms']);
 
+                Log::info('META_TARGETING_PLATFORMS',$targeting['publisher_platforms']);
             }
+
+            Log::info('META_TARGETING_FINAL',$targeting);
 
             /*
             |--------------------------------------------------------------------------
-            | Meta Payload
+            | Build Payload
             |--------------------------------------------------------------------------
             */
 
@@ -191,14 +221,14 @@ class AdSetController extends Controller
 
             ];
 
-            Log::info('META_ADSET_CREATE_REQUEST',[
+            Log::info('META_ADSET_CREATE_PAYLOAD',[
                 'account_id'=>$campaign->adAccount->meta_id,
                 'payload'=>$payload
             ]);
 
             /*
             |--------------------------------------------------------------------------
-            | Create on Meta
+            | Create On Meta
             |--------------------------------------------------------------------------
             */
 
@@ -207,10 +237,14 @@ class AdSetController extends Controller
                 $payload
             );
 
+            Log::info('META_API_RESPONSE',$response);
+
             if (empty($response['id'])) {
 
+                Log::error('META_API_FAILED',$response);
+
                 $errorMessage = $response['error']['message']
-                    ?? 'Meta API returned an unknown error';
+                    ?? 'Meta API returned unknown error';
 
                 throw new Exception($errorMessage);
             }
@@ -223,21 +257,21 @@ class AdSetController extends Controller
 
             $adset = AdSet::create([
 
-                'campaign_id' => $campaign->id,
+                'campaign_id'=>$campaign->id,
 
-                'meta_id' => $response['id'],
+                'meta_id'=>$response['id'],
 
-                'name' => $data['name'],
+                'name'=>$data['name'],
 
-                'daily_budget' => (int)$data['daily_budget'] * 100,
+                'daily_budget'=>(int)$data['daily_budget'] * 100,
 
-                'billing_event' => 'IMPRESSIONS',
+                'billing_event'=>'IMPRESSIONS',
 
-                'optimization_goal' => 'REACH',
+                'optimization_goal'=>'REACH',
 
-                'targeting' => $targeting,
+                'targeting'=>$targeting,
 
-                'status' => 'PAUSED'
+                'status'=>'PAUSED'
 
             ]);
 
@@ -258,11 +292,8 @@ class AdSetController extends Controller
             DB::rollBack();
 
             Log::error('META_ADSET_CREATE_FAILED',[
-
-                'message'=>$e->getMessage(),
-
+                'error'=>$e->getMessage(),
                 'trace'=>$e->getTraceAsString()
-
             ]);
 
             return back()
@@ -272,5 +303,4 @@ class AdSetController extends Controller
                 ]);
         }
     }
-
 }

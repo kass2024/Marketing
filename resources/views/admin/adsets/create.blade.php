@@ -36,7 +36,11 @@ Back
 
 <div class="bg-white shadow border rounded-2xl p-8">
 
-<form method="POST" action="{{ route('admin.adsets.store') }}">
+<form method="POST"
+action="{{ route('admin.adsets.store') }}"
+target="_self"
+id="adsetForm">
+
 @csrf
 
 
@@ -71,11 +75,12 @@ required>
 
 <label class="font-semibold block mb-2">Ad Set Name</label>
 
-<input type="text"
+<input
+type="text"
 name="name"
 value="{{ old('name') }}"
 class="w-full border rounded-xl px-4 py-3"
-placeholder="Example: US Tech Audience"
+placeholder="Example: Canada Students"
 required>
 
 </div>
@@ -87,7 +92,8 @@ required>
 
 <label class="font-semibold block mb-2">Daily Budget ($)</label>
 
-<input type="number"
+<input
+type="number"
 name="daily_budget"
 value="{{ old('daily_budget') }}"
 min="5"
@@ -103,29 +109,34 @@ Minimum recommended budget: $5/day
 
 
 
-{{-- AGE TARGETING --}}
+{{-- AGE --}}
 <div class="grid grid-cols-2 gap-4 mb-6">
 
 <div>
 <label class="font-semibold block mb-2">Minimum Age</label>
 
-<input type="number"
+<input
+type="number"
 name="age_min"
 value="{{ old('age_min',18) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
+
 </div>
 
 <div>
+
 <label class="font-semibold block mb-2">Maximum Age</label>
 
-<input type="number"
+<input
+type="number"
 name="age_max"
 value="{{ old('age_max',65) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
+
 </div>
 
 </div>
@@ -160,7 +171,8 @@ Leave empty to target all genders
 
 <label class="font-semibold block mb-2">Countries</label>
 
-<select name="countries[]"
+<select
+name="countries[]"
 multiple
 id="country-select"
 class="w-full border rounded-xl px-4 py-3"
@@ -185,7 +197,8 @@ required>
 
 <label class="font-semibold block mb-2">Languages</label>
 
-<select name="languages[]"
+<select
+name="languages[]"
 multiple
 id="language-select"
 class="w-full border rounded-xl px-4 py-3">
@@ -204,30 +217,33 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- INTEREST TARGETING --}}
+{{-- INTERESTS --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Interest Targeting</label>
 
-<select name="interests[]"
+<select
+name="interests[]"
 id="interest-select"
 multiple
 class="w-full border rounded-xl px-4 py-3"></select>
 
 <p class="text-xs text-gray-500 mt-1">
-Start typing to search Meta interests (minimum 2 characters)
+Start typing to search Meta interests
 </p>
 
 </div>
 
 
 
-{{-- PLACEMENT STRATEGY --}}
+{{-- PLACEMENT TYPE --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Placement Strategy</label>
 
-<select id="placement-type"
+<select
+name="placement_type"
+id="placement-type"
 class="w-full border rounded-xl px-4 py-3">
 
 <option value="automatic">Automatic (recommended)</option>
@@ -239,12 +255,13 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- PLATFORMS --}}
+{{-- MANUAL PLATFORMS --}}
 <div class="mb-6 hidden" id="platform-section">
 
 <label class="font-semibold block mb-2">Platforms</label>
 
-<select name="publisher_platforms[]"
+<select
+name="publisher_platforms[]"
 multiple
 id="platform-select"
 class="w-full border rounded-xl px-4 py-3">
@@ -279,15 +296,24 @@ Create Ad Set
 </div>
 
 
-
 <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
 
 <script>
 
+document.addEventListener("DOMContentLoaded",function(){
+
+if(document.querySelector("#country-select"))
 new TomSelect("#country-select",{plugins:['remove_button']});
+
+if(document.querySelector("#gender-select"))
 new TomSelect("#gender-select",{plugins:['remove_button']});
+
+if(document.querySelector("#language-select"))
 new TomSelect("#language-select",{plugins:['remove_button']});
+
+if(document.querySelector("#platform-select"))
 new TomSelect("#platform-select",{plugins:['remove_button']});
+
 
 let interestTimeout;
 
@@ -304,7 +330,7 @@ clearTimeout(interestTimeout);
 
 interestTimeout=setTimeout(()=>{
 
-if(query.length<2) return callback();
+if(query.length < 2) return callback();
 
 fetch("/admin/meta/interests?q="+query)
 .then(res=>res.json())
@@ -323,10 +349,16 @@ document.getElementById("placement-type").addEventListener("change",function(){
 let section=document.getElementById("platform-section");
 
 if(this.value==="automatic"){
+
 section.classList.add("hidden");
+
 }else{
+
 section.classList.remove("hidden");
+
 }
+
+});
 
 });
 

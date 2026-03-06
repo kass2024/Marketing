@@ -15,12 +15,23 @@ Configure audience targeting and delivery
 </p>
 </div>
 
-<a href="{{ route('admin.adsets.index') }}"
+<a href="{{ route('admin.campaigns.index') }}"
 class="bg-gray-600 text-white px-4 py-3 rounded-xl hover:bg-gray-700">
 Back
 </a>
 
 </div>
+
+
+@if($errors->any())
+<div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
+<ul class="list-disc ml-6">
+@foreach ($errors->all() as $error)
+<li>{{ $error }}</li>
+@endforeach
+</ul>
+</div>
+@endif
 
 
 <div class="bg-white shadow border rounded-2xl p-8">
@@ -35,13 +46,15 @@ Back
 <label class="font-semibold block mb-2">Campaign</label>
 
 <select name="campaign_id"
-class="w-full border rounded-xl px-4 py-3" required>
+class="w-full border rounded-xl px-4 py-3"
+required>
 
 <option value="">Select campaign</option>
 
 @foreach($campaigns as $campaign)
 
-<option value="{{ $campaign->id }}">
+<option value="{{ $campaign->id }}"
+{{ old('campaign_id',$selectedCampaign) == $campaign->id ? 'selected' : '' }}>
 {{ $campaign->name }}
 </option>
 
@@ -60,6 +73,7 @@ class="w-full border rounded-xl px-4 py-3" required>
 
 <input type="text"
 name="name"
+value="{{ old('name') }}"
 class="w-full border rounded-xl px-4 py-3"
 placeholder="Example: US Tech Audience"
 required>
@@ -71,10 +85,11 @@ required>
 {{-- DAILY BUDGET --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">Daily Budget</label>
+<label class="font-semibold block mb-2">Daily Budget ($)</label>
 
 <input type="number"
 name="daily_budget"
+value="{{ old('daily_budget') }}"
 min="5"
 step="1"
 class="w-full border rounded-xl px-4 py-3"
@@ -88,23 +103,6 @@ Minimum recommended budget: $5/day
 
 
 
-{{-- STATUS --}}
-<div class="mb-6">
-
-<label class="font-semibold block mb-2">Status</label>
-
-<select name="status"
-class="w-full border rounded-xl px-4 py-3">
-
-<option value="PAUSED">Paused (recommended)</option>
-<option value="ACTIVE">Active immediately</option>
-
-</select>
-
-</div>
-
-
-
 {{-- AGE TARGETING --}}
 <div class="grid grid-cols-2 gap-4 mb-6">
 
@@ -113,7 +111,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 <input type="number"
 name="age_min"
-value="18"
+value="{{ old('age_min',18) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
@@ -124,7 +122,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 <input type="number"
 name="age_max"
-value="65"
+value="{{ old('age_max',65) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
@@ -224,13 +222,12 @@ Start typing to search Meta interests (minimum 2 characters)
 
 
 
-{{-- PLACEMENTS --}}
+{{-- PLACEMENT STRATEGY --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Placement Strategy</label>
 
-<select name="placement_type"
-id="placement-type"
+<select id="placement-type"
 class="w-full border rounded-xl px-4 py-3">
 
 <option value="automatic">Automatic (recommended)</option>
@@ -243,7 +240,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 {{-- PLATFORMS --}}
-<div class="mb-6" id="platform-section">
+<div class="mb-6 hidden" id="platform-section">
 
 <label class="font-semibold block mb-2">Platforms</label>
 
@@ -292,7 +289,6 @@ new TomSelect("#gender-select",{plugins:['remove_button']});
 new TomSelect("#language-select",{plugins:['remove_button']});
 new TomSelect("#platform-select",{plugins:['remove_button']});
 
-
 let interestTimeout;
 
 new TomSelect("#interest-select",{
@@ -312,7 +308,7 @@ if(query.length<2) return callback();
 
 fetch("/admin/meta/interests?q="+query)
 .then(res=>res.json())
-.then(data=>callback(data.data))
+.then(data=>callback(data.data ?? []))
 .catch(()=>callback());
 
 },400);
@@ -327,9 +323,9 @@ document.getElementById("placement-type").addEventListener("change",function(){
 let section=document.getElementById("platform-section");
 
 if(this.value==="automatic"){
-section.style.display="none";
+section.classList.add("hidden");
 }else{
-section.style.display="block";
+section.classList.remove("hidden");
 }
 
 });

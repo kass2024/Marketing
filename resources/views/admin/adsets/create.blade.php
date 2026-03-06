@@ -22,7 +22,6 @@ Back
 
 </div>
 
-
 @if($errors->any())
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
 <ul class="list-disc ml-6">
@@ -44,7 +43,7 @@ id="adsetForm">
 @csrf
 
 
-{{-- CAMPAIGN --}}
+{{-- Campaign --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Campaign</label>
@@ -70,7 +69,7 @@ required>
 
 
 
-{{-- NAME --}}
+{{-- Adset Name --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Ad Set Name</label>
@@ -80,14 +79,14 @@ type="text"
 name="name"
 value="{{ old('name') }}"
 class="w-full border rounded-xl px-4 py-3"
-placeholder="Example: Canada Students"
+placeholder="Example: Canada Students 18-30"
 required>
 
 </div>
 
 
 
-{{-- DAILY BUDGET --}}
+{{-- Budget --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Daily Budget ($)</label>
@@ -109,7 +108,7 @@ Minimum recommended budget: $5/day
 
 
 
-{{-- AGE --}}
+{{-- Age --}}
 <div class="grid grid-cols-2 gap-4 mb-6">
 
 <div>
@@ -122,11 +121,9 @@ value="{{ old('age_min',18) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
-
 </div>
 
 <div>
-
 <label class="font-semibold block mb-2">Maximum Age</label>
 
 <input
@@ -136,14 +133,13 @@ value="{{ old('age_max',65) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
-
 </div>
 
 </div>
 
 
 
-{{-- GENDER --}}
+{{-- Gender --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Gender</label>
@@ -166,7 +162,7 @@ Leave empty to target all genders
 
 
 
-{{-- COUNTRIES --}}
+{{-- Countries --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Countries</label>
@@ -180,7 +176,8 @@ required>
 
 @foreach($countries as $code => $country)
 
-<option value="{{ $code }}">
+<option value="{{ $code }}"
+{{ collect(old('countries'))->contains($code) ? 'selected' : '' }}>
 {{ $country }}
 </option>
 
@@ -192,7 +189,7 @@ required>
 
 
 
-{{-- LANGUAGES --}}
+{{-- Languages --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Languages</label>
@@ -203,9 +200,10 @@ multiple
 id="language-select"
 class="w-full border rounded-xl px-4 py-3">
 
-@foreach($languages as $code => $language)
+@foreach($languages as $id => $language)
 
-<option value="{{ $code }}">
+<option value="{{ $id }}"
+{{ collect(old('languages'))->contains($id) ? 'selected' : '' }}>
 {{ $language }}
 </option>
 
@@ -217,7 +215,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- INTERESTS --}}
+{{-- Interests --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Interest Targeting</label>
@@ -236,7 +234,7 @@ Start typing to search Meta interests
 
 
 
-{{-- PLACEMENT TYPE --}}
+{{-- Placement Strategy --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Placement Strategy</label>
@@ -255,7 +253,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- MANUAL PLATFORMS --}}
+{{-- Platforms --}}
 <div class="mb-6 hidden" id="platform-section">
 
 <label class="font-semibold block mb-2">Platforms</label>
@@ -294,6 +292,7 @@ Create Ad Set
 </div>
 
 </div>
+
 
 
 <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
@@ -348,13 +347,17 @@ document.getElementById("placement-type").addEventListener("change",function(){
 
 let section=document.getElementById("platform-section");
 
+let platforms=document.getElementById("platform-select");
+
 if(this.value==="automatic"){
 
 section.classList.add("hidden");
+platforms.disabled=true;
 
 }else{
 
 section.classList.remove("hidden");
+platforms.disabled=false;
 
 }
 

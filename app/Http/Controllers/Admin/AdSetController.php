@@ -23,46 +23,59 @@ class AdSetController extends Controller
         $this->meta = $meta;
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE FORM
+    |--------------------------------------------------------------------------
+    */
+
     public function create(int $campaignId = null)
     {
-        Log::info('META_ADSET_FORM_OPENED',[
-            'campaign_id'=>$campaignId
+        Log::info('META_ADSET_FORM_OPENED', [
+            'campaign_id' => $campaignId
         ]);
 
-        return view('admin.adsets.create',[
-            'campaigns'=>Campaign::latest()->get(),
-            'selectedCampaign'=>$campaignId,
-            'countries'=>config('meta.countries'),
-            'languages'=>config('meta.languages')
+        return view('admin.adsets.create', [
+            'campaigns' => Campaign::latest()->get(),
+            'selectedCampaign' => $campaignId,
+            'countries' => config('meta.countries'),
+            'languages' => config('meta.languages')
         ]);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | STORE ADSET
+    |--------------------------------------------------------------------------
+    */
+
     public function store(Request $request)
     {
-        Log::info('META_ADSET_STORE_REQUEST',$request->all());
+        Log::info('META_ADSET_STORE_REQUEST', $request->all());
 
         $data = $request->validate([
 
-            'campaign_id'=>'required|exists:campaigns,id',
-            'name'=>'required|string|max:255',
-            'daily_budget'=>'required|numeric|min:5',
+            'campaign_id' => 'required|exists:campaigns,id',
+            'name' => 'required|string|max:255',
+            'daily_budget' => 'required|numeric|min:5',
 
-            'age_min'=>'required|integer|min:18|max:65',
-            'age_max'=>'required|integer|min:18|max:65',
+            'age_min' => 'required|integer|min:18|max:65',
+            'age_max' => 'required|integer|min:18|max:65',
 
-            'countries'=>'required|array|min:1',
+            'countries' => 'required|array|min:1',
 
-            'genders'=>'nullable|array',
-            'languages'=>'nullable|array',
-            'interests'=>'nullable|array',
-            'publisher_platforms'=>'nullable|array'
+            'genders' => 'nullable|array',
+            'languages' => 'nullable|array',
+            'interests' => 'nullable|array',
 
+            'placement_type' => 'required|in:automatic,manual',
+            'publisher_platforms' => 'nullable|array'
         ]);
 
-        if($data['age_min'] >= $data['age_max']){
+        if ($data['age_min'] >= $data['age_max']) {
             return back()->withErrors([
-                'age'=>'Max age must be greater than min age'
-            ]);
+                'age' => 'Max age must be greater than min age'
+            ])->withInput();
         }
 
         DB::beginTransaction();
@@ -73,102 +86,114 @@ class AdSetController extends Controller
 
             $campaign = Campaign::with('adAccount')->findOrFail($data['campaign_id']);
 
-            Log::info('META_CAMPAIGN_DATA',[
-                'campaign_id'=>$campaign->id,
-                'meta_campaign_id'=>$campaign->meta_id,
-                'meta_account_id'=>$campaign->adAccount->meta_id ?? null
-            ]);
-
-            if(!$campaign->meta_id){
+            if (!$campaign->meta_id) {
                 throw new Exception('Campaign not synced with Meta');
             }
 
-            if(!$campaign->adAccount || !$campaign->adAccount->meta_id){
+            if (!$campaign->adAccount || !$campaign->adAccount->meta_id) {
                 throw new Exception('Ad account not connected');
             }
 
             /*
             |--------------------------------------------------------------------------
-            | TARGETING BASE
+            | BUILD TARGETING
             |--------------------------------------------------------------------------
             */
 
             $targeting = [
 
-                'age_min'=>(int)$data['age_min'],
-                'age_max'=>(int)$data['age_max'],
+                'geo_locations' => [
+                    'countries' => array_values($data['countries'])
+                ],
 
-                'geo_locations'=>[
-                    'countries'=>array_values($data['countries'])
-                ]
-
+                'age_min' => (int)$data['age_min'],
+                'age_max' => (int)$data['age_max'],
             ];
 
+
             /*
             |--------------------------------------------------------------------------
-            | GENDER
+            | GENDERS
             |--------------------------------------------------------------------------
             */
 
-            if(!empty($data['genders'])){
+            if (!empty($data['genders'])) {
 
-                $targeting['genders']=array_map('intval',$data['genders']);
+                $targeting['genders'] = array_map('intval', $data['genders']);
 
-                Log::info('TARGETING_GENDERS',$targeting['genders']);
+                Log::info('TARGETING_GENDERS', $targeting['genders']);
             }
 
+
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (Meta locales)
+            | LANGUAGES (META LOCALES)
             |--------------------------------------------------------------------------
             */
 
-            if(!empty($data['languages'])){
+            if (!empty($data['languages'])) {
 
-                $targeting['locales']=array_map('intval',$data['languages']);
+                $targeting['locales'] = array_map('intval', $data['languages']);
 
-                Log::info('TARGETING_LANGUAGES',$targeting['locales']);
+                Log::info('TARGETING_LANGUAGES', $targeting['locales']);
             }
 
+
             /*
             |--------------------------------------------------------------------------
-            | INTERESTS
+            | INTEREST TARGETING
             |--------------------------------------------------------------------------
             */
 
-            if(!empty($data['interests'])){
+            if (!empty($data['interests'])) {
 
                 $interests = collect($data['interests'])
-                    ->map(fn($id)=>[
-                        'id'=>(string)$id
+                    ->map(fn ($id) => [
+                        'id' => (string)$id
                     ])
                     ->values()
                     ->toArray();
 
-                $targeting['flexible_spec']=[[
-                    'interests'=>$interests
+                $targeting['flexible_spec'] = [[
+                    'interests' => $interests
                 ]];
 
-                Log::info('TARGETING_INTERESTS',$interests);
+                Log::info('TARGETING_INTERESTS', $interests);
             }
+
 
             /*
             |--------------------------------------------------------------------------
-            | PLACEMENTS (Meta requirement)
+            | PLACEMENTS
             |--------------------------------------------------------------------------
             */
 
-            if(!empty($data['publisher_platforms'])){
+            if ($data['placement_type'] === 'manual') {
 
-                $targeting['publisher_platforms']=$data['publisher_platforms'];
+                if (empty($data['publisher_platforms'])) {
+                    throw new Exception('Select at least one platform for manual placement');
+                }
 
-                $targeting['facebook_positions']=['feed','story'];
-                $targeting['instagram_positions']=['stream','story'];
+                $targeting['publisher_platforms'] = $data['publisher_platforms'];
 
-                Log::info('TARGETING_PLATFORMS',$data['publisher_platforms']);
+                if (in_array('facebook', $data['publisher_platforms'])) {
+                    $targeting['facebook_positions'] = ['feed', 'story', 'video_feeds'];
+                }
+
+                if (in_array('instagram', $data['publisher_platforms'])) {
+                    $targeting['instagram_positions'] = ['stream', 'story', 'reels'];
+                }
+
+                if (in_array('messenger', $data['publisher_platforms'])) {
+                    $targeting['messenger_positions'] = ['messenger_home'];
+                }
+
+                if (in_array('audience_network', $data['publisher_platforms'])) {
+                    $targeting['audience_network_positions'] = ['classic'];
+                }
+
+                Log::info('TARGETING_MANUAL_PLACEMENTS', $targeting);
             }
-
-            Log::info('META_TARGETING_FINAL',$targeting);
 
             /*
             |--------------------------------------------------------------------------
@@ -176,23 +201,25 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $payload=[
+            $payload = [
 
-                'name'=>$data['name'],
-                'campaign_id'=>$campaign->meta_id,
+                'name' => $data['name'],
 
-                'daily_budget'=>(int)$data['daily_budget']*100,
+                'campaign_id' => $campaign->meta_id,
 
-                'billing_event'=>'IMPRESSIONS',
-                'optimization_goal'=>'REACH',
+                'daily_budget' => (int)$data['daily_budget'] * 100,
 
-                'status'=>'PAUSED',
+                'billing_event' => 'IMPRESSIONS',
 
-                'targeting'=>$targeting
+                'optimization_goal' => 'REACH',
 
+                'status' => 'PAUSED',
+
+                'targeting' => $targeting
             ];
 
-            Log::info('META_PAYLOAD',$payload);
+            Log::info('META_ADSET_PAYLOAD', $payload);
+
 
             /*
             |--------------------------------------------------------------------------
@@ -200,21 +227,22 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $response=$this->meta->createAdSet(
+            $response = $this->meta->createAdSet(
                 $campaign->adAccount->meta_id,
                 $payload
             );
 
-            Log::info('META_RESPONSE',$response);
+            Log::info('META_RESPONSE', $response);
 
-            if(!isset($response['id'])){
+            if (!isset($response['id'])) {
 
-                Log::error('META_API_ERROR',$response);
+                Log::error('META_API_ERROR', $response);
 
                 throw new Exception(
                     $response['error']['message'] ?? 'Meta API error'
                 );
             }
+
 
             /*
             |--------------------------------------------------------------------------
@@ -222,49 +250,52 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $adset=AdSet::create([
+            $adset = AdSet::create([
 
-                'campaign_id'=>$campaign->id,
-                'meta_id'=>$response['id'],
+                'campaign_id' => $campaign->id,
 
-                'name'=>$data['name'],
+                'meta_id' => $response['id'],
 
-                'daily_budget'=>$payload['daily_budget'],
+                'name' => $data['name'],
 
-                'billing_event'=>'IMPRESSIONS',
-                'optimization_goal'=>'REACH',
+                'daily_budget' => $payload['daily_budget'],
 
-                'targeting'=>$targeting,
+                'billing_event' => 'IMPRESSIONS',
 
-                'status'=>'PAUSED'
+                'optimization_goal' => 'REACH',
+
+                'targeting' => $targeting,
+
+                'status' => 'PAUSED'
             ]);
+
 
             DB::commit();
 
-            Log::info('META_ADSET_CREATED',[
-                'meta_id'=>$response['id'],
-                'local_id'=>$adset->id
+            Log::info('META_ADSET_CREATED', [
+                'meta_id' => $response['id'],
+                'local_id' => $adset->id
             ]);
 
-            return redirect()
-                ->route('admin.campaigns.show',$campaign->id)
-                ->with('success','AdSet created');
 
+            return redirect()
+                ->route('admin.campaigns.show', $campaign->id)
+                ->with('success', 'Ad Set created successfully');
         }
 
-        catch(Throwable $e){
+        catch (Throwable $e) {
 
             DB::rollBack();
 
-            Log::error('META_ADSET_FAILED',[
-                'error'=>$e->getMessage(),
-                'trace'=>$e->getTraceAsString()
+            Log::error('META_ADSET_FAILED', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             return back()
                 ->withInput()
                 ->withErrors([
-                    'meta'=>$e->getMessage()
+                    'meta' => $e->getMessage()
                 ]);
         }
     }

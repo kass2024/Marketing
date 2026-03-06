@@ -6,6 +6,7 @@
 
 <div class="max-w-5xl mx-auto space-y-8">
 
+{{-- HEADER --}}
 <div class="flex justify-between items-center">
 
 <div>
@@ -22,6 +23,8 @@ Back
 
 </div>
 
+
+{{-- VALIDATION ERRORS --}}
 @if($errors->any())
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
 <ul class="list-disc ml-6">
@@ -33,17 +36,17 @@ Back
 @endif
 
 
+
 <div class="bg-white shadow border rounded-2xl p-8">
 
 <form method="POST"
 action="{{ route('admin.adsets.store') }}"
-target="_self"
 id="adsetForm">
 
 @csrf
 
 
-{{-- Campaign --}}
+{{-- CAMPAIGN --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Campaign</label>
@@ -69,7 +72,7 @@ required>
 
 
 
-{{-- Adset Name --}}
+{{-- ADSET NAME --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Ad Set Name</label>
@@ -86,7 +89,7 @@ required>
 
 
 
-{{-- Budget --}}
+{{-- BUDGET --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Daily Budget ($)</label>
@@ -108,10 +111,11 @@ Minimum recommended budget: $5/day
 
 
 
-{{-- Age --}}
+{{-- AGE TARGETING --}}
 <div class="grid grid-cols-2 gap-4 mb-6">
 
 <div>
+
 <label class="font-semibold block mb-2">Minimum Age</label>
 
 <input
@@ -121,9 +125,11 @@ value="{{ old('age_min',18) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
+
 </div>
 
 <div>
+
 <label class="font-semibold block mb-2">Maximum Age</label>
 
 <input
@@ -133,13 +139,14 @@ value="{{ old('age_max',65) }}"
 min="18"
 max="65"
 class="w-full border rounded-xl px-4 py-3">
-</div>
 
 </div>
 
+</div>
 
 
-{{-- Gender --}}
+
+{{-- GENDER --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Gender</label>
@@ -162,7 +169,7 @@ Leave empty to target all genders
 
 
 
-{{-- Countries --}}
+{{-- COUNTRIES --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Countries</label>
@@ -189,7 +196,7 @@ required>
 
 
 
-{{-- Languages --}}
+{{-- LANGUAGES --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Languages</label>
@@ -215,7 +222,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- Interests --}}
+{{-- INTEREST TARGETING --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Interest Targeting</label>
@@ -234,7 +241,7 @@ Start typing to search Meta interests
 
 
 
-{{-- Placement Strategy --}}
+{{-- PLACEMENTS --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Placement Strategy</label>
@@ -244,8 +251,8 @@ name="placement_type"
 id="placement-type"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="automatic">Automatic (recommended)</option>
-<option value="manual">Manual</option>
+<option value="automatic">Automatic (Recommended)</option>
+<option value="manual">Manual Placement</option>
 
 </select>
 
@@ -253,7 +260,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- Platforms --}}
+{{-- MANUAL PLATFORMS --}}
 <div class="mb-6 hidden" id="platform-section">
 
 <label class="font-semibold block mb-2">Platforms</label>
@@ -275,6 +282,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
+{{-- SUBMIT --}}
 <div class="flex justify-end">
 
 <button
@@ -286,6 +294,7 @@ Create Ad Set
 </button>
 
 </div>
+
 
 </form>
 
@@ -299,19 +308,24 @@ Create Ad Set
 
 <script>
 
-document.addEventListener("DOMContentLoaded",function(){
+document.addEventListener("DOMContentLoaded", function(){
 
-if(document.querySelector("#country-select"))
-new TomSelect("#country-select",{plugins:['remove_button']});
+function initSelect(id){
 
-if(document.querySelector("#gender-select"))
-new TomSelect("#gender-select",{plugins:['remove_button']});
+if(document.querySelector(id)){
 
-if(document.querySelector("#language-select"))
-new TomSelect("#language-select",{plugins:['remove_button']});
+new TomSelect(id,{
+plugins:['remove_button']
+});
 
-if(document.querySelector("#platform-select"))
-new TomSelect("#platform-select",{plugins:['remove_button']});
+}
+
+}
+
+initSelect("#country-select");
+initSelect("#gender-select");
+initSelect("#language-select");
+initSelect("#platform-select");
 
 
 let interestTimeout;
@@ -346,7 +360,6 @@ fetch("/admin/meta/interests?q="+query)
 document.getElementById("placement-type").addEventListener("change",function(){
 
 let section=document.getElementById("platform-section");
-
 let platforms=document.getElementById("platform-select");
 
 if(this.value==="automatic"){
@@ -358,6 +371,21 @@ platforms.disabled=true;
 
 section.classList.remove("hidden");
 platforms.disabled=false;
+
+}
+
+});
+
+
+document.getElementById("adsetForm").addEventListener("submit",function(e){
+
+let min=parseInt(document.querySelector("[name='age_min']").value);
+let max=parseInt(document.querySelector("[name='age_max']").value);
+
+if(min > max){
+
+e.preventDefault();
+alert("Minimum age cannot be greater than maximum age");
 
 }
 

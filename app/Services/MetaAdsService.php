@@ -10,7 +10,7 @@ class MetaAdsService
 {
     protected string $baseUrl;
     protected string $accessToken;
-    protected string $adAccountId;
+    protected string $defaultAccount;
     protected bool $debug;
 
     public function __construct()
@@ -19,7 +19,7 @@ class MetaAdsService
 
         $this->baseUrl = "https://graph.facebook.com/{$version}";
         $this->accessToken = config('services.meta.token');
-        $this->adAccountId = $this->formatAccount(config('services.meta.ad_account_id'));
+        $this->defaultAccount = $this->formatAccount(config('services.meta.ad_account_id'));
         $this->debug = config('app.debug', false);
 
         if (!$this->accessToken) {
@@ -27,20 +27,32 @@ class MetaAdsService
         }
 
         Log::info('META_SERVICE_INITIALIZED', [
-            'account' => $this->adAccountId,
+            'account' => $this->defaultAccount,
             'graph_version' => $version
         ]);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCOUNT FORMAT
+    |--------------------------------------------------------------------------
+    */
 
     protected function formatAccount(string $id): string
     {
         return str_starts_with($id, 'act_') ? $id : "act_{$id}";
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | HTTP CLIENT
+    |--------------------------------------------------------------------------
+    */
+
     protected function client()
     {
         return Http::timeout(30)
-            ->retry(2, 500)
+            ->retry(3, 500)
             ->acceptJson();
     }
 
@@ -53,21 +65,21 @@ class MetaAdsService
     protected function handleError($response, $endpoint, $payload = [])
     {
         $status = $response->status();
-        $jsonBody = $response->json();
+        $body = $response->json();
 
         Log::error('META_API_ERROR_FULL', [
             'endpoint' => $endpoint,
             'status_code' => $status,
             'request_payload' => $payload,
-            'response' => $jsonBody
+            'response' => $body
         ]);
 
-        $error = $jsonBody['error'] ?? [];
+        $error = $body['error'] ?? [];
 
         $message = $error['message'] ?? 'Unknown Meta API error';
         $code = $error['code'] ?? 0;
 
-        throw new Exception("Meta API Error: {$message} (code:{$code})");
+        throw new Exception("Meta API Error: {$message} (code: {$code})");
     }
 
     /*
@@ -140,8 +152,12 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            // must be ARRAY
-            'special_ad_categories' => []
+            /*
+            Meta requires this field even if no special category.
+            Using NONE ensures compatibility with all ad accounts.
+            */
+
+            'special_ad_categories' => json_encode(['NONE'])
         ];
 
         Log::info('META_CAMPAIGN_PAYLOAD', $payload);
@@ -171,7 +187,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | OBJECTIVE → OPTIMIZATION
+    | OBJECTIVE → OPTIMIZATION GOAL
     |--------------------------------------------------------------------------
     */
 
@@ -180,9 +196,13 @@ class MetaAdsService
         return match ($objective) {
 
             'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
+
             'OUTCOME_LEADS' => 'LEAD_GENERATION',
+
             'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
+
             'OUTCOME_AWARENESS' => 'REACH',
+
             'OUTCOME_SALES' => 'CONVERSIONS',
 
             default => 'REACH'
@@ -204,7 +224,7 @@ class MetaAdsService
         $targeting = $payload['targeting'];
 
         /*
-        | Remove language targeting if only 1 country
+        Remove language targeting when only one country
         */
 
         if (
@@ -215,7 +235,7 @@ class MetaAdsService
         }
 
         /*
-        | Ensure correct structure for Meta
+        Encode targeting as JSON for Meta API
         */
 
         $payload['targeting'] = json_encode($targeting);
@@ -236,11 +256,11 @@ class MetaAdsService
         $accountId = $this->formatAccount($accountId);
 
         if (!isset($data['campaign_id'])) {
-            throw new Exception("campaign_id required");
+            throw new Exception('campaign_id required');
         }
 
         if (!isset($data['targeting'])) {
-            throw new Exception("targeting required");
+            throw new Exception('targeting required');
         }
 
         $optimization = $data['optimization_goal']

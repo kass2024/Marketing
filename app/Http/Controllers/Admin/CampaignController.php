@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Campaign;
 use App\Models\AdAccount;
 use App\Models\AdSet;
+use App\Models\Ad;
 use App\Services\MetaAdsService;
 
 use Throwable;
@@ -25,7 +26,7 @@ class CampaignController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Campaign List (Optimized for production)
+    | Campaign Dashboard
     |--------------------------------------------------------------------------
     */
 
@@ -34,50 +35,62 @@ class CampaignController extends Controller
         try {
 
             $campaigns = Campaign::query()
-                ->withCount('adSets')
+                ->withCount([
+                    'adSets',
+                    'ads'
+                ])
                 ->latest()
                 ->paginate(20);
 
-            $totalAdSets = AdSet::count();
+            /*
+            |--------------------------------------------------------------------------
+            | Dashboard Metrics
+            |--------------------------------------------------------------------------
+            */
 
-            $activeCampaigns = Campaign::where('status', 'ACTIVE')->count();
-            $pausedCampaigns = Campaign::where('status', 'PAUSED')->count();
+            $metrics = [
+                'totalCampaigns' => Campaign::count(),
+                'activeCampaigns' => Campaign::where('status', 'ACTIVE')->count(),
+                'pausedCampaigns' => Campaign::where('status', 'PAUSED')->count(),
+                'totalAdSets' => AdSet::count(),
+                'totalAds' => Ad::count(),
+                'totalBudget' => Campaign::sum(DB::raw('daily_budget / 100')),
+                'hasAdAccount' => AdAccount::exists(),
+            ];
 
-            $hasAdAccount = AdAccount::exists();
-
-            return view('admin.campaigns.index', [
-                'campaigns' => $campaigns,
-                'totalAdSets' => $totalAdSets,
-                'activeCampaigns' => $activeCampaigns,
-                'pausedCampaigns' => $pausedCampaigns,
-                'hasAdAccount' => $hasAdAccount
-            ]);
+            return view('admin.campaigns.index', array_merge(
+                ['campaigns' => $campaigns],
+                $metrics
+            ));
 
         } catch (Throwable $e) {
 
             Log::error('CAMPAIGN_INDEX_FAILED', [
-                'error' => $e->getMessage()
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
             abort(500, 'Unable to load campaigns.');
         }
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Show Campaign → AdSets
+    | Campaign → AdSets
     |--------------------------------------------------------------------------
     */
 
-    public function show($id)
+    public function show(int $id)
     {
         try {
 
             $campaign = Campaign::with([
-                'adSets' => function ($query) {
-                    $query->latest();
-                }
-            ])->findOrFail($id);
+                'adSets' => fn($q) => $q->latest(),
+                'ads'
+            ])
+            ->withCount(['adSets','ads'])
+            ->findOrFail($id);
 
             return view('admin.campaigns.show', compact('campaign'));
 
@@ -85,12 +98,13 @@ class CampaignController extends Controller
 
             Log::error('CAMPAIGN_SHOW_FAILED', [
                 'campaign_id' => $id,
-                'error' => $e->getMessage()
+                'message' => $e->getMessage()
             ]);
 
             abort(404, 'Campaign not found.');
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -114,6 +128,7 @@ class CampaignController extends Controller
         return view('admin.campaigns.create', compact('account'));
     }
 
+
     /*
     |--------------------------------------------------------------------------
     | Store Campaign
@@ -135,37 +150,22 @@ class CampaignController extends Controller
 
         try {
 
-            $account = AdAccount::first();
-
-            if (!$account) {
-                throw new \Exception('No Meta ad account connected.');
-            }
+            $account = AdAccount::firstOrFail();
 
             /*
             |--------------------------------------------------------------------------
-            | Prevent duplicate campaign names
+            | Prevent Duplicate Campaign Name
             |--------------------------------------------------------------------------
             */
 
             if (Campaign::where('name', $data['name'])->exists()) {
 
-                return back()->withErrors([
-                    'name' => 'A campaign with this name already exists.'
-                ])->withInput();
+                return back()
+                    ->withErrors([
+                        'name' => 'A campaign with this name already exists.'
+                    ])
+                    ->withInput();
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Map Objective
-            |--------------------------------------------------------------------------
-            */
-
-            $metaObjective = $data['objective'];
-
-            Log::info('META_OBJECTIVE_MAPPED', [
-                'ui_objective' => $data['objective'],
-                'meta_objective' => $metaObjective
-            ]);
 
             $metaId = null;
 
@@ -175,24 +175,21 @@ class CampaignController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            if ($request->has('sync_meta')) {
+            if ($request->boolean('sync_meta')) {
 
                 Log::info('META_CREATE_CAMPAIGN_REQUEST', [
                     'account' => $account->meta_id,
-                    'name' => $data['name'],
-                    'objective' => $metaObjective
+                    'campaign' => $data['name']
                 ]);
 
                 $response = $this->meta->createCampaign(
                     $account->meta_id,
                     [
                         'name' => $data['name'],
-                        'objective' => $metaObjective,
+                        'objective' => $data['objective'],
                         'status' => $data['status']
                     ]
                 );
-
-                Log::info('META_CREATE_CAMPAIGN_RESPONSE', $response);
 
                 if (!isset($response['id'])) {
 
@@ -203,6 +200,10 @@ class CampaignController extends Controller
                 }
 
                 $metaId = $response['id'];
+
+                Log::info('META_CAMPAIGN_CREATED_REMOTE', [
+                    'meta_id' => $metaId
+                ]);
             }
 
             /*
@@ -221,9 +222,9 @@ class CampaignController extends Controller
 
             DB::commit();
 
-            Log::info('META_CAMPAIGN_CREATED', [
+            Log::info('CAMPAIGN_CREATED_LOCAL', [
                 'campaign_id' => $campaign->id,
-                'meta_id' => $campaign->meta_id
+                'meta_id' => $metaId
             ]);
 
             return redirect()
@@ -235,14 +236,18 @@ class CampaignController extends Controller
             DB::rollBack();
 
             Log::error('META_CAMPAIGN_CREATE_FAILED', [
-                'error' => $e->getMessage()
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
 
-            return back()->withErrors([
-                'meta' => 'Unable to create campaign: ' . $e->getMessage()
-            ])->withInput();
+            return back()
+                ->withErrors([
+                    'meta' => 'Unable to create campaign: ' . $e->getMessage()
+                ])
+                ->withInput();
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -254,7 +259,7 @@ class CampaignController extends Controller
     {
         try {
 
-            Log::info('META_CAMPAIGN_DELETE', [
+            Log::info('CAMPAIGN_DELETE_REQUEST', [
                 'campaign_id' => $campaign->id
             ]);
 
@@ -264,9 +269,9 @@ class CampaignController extends Controller
 
         } catch (Throwable $e) {
 
-            Log::error('META_CAMPAIGN_DELETE_FAILED', [
+            Log::error('CAMPAIGN_DELETE_FAILED', [
                 'campaign_id' => $campaign->id,
-                'error' => $e->getMessage()
+                'message' => $e->getMessage()
             ]);
 
             return back()->withErrors([

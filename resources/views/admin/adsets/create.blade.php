@@ -6,6 +6,7 @@
 
 <div class="max-w-5xl mx-auto space-y-8">
 
+{{-- HEADER --}}
 <div class="flex justify-between items-center">
 <div>
 <h1 class="text-3xl font-bold text-gray-900">Create Ad Set</h1>
@@ -21,6 +22,7 @@ Back
 </div>
 
 
+{{-- ERRORS --}}
 @if($errors->any())
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
 <ul class="list-disc ml-6">
@@ -30,6 +32,7 @@ Back
 </ul>
 </div>
 @endif
+
 
 
 <div class="bg-white shadow border rounded-2xl p-8">
@@ -57,8 +60,7 @@ required>
 
 <option
 value="{{ $campaign->id }}"
-data-objective="{{ $campaign->objective ?? 'REACH' }}"
-{{ old('campaign_id',$selectedCampaign) == $campaign->id ? 'selected' : '' }}>
+data-objective="{{ $campaign->objective ?? 'REACH' }}">
 
 {{ $campaign->name }}
 
@@ -71,6 +73,7 @@ data-objective="{{ $campaign->objective ?? 'REACH' }}"
 <p id="objective-warning" class="text-xs text-blue-600 mt-1 hidden"></p>
 
 </div>
+
 
 
 {{-- ADSET NAME --}}
@@ -87,14 +90,15 @@ required>
 
 
 
-{{-- BUDGET --}}
+{{-- DAILY BUDGET --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">Daily Budget ($)</label>
 
 <input
 type="number"
 name="daily_budget"
-value="{{ old('daily_budget') }}"
+value="{{ old('daily_budget',10) }}"
 min="5"
 step="1"
 class="w-full border rounded-xl px-4 py-3"
@@ -103,6 +107,50 @@ required>
 <p class="text-xs text-gray-500 mt-1">
 Minimum recommended budget: $5/day
 </p>
+
+</div>
+
+
+
+{{-- BID STRATEGY --}}
+<div class="mb-6">
+
+<label class="font-semibold block mb-2">Bid Strategy</label>
+
+<select name="bid_strategy"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+<option value="LOWEST_COST_WITHOUT_CAP">Lowest Cost</option>
+<option value="LOWEST_COST_WITH_BID_CAP">Bid Cap</option>
+
+</select>
+
+</div>
+
+
+
+{{-- FACEBOOK PAGE --}}
+<div class="mb-6">
+
+<label class="font-semibold block mb-2">Facebook Page</label>
+
+<select name="page_id"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+<option value="">Select Page</option>
+
+@foreach($pages as $page)
+
+<option value="{{ $page['id'] }}">
+{{ $page['name'] }}
+</option>
+
+@endforeach
+
+</select>
+
 </div>
 
 
@@ -135,7 +183,8 @@ class="w-full border rounded-xl px-4 py-3">
 
 <label class="font-semibold block mb-2">Gender</label>
 
-<select name="genders[]" multiple
+<select name="genders[]"
+multiple
 id="gender-select"
 class="w-full border rounded-xl px-4 py-3">
 
@@ -157,7 +206,8 @@ Leave empty to target all genders
 
 <label class="font-semibold block mb-2">Countries</label>
 
-<select name="countries[]" multiple
+<select name="countries[]"
+multiple
 id="country-select"
 class="w-full border rounded-xl px-4 py-3"
 required>
@@ -181,7 +231,8 @@ required>
 
 <label class="font-semibold block mb-2">Languages</label>
 
-<select name="languages[]" multiple
+<select name="languages[]"
+multiple
 id="language-select"
 class="w-full border rounded-xl px-4 py-3">
 
@@ -194,10 +245,6 @@ class="w-full border rounded-xl px-4 py-3">
 @endforeach
 
 </select>
-
-<p class="text-xs text-gray-500 mt-1">
-Languages automatically disabled for single country targeting
-</p>
 
 </div>
 
@@ -213,11 +260,6 @@ name="interests[]"
 id="interest-select"
 multiple
 class="w-full border rounded-xl px-4 py-3"></select>
-
-<p id="interest-warning"
-class="text-xs text-red-600 mt-1 hidden">
-Interest targeting disabled for REACH campaigns
-</p>
 
 </div>
 
@@ -304,9 +346,7 @@ initSelect("#platform-select");
 INTEREST SEARCH
 */
 
-let interestTimeout;
-
-const interestSelect = new TomSelect("#interest-select",{
+let interestSelect = new TomSelect("#interest-select",{
 
 plugins:['remove_button'],
 valueField:'id',
@@ -316,75 +356,12 @@ maxItems:5,
 
 load:function(query,callback){
 
-clearTimeout(interestTimeout);
-
-interestTimeout=setTimeout(()=>{
-
 if(query.length < 2) return callback();
 
 fetch("/admin/meta/interests?q="+query)
 .then(res=>res.json())
 .then(data=>callback(data.data ?? []))
 .catch(()=>callback());
-
-},400);
-
-}
-
-});
-
-
-
-/*
-OBJECTIVE VALIDATION
-*/
-
-document.getElementById("campaign-select")
-.addEventListener("change",function(){
-
-let selected = this.options[this.selectedIndex];
-let objective = selected.dataset.objective;
-
-let warning = document.getElementById("objective-warning");
-let interestWarning = document.getElementById("interest-warning");
-
-if(objective === "REACH"){
-
-interestSelect.disable();
-interestWarning.classList.remove("hidden");
-
-warning.innerText = "REACH campaigns use broad targeting. Detailed interests disabled.";
-warning.classList.remove("hidden");
-
-}else{
-
-interestSelect.enable();
-interestWarning.classList.add("hidden");
-warning.classList.add("hidden");
-
-}
-
-});
-
-
-
-/*
-LANGUAGE VALIDATION
-*/
-
-document.getElementById("country-select")
-.addEventListener("change",function(){
-
-let languages=document.getElementById("language-select");
-
-if(this.selectedOptions.length === 1){
-
-languages.tomselect.clear();
-languages.tomselect.disable();
-
-}else{
-
-languages.tomselect.enable();
 
 }
 

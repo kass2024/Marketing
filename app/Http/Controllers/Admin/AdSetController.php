@@ -93,28 +93,21 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | TARGETING BASE STRUCTURE
+            | TARGETING BASE
             |--------------------------------------------------------------------------
             */
 
             $targeting = [
                 'geo_locations' => [
                     'countries' => array_values($data['countries'])
-                ]
+                ],
+                'age_min' => (int)$data['age_min'],
+                'age_max' => (int)$data['age_max']
             ];
 
             /*
             |--------------------------------------------------------------------------
-            | AGE
-            |--------------------------------------------------------------------------
-            */
-
-            $targeting['age_min'] = (int) $data['age_min'];
-            $targeting['age_max'] = (int) $data['age_max'];
-
-            /*
-            |--------------------------------------------------------------------------
-            | GENDER
+            | GENDERS
             |--------------------------------------------------------------------------
             */
 
@@ -124,7 +117,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | INTERESTS (limit for Meta stability)
+            | INTERESTS
             |--------------------------------------------------------------------------
             */
 
@@ -139,12 +132,11 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (only if multi-country)
+            | LANGUAGES
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['languages']) && count($data['countries']) > 1) {
-
+            if (!empty($data['languages'])) {
                 $targeting['locales'] = array_map('intval', $data['languages']);
             }
 
@@ -197,26 +189,12 @@ class AdSetController extends Controller
 
                 /*
                 |--------------------------------------------------------------------------
-                | META SAFE AUTOMATIC PLACEMENTS
+                | AUTOMATIC PLACEMENTS
+                | DO NOT SEND ANY POSITION FIELDS
                 |--------------------------------------------------------------------------
                 */
 
-                $targeting['publisher_platforms'] = [
-                    'facebook',
-                    'instagram'
-                ];
-
-                $targeting['facebook_positions'] = [
-                    'feed',
-                    'video_feeds',
-                    'marketplace'
-                ];
-
-                $targeting['instagram_positions'] = [
-                    'stream',
-                    'story',
-                    'reels'
-                ];
+                // leave empty intentionally
             }
 
             Log::info('META_TARGETING_FINAL', $targeting);
@@ -240,6 +218,8 @@ class AdSetController extends Controller
                 'optimization_goal' => 'REACH',
 
                 'status' => 'PAUSED',
+
+                'start_time' => now()->addMinutes(5)->toIso8601String(),
 
                 'targeting' => $targeting
             ];
@@ -268,7 +248,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | SAVE LOCAL COPY
+            | SAVE LOCAL
             |--------------------------------------------------------------------------
             */
 
@@ -301,7 +281,6 @@ class AdSetController extends Controller
             return redirect()
                 ->route('admin.campaigns.show', $campaign->id)
                 ->with('success', 'Ad Set created successfully');
-
         }
 
         catch (Throwable $e) {

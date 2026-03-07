@@ -44,13 +44,6 @@ class MetaAdsService
             ->acceptJson();
     }
 
-    protected function debug(string $title, array $data = [])
-    {
-        if ($this->debug) {
-            Log::info($title, $data);
-        }
-    }
-
     /*
     |--------------------------------------------------------------------------
     | ERROR HANDLER
@@ -60,38 +53,26 @@ class MetaAdsService
     protected function handleError($response, $endpoint, $payload = [])
     {
         $status = $response->status();
-        $headers = $response->headers();
-        $rawBody = $response->body();
         $jsonBody = $response->json();
 
         Log::error('META_API_ERROR_FULL', [
             'endpoint' => $endpoint,
             'status_code' => $status,
-            'request_payload_array' => $payload,
-            'request_payload_json' => json_encode($payload, JSON_PRETTY_PRINT),
-            'response_headers' => $headers,
-            'response_raw' => $rawBody,
-            'response_json' => $jsonBody
+            'request_payload' => $payload,
+            'response' => $jsonBody
         ]);
 
         $error = $jsonBody['error'] ?? [];
 
         $message = $error['message'] ?? 'Unknown Meta API error';
         $code = $error['code'] ?? 0;
-        $subcode = $error['error_subcode'] ?? 0;
 
-        Log::error('META_API_ERROR_PARSED', [
-            'message' => $message,
-            'code' => $code,
-            'subcode' => $subcode
-        ]);
-
-        throw new Exception("Meta API Error: {$message} (code:{$code} subcode:{$subcode})");
+        throw new Exception("Meta API Error: {$message} (code:{$code})");
     }
 
     /*
     |--------------------------------------------------------------------------
-    | GET REQUEST
+    | GET
     |--------------------------------------------------------------------------
     */
 
@@ -99,23 +80,12 @@ class MetaAdsService
     {
         $params['access_token'] = $this->accessToken;
 
-        Log::info('META_GET_REQUEST_FULL', [
+        Log::info('META_GET_REQUEST', [
             'endpoint' => $endpoint,
-            'params_array' => $params,
-            'params_json' => json_encode($params, JSON_PRETTY_PRINT)
+            'params' => $params
         ]);
-
-        $start = microtime(true);
 
         $response = $this->client()->get("{$this->baseUrl}/{$endpoint}", $params);
-
-        Log::info('META_GET_HTTP_RESULT', [
-            'endpoint' => $endpoint,
-            'status' => $response->status(),
-            'headers' => $response->headers(),
-            'body_raw' => $response->body(),
-            'duration_ms' => round((microtime(true) - $start) * 1000, 2)
-        ]);
 
         if ($response->failed()) {
             $this->handleError($response, $endpoint, $params);
@@ -126,7 +96,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | POST REQUEST
+    | POST
     |--------------------------------------------------------------------------
     */
 
@@ -134,43 +104,107 @@ class MetaAdsService
     {
         $payload['access_token'] = $this->accessToken;
 
-        $start = microtime(true);
-
-        Log::info('META_POST_REQUEST_FULL', [
+        Log::info('META_POST_REQUEST', [
             'endpoint' => $endpoint,
-            'payload_array' => $payload,
-            'payload_json' => json_encode($payload, JSON_PRETTY_PRINT)
+            'payload' => $payload
         ]);
 
         $response = $this->client()
             ->asForm()
             ->post("{$this->baseUrl}/{$endpoint}", $payload);
 
-        Log::info('META_POST_HTTP_RESULT', [
-            'endpoint' => $endpoint,
-            'status' => $response->status(),
-            'headers' => $response->headers(),
-            'body_raw' => $response->body(),
-            'duration_ms' => round((microtime(true) - $start) * 1000, 2)
-        ]);
-
         if ($response->failed()) {
             $this->handleError($response, $endpoint, $payload);
         }
 
-        $result = $response->json();
-
-        Log::info('META_POST_RESPONSE_FULL', [
-            'endpoint' => $endpoint,
-            'response_json' => $result
-        ]);
-
-        return $result;
+        return $response->json();
     }
 
     /*
     |--------------------------------------------------------------------------
-    | TARGETING VALIDATOR (NEW)
+    | CREATE CAMPAIGN
+    |--------------------------------------------------------------------------
+    */
+
+    public function createCampaign(string $accountId, array $data): array
+    {
+        $accountId = $this->formatAccount($accountId);
+
+        Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
+
+        $payload = [
+
+            'name' => $data['name'],
+
+            'objective' => $data['objective'],
+
+            'status' => $data['status'] ?? 'PAUSED',
+
+            /*
+            Meta requires this field even if empty
+            */
+
+            'special_ad_categories' => json_encode([])
+        ];
+
+        Log::info('META_CAMPAIGN_PAYLOAD', $payload);
+
+        return $this->post("{$accountId}/campaigns", $payload);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACTIVATE CAMPAIGN
+    |--------------------------------------------------------------------------
+    */
+
+    public function activateCampaign(string $campaignId): array
+    {
+        return $this->post($campaignId, [
+            'status' => 'ACTIVE'
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAUSE CAMPAIGN
+    |--------------------------------------------------------------------------
+    */
+
+    public function pauseCampaign(string $campaignId): array
+    {
+        return $this->post($campaignId, [
+            'status' => 'PAUSED'
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | OBJECTIVE → OPTIMIZATION
+    |--------------------------------------------------------------------------
+    */
+
+    protected function resolveOptimization(string $objective): string
+    {
+        return match ($objective) {
+
+            'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
+
+            'OUTCOME_LEADS' => 'LEAD_GENERATION',
+
+            'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
+
+            'OUTCOME_AWARENESS' => 'REACH',
+
+            'OUTCOME_SALES' => 'CONVERSIONS',
+
+            default => 'REACH'
+        };
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | TARGETING VALIDATION
     |--------------------------------------------------------------------------
     */
 
@@ -181,27 +215,6 @@ class MetaAdsService
         }
 
         $targeting = $payload['targeting'];
-        $objective = $payload['optimization_goal'] ?? 'REACH';
-
-        /*
-        |--------------------------------------------------------------------------
-        | REACH VALIDATION
-        |--------------------------------------------------------------------------
-        */
-
-        if ($objective === 'REACH') {
-
-            unset($targeting['interests']);
-            unset($targeting['behaviors']);
-            unset($targeting['flexible_spec']);
-
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | LANGUAGE VALIDATION
-        |--------------------------------------------------------------------------
-        */
 
         if (
             isset($targeting['geo_locations']['countries']) &&
@@ -212,10 +225,7 @@ class MetaAdsService
 
         $payload['targeting'] = $targeting;
 
-        Log::info('META_TARGETING_OBJECTIVE_VALIDATED', [
-            'objective' => $objective,
-            'targeting' => $targeting
-        ]);
+        Log::info('META_TARGETING_VALIDATED', $targeting);
 
         return $payload;
     }
@@ -230,17 +240,17 @@ class MetaAdsService
     {
         $accountId = $this->formatAccount($accountId);
 
-        Log::info('META_ADSET_DATA_RECEIVED', $data);
-
         if (!isset($data['campaign_id'])) {
-            throw new Exception("campaign_id is required");
+            throw new Exception("campaign_id required");
         }
 
         if (!isset($data['targeting'])) {
-            throw new Exception("targeting is required");
+            throw new Exception("targeting required");
         }
 
-        Log::info('META_TARGETING_RAW', $data['targeting']);
+        $optimization = $this->resolveOptimization(
+            $data['objective'] ?? 'OUTCOME_AWARENESS'
+        );
 
         $payload = [
 
@@ -248,14 +258,13 @@ class MetaAdsService
 
             'campaign_id' => $data['campaign_id'],
 
-            'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
+            'billing_event' => 'IMPRESSIONS',
 
-            'optimization_goal' => $data['optimization_goal'] ?? 'REACH',
+            'optimization_goal' => $optimization,
 
             'status' => $data['status'] ?? 'PAUSED',
 
             'targeting' => $data['targeting']
-
         ];
 
         if (isset($data['daily_budget'])) {
@@ -265,45 +274,11 @@ class MetaAdsService
         $payload['start_time'] =
             $data['start_time'] ?? now()->addMinutes(5)->toIso8601String();
 
-        /*
-        |--------------------------------------------------------------------------
-        | VALIDATE TARGETING BEFORE META
-        |--------------------------------------------------------------------------
-        */
-
         $payload = $this->validateTargeting($payload);
 
-        Log::info('META_ADSET_PAYLOAD_VALIDATED_FULL', [
-            'payload_array' => $payload,
-            'payload_json' => json_encode($payload, JSON_PRETTY_PRINT)
-        ]);
+        Log::info('META_ADSET_PAYLOAD', $payload);
 
         return $this->post("{$accountId}/adsets", $payload);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | CREATE AD
-    |--------------------------------------------------------------------------
-    */
-
-    public function createAd(string $accountId, array $data): array
-    {
-        $accountId = $this->formatAccount($accountId);
-
-        $payload = [
-            'name' => $data['name'],
-            'adset_id' => $data['adset_id'],
-            'status' => $data['status'] ?? 'PAUSED'
-        ];
-
-        if (isset($data['creative'])) {
-            $payload['creative'] = json_encode($data['creative']);
-        }
-
-        Log::info('META_CREATE_AD_PAYLOAD', $payload);
-
-        return $this->post("{$accountId}/ads", $payload);
     }
 
     /*
@@ -317,13 +292,43 @@ class MetaAdsService
         $accountId = $this->formatAccount($accountId);
 
         $payload = [
+
             'name' => $data['name'],
+
             'object_story_spec' => json_encode($data['object_story_spec'])
         ];
 
-        Log::info('META_CREATE_CREATIVE_PAYLOAD', $payload);
+        Log::info('META_CREATIVE_PAYLOAD', $payload);
 
         return $this->post("{$accountId}/adcreatives", $payload);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE AD
+    |--------------------------------------------------------------------------
+    */
+
+    public function createAd(string $accountId, array $data): array
+    {
+        $accountId = $this->formatAccount($accountId);
+
+        $payload = [
+
+            'name' => $data['name'],
+
+            'adset_id' => $data['adset_id'],
+
+            'status' => $data['status'] ?? 'PAUSED'
+        ];
+
+        if (isset($data['creative'])) {
+            $payload['creative'] = json_encode($data['creative']);
+        }
+
+        Log::info('META_CREATE_AD_PAYLOAD', $payload);
+
+        return $this->post("{$accountId}/ads", $payload);
     }
 
     /*

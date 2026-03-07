@@ -327,7 +327,9 @@ Route::middleware(['auth','verified','role:admin'])
             [AdSetController::class, 'indexByCampaign'])
             ->name('campaigns.adsets.index');
 
-
+Route::get('campaigns/{campaign}/adsets',
+    [AdSetController::class, 'indexByCampaign'])
+    ->name('campaigns.adsets.index');
         /*
         |--------------------------------------------------------------------------
         | ADS

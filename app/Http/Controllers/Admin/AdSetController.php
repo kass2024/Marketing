@@ -25,6 +25,41 @@ class AdSetController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | LIST ALL ADSETS
+    |--------------------------------------------------------------------------
+    */
+
+    public function index()
+    {
+        $adsets = AdSet::with('campaign')
+            ->latest()
+            ->paginate(20);
+
+        return view('admin.adsets.index', compact('adsets'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | LIST ADSETS BY CAMPAIGN  (FIXES YOUR ERROR)
+    |--------------------------------------------------------------------------
+    */
+
+    public function indexByCampaign(int $campaignId)
+    {
+        $campaign = Campaign::findOrFail($campaignId);
+
+        $adsets = AdSet::where('campaign_id', $campaignId)
+            ->latest()
+            ->paginate(20);
+
+        return view('admin.adsets.index', [
+            'campaign' => $campaign,
+            'adsets' => $adsets
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | CREATE FORM
     |--------------------------------------------------------------------------
     */
@@ -88,7 +123,8 @@ class AdSetController extends Controller
 
         try {
 
-            $campaign = Campaign::with('adAccount')->findOrFail($data['campaign_id']);
+            $campaign = Campaign::with('adAccount')
+                ->findOrFail($data['campaign_id']);
 
             if (!$campaign->meta_id) {
                 throw new Exception('Campaign not synced with Meta');
@@ -97,22 +133,6 @@ class AdSetController extends Controller
             if (!$campaign->adAccount || !$campaign->adAccount->meta_id) {
                 throw new Exception('Ad account not connected');
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | OPTIMIZATION (MATCH CURL)
-            |--------------------------------------------------------------------------
-            */
-
-            $optimizationGoal = 'LINK_CLICKS';
-
-            /*
-            |--------------------------------------------------------------------------
-            | BILLING EVENT (MATCH CURL)
-            |--------------------------------------------------------------------------
-            */
-
-            $billingEvent = 'IMPRESSIONS';
 
             /*
             |--------------------------------------------------------------------------
@@ -130,26 +150,13 @@ class AdSetController extends Controller
                 'age_max' => (int)$data['age_max']
             ];
 
-            /*
-            |--------------------------------------------------------------------------
-            | GENDERS
-            |--------------------------------------------------------------------------
-            */
-
             if (!empty($data['genders'])) {
                 $targeting['genders'] = array_map('intval', $data['genders']);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | INTEREST TARGETING
-            |--------------------------------------------------------------------------
-            */
-
             if (!empty($data['interests'])) {
 
                 $targeting['flexible_spec'][] = [
-
                     'interests' => collect($data['interests'])
                         ->take(5)
                         ->map(fn ($id) => ['id' => (string)$id])
@@ -157,32 +164,14 @@ class AdSetController extends Controller
                         ->toArray()
                 ];
 
-                /*
-                IMPORTANT
-                Meta now requires advantage audience flag
-                */
-
                 $targeting['targeting_automation'] = [
                     'advantage_audience' => 0
                 ];
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | LANGUAGES
-            |--------------------------------------------------------------------------
-            */
-
             if (!empty($data['languages']) && count($data['countries']) > 1) {
-
                 $targeting['locales'] = array_map('intval', $data['languages']);
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | PLACEMENTS
-            |--------------------------------------------------------------------------
-            */
 
             if ($data['placement_type'] === 'manual') {
 
@@ -193,11 +182,9 @@ class AdSetController extends Controller
                 $targeting['publisher_platforms'] = $data['publisher_platforms'];
             }
 
-            Log::info('META_TARGETING_FINAL', $targeting);
-
             /*
             |--------------------------------------------------------------------------
-            | META PAYLOAD (MATCH CURL)
+            | META PAYLOAD
             |--------------------------------------------------------------------------
             */
 
@@ -209,9 +196,9 @@ class AdSetController extends Controller
 
                 'daily_budget' => (int)$data['daily_budget'] * 100,
 
-                'billing_event' => $billingEvent,
+                'billing_event' => 'IMPRESSIONS',
 
-                'optimization_goal' => $optimizationGoal,
+                'optimization_goal' => 'LINK_CLICKS',
 
                 'bid_strategy' => $data['bid_strategy'],
 
@@ -228,21 +215,12 @@ class AdSetController extends Controller
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 
-            /*
-            |--------------------------------------------------------------------------
-            | CREATE META ADSET
-            |--------------------------------------------------------------------------
-            */
-
             $response = $this->meta->createAdSet(
                 $campaign->adAccount->meta_id,
                 $payload
             );
 
-            Log::info('META_RESPONSE', $response);
-
             if (!isset($response['id'])) {
-
                 throw new Exception(
                     $response['error']['message'] ?? 'Meta API error'
                 );
@@ -264,9 +242,9 @@ class AdSetController extends Controller
 
                 'daily_budget' => $payload['daily_budget'],
 
-                'billing_event' => $billingEvent,
+                'billing_event' => 'IMPRESSIONS',
 
-                'optimization_goal' => $optimizationGoal,
+                'optimization_goal' => 'LINK_CLICKS',
 
                 'targeting' => $targeting,
 
@@ -280,9 +258,9 @@ class AdSetController extends Controller
                 'local_id' => $adset->id
             ]);
 
-            return redirect()
-                ->route('admin.campaigns.show', $campaign->id)
-                ->with('success', 'Ad Set created successfully');
+           return redirect()
+    ->route('admin.campaigns.index')
+    ->with('success', 'Ad Set created successfully');
         }
 
         catch (Throwable $e) {
@@ -298,6 +276,53 @@ class AdSetController extends Controller
                 ->withErrors([
                     'meta' => $e->getMessage()
                 ]);
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SHOW ADSET
+    |--------------------------------------------------------------------------
+    */
+
+    public function show(int $id)
+    {
+        $adset = AdSet::with('campaign')->findOrFail($id);
+
+        return view('admin.adsets.show', compact('adset'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | DELETE ADSET
+    |--------------------------------------------------------------------------
+    */
+
+    public function destroy(int $id)
+    {
+        $adset = AdSet::findOrFail($id);
+
+        try {
+
+            if ($adset->meta_id) {
+
+                $this->meta->deleteAdSet($adset->meta_id);
+            }
+
+            $adset->delete();
+
+            return back()->with('success', 'AdSet deleted');
+
+        } catch (Throwable $e) {
+
+            Log::error('ADSET_DELETE_FAILED', [
+                'id' => $id,
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->withErrors([
+                'delete' => 'Failed to delete adset'
+            ]);
         }
     }
 }

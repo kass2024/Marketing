@@ -134,33 +134,49 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
+    | FETCH FACEBOOK PAGES
+    |--------------------------------------------------------------------------
+    */
+
+    public function getPages(): array
+    {
+        $response = $this->get("me/accounts");
+
+        return $response['data'] ?? [];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | CREATE CAMPAIGN
     |--------------------------------------------------------------------------
     */
 
     public function createCampaign(string $accountId, array $data): array
-{
-    $accountId = $this->formatAccount($accountId);
+    {
+        $accountId = $this->formatAccount($accountId);
 
-    Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
+        Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
 
-    $payload = [
+        $payload = [
 
-        'name' => $data['name'],
+            'name' => $data['name'],
 
-        'objective' => $data['objective'],
+            'objective' => $data['objective'],
 
-        'status' => $data['status'] ?? 'PAUSED',
+            'status' => $data['status'] ?? 'PAUSED',
 
-        'special_ad_categories' => json_encode(['NONE']),
+            // REQUIRED BY META
+            'special_ad_categories' => json_encode(['NONE']),
 
-        'is_adset_budget_sharing_enabled' => false
-    ];
+            // REQUIRED WHEN NOT USING CBO
+            'is_adset_budget_sharing_enabled' => false
+        ];
 
-    Log::info('META_CAMPAIGN_PAYLOAD', $payload);
+        Log::info('META_CAMPAIGN_PAYLOAD', $payload);
 
-    return $this->post("{$accountId}/campaigns", $payload);
-}
+        return $this->post("{$accountId}/campaigns", $payload);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | ACTIVATE / PAUSE CAMPAIGN
@@ -183,30 +199,6 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | OBJECTIVE → OPTIMIZATION GOAL
-    |--------------------------------------------------------------------------
-    */
-
-    protected function resolveOptimization(string $objective): string
-    {
-        return match ($objective) {
-
-            'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
-
-            'OUTCOME_LEADS' => 'LEAD_GENERATION',
-
-            'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
-
-            'OUTCOME_AWARENESS' => 'REACH',
-
-            'OUTCOME_SALES' => 'CONVERSIONS',
-
-            default => 'REACH'
-        };
-    }
-
-    /*
-    |--------------------------------------------------------------------------
     | TARGETING VALIDATION
     |--------------------------------------------------------------------------
     */
@@ -219,20 +211,12 @@ class MetaAdsService
 
         $targeting = $payload['targeting'];
 
-        /*
-        Remove language targeting when only one country
-        */
-
         if (
             isset($targeting['geo_locations']['countries']) &&
             count($targeting['geo_locations']['countries']) === 1
         ) {
             unset($targeting['locales']);
         }
-
-        /*
-        Encode targeting as JSON for Meta API
-        */
 
         $payload['targeting'] = json_encode($targeting);
 
@@ -259,31 +243,33 @@ class MetaAdsService
             throw new Exception('targeting required');
         }
 
-        $optimization = $data['optimization_goal']
-            ?? $this->resolveOptimization(
-                $data['objective'] ?? 'OUTCOME_AWARENESS'
-            );
-
         $payload = [
 
             'name' => $data['name'],
 
             'campaign_id' => $data['campaign_id'],
 
+            'daily_budget' => $data['daily_budget'],
+
             'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
 
-            'optimization_goal' => $optimization,
+            'optimization_goal' => $data['optimization_goal'] ?? 'LINK_CLICKS',
+
+            'bid_strategy' => $data['bid_strategy'] ?? 'LOWEST_COST_WITHOUT_CAP',
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            'start_time' => $data['start_time']
-                ?? now()->addMinutes(5)->toIso8601String(),
+            'start_time' => $data['start_time'] ?? now()->addMinutes(5)->toIso8601String(),
 
             'targeting' => $data['targeting']
         ];
 
-        if (isset($data['daily_budget'])) {
-            $payload['daily_budget'] = $data['daily_budget'];
+        /*
+        PROMOTED OBJECT
+        */
+
+        if (isset($data['promoted_object'])) {
+            $payload['promoted_object'] = json_encode($data['promoted_object']);
         }
 
         $payload = $this->validateTargeting($payload);

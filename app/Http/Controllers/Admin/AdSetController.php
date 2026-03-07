@@ -39,7 +39,8 @@ class AdSetController extends Controller
             'campaigns' => Campaign::latest()->get(),
             'selectedCampaign' => $campaignId,
             'countries' => config('meta.countries'),
-            'languages' => config('meta.languages')
+            'languages' => config('meta.languages'),
+            'pages' => $this->meta->getPages() // fetch available pages
         ]);
     }
 
@@ -54,9 +55,15 @@ class AdSetController extends Controller
         Log::info('META_ADSET_STORE_REQUEST', $request->all());
 
         $data = $request->validate([
+
             'campaign_id' => 'required|exists:campaigns,id',
             'name' => 'required|string|max:255',
+
             'daily_budget' => 'required|numeric|min:5',
+
+            'bid_strategy' => 'required|string',
+
+            'page_id' => 'required|string',
 
             'age_min' => 'required|integer|min:18|max:65',
             'age_max' => 'required|integer|min:18|max:65',
@@ -72,6 +79,7 @@ class AdSetController extends Controller
         ]);
 
         if ($data['age_min'] >= $data['age_max']) {
+
             return back()->withErrors([
                 'age' => 'Max age must be greater than min age'
             ])->withInput();
@@ -101,11 +109,11 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | MAP OPTIMIZATION GOAL
+            | OPTIMIZATION GOAL MAP
             |--------------------------------------------------------------------------
             */
 
-            $optimizationGoalMap = [
+            $optimizationMap = [
                 'OUTCOME_AWARENESS' => 'REACH',
                 'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
                 'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
@@ -113,23 +121,15 @@ class AdSetController extends Controller
                 'OUTCOME_SALES' => 'CONVERSIONS'
             ];
 
-            $optimizationGoal = $optimizationGoalMap[$objective] ?? 'REACH';
+            $optimizationGoal = $optimizationMap[$objective] ?? 'REACH';
 
             /*
             |--------------------------------------------------------------------------
-            | BILLING EVENT MAP
+            | BILLING EVENT
             |--------------------------------------------------------------------------
             */
 
-            $billingMap = [
-                'REACH' => 'IMPRESSIONS',
-                'LINK_CLICKS' => 'IMPRESSIONS',
-                'POST_ENGAGEMENT' => 'IMPRESSIONS',
-                'LEAD_GENERATION' => 'IMPRESSIONS',
-                'CONVERSIONS' => 'IMPRESSIONS'
-            ];
-
-            $billingEvent = $billingMap[$optimizationGoal] ?? 'IMPRESSIONS';
+            $billingEvent = 'IMPRESSIONS';
 
             /*
             |--------------------------------------------------------------------------
@@ -138,9 +138,11 @@ class AdSetController extends Controller
             */
 
             $targeting = [
+
                 'geo_locations' => [
                     'countries' => array_values($data['countries'])
                 ],
+
                 'age_min' => (int)$data['age_min'],
                 'age_max' => (int)$data['age_max']
             ];
@@ -164,6 +166,7 @@ class AdSetController extends Controller
             if (!empty($data['interests']) && $optimizationGoal !== 'REACH') {
 
                 $targeting['flexible_spec'][] = [
+
                     'interests' => collect($data['interests'])
                         ->take(5)
                         ->map(fn ($id) => ['id' => (string)$id])
@@ -174,11 +177,12 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (ONLY IF MULTI COUNTRY)
+            | LANGUAGES
             |--------------------------------------------------------------------------
             */
 
             if (!empty($data['languages']) && count($data['countries']) > 1) {
+
                 $targeting['locales'] = array_map('intval', $data['languages']);
             }
 
@@ -197,35 +201,6 @@ class AdSetController extends Controller
                 $platforms = $data['publisher_platforms'];
 
                 $targeting['publisher_platforms'] = $platforms;
-
-                if (in_array('facebook', $platforms)) {
-                    $targeting['facebook_positions'] = [
-                        'feed',
-                        'video_feeds',
-                        'marketplace',
-                        'story'
-                    ];
-                }
-
-                if (in_array('instagram', $platforms)) {
-                    $targeting['instagram_positions'] = [
-                        'stream',
-                        'story',
-                        'reels'
-                    ];
-                }
-
-                if (in_array('messenger', $platforms)) {
-                    $targeting['messenger_positions'] = [
-                        'messenger_home'
-                    ];
-                }
-
-                if (in_array('audience_network', $platforms)) {
-                    $targeting['audience_network_positions'] = [
-                        'classic'
-                    ];
-                }
             }
 
             Log::info('META_TARGETING_FINAL', $targeting);
@@ -248,9 +223,15 @@ class AdSetController extends Controller
 
                 'optimization_goal' => $optimizationGoal,
 
+                'bid_strategy' => $data['bid_strategy'],
+
                 'status' => 'PAUSED',
 
                 'start_time' => now()->addMinutes(5)->toIso8601String(),
+
+                'promoted_object' => [
+                    'page_id' => $data['page_id']
+                ],
 
                 'targeting' => $targeting
             ];

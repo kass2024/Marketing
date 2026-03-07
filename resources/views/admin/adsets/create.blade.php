@@ -57,7 +57,7 @@ required>
 
 <option
 value="{{ $campaign->id }}"
-data-objective="{{ $campaign->objective ?? 'REACH' }}"
+data-objective="{{ $campaign->objective }}"
 {{ old('campaign_id',$selectedCampaign) == $campaign->id ? 'selected' : '' }}>
 
 {{ $campaign->name }}
@@ -86,23 +86,72 @@ required>
 </div>
 
 
-
-{{-- BUDGET --}}
+{{-- DAILY BUDGET --}}
 <div class="mb-6">
 <label class="font-semibold block mb-2">Daily Budget ($)</label>
 
 <input
 type="number"
 name="daily_budget"
-value="{{ old('daily_budget') }}"
+value="{{ old('daily_budget',10) }}"
 min="5"
 step="1"
 class="w-full border rounded-xl px-4 py-3"
 required>
 
 <p class="text-xs text-gray-500 mt-1">
-Minimum recommended budget: $5/day
+Meta minimum usually $5–10 depending on currency
 </p>
+</div>
+
+
+{{-- BID STRATEGY --}}
+<div class="mb-6">
+
+<label class="font-semibold block mb-2">Bid Strategy</label>
+
+<select name="bid_strategy"
+class="w-full border rounded-xl px-4 py-3">
+
+<option value="LOWEST_COST_WITHOUT_CAP" selected>
+Lowest Cost (Recommended)
+</option>
+
+<option value="LOWEST_COST_WITH_BID_CAP">
+Bid Cap
+</option>
+
+<option value="COST_CAP">
+Cost Cap
+</option>
+
+</select>
+
+</div>
+
+
+
+{{-- FACEBOOK PAGE --}}
+<div class="mb-6">
+
+<label class="font-semibold block mb-2">Facebook Page</label>
+
+<select name="page_id"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+@foreach($pages as $page)
+
+<option value="{{ $page['id'] }}">
+
+{{ $page['name'] }}
+
+</option>
+
+@endforeach
+
+</select>
+
 </div>
 
 
@@ -112,17 +161,23 @@ Minimum recommended budget: $5/day
 
 <div>
 <label class="font-semibold block mb-2">Minimum Age</label>
-<input type="number" name="age_min"
+
+<input type="number"
+name="age_min"
 value="{{ old('age_min',18) }}"
-min="18" max="65"
+min="18"
+max="65"
 class="w-full border rounded-xl px-4 py-3">
 </div>
 
 <div>
 <label class="font-semibold block mb-2">Maximum Age</label>
-<input type="number" name="age_max"
+
+<input type="number"
+name="age_max"
 value="{{ old('age_max',65) }}"
-min="18" max="65"
+min="18"
+max="65"
 class="w-full border rounded-xl px-4 py-3">
 </div>
 
@@ -135,7 +190,8 @@ class="w-full border rounded-xl px-4 py-3">
 
 <label class="font-semibold block mb-2">Gender</label>
 
-<select name="genders[]" multiple
+<select name="genders[]"
+multiple
 id="gender-select"
 class="w-full border rounded-xl px-4 py-3">
 
@@ -157,7 +213,8 @@ Leave empty to target all genders
 
 <label class="font-semibold block mb-2">Countries</label>
 
-<select name="countries[]" multiple
+<select name="countries[]"
+multiple
 id="country-select"
 class="w-full border rounded-xl px-4 py-3"
 required>
@@ -181,7 +238,8 @@ required>
 
 <label class="font-semibold block mb-2">Languages</label>
 
-<select name="languages[]" multiple
+<select name="languages[]"
+multiple
 id="language-select"
 class="w-full border rounded-xl px-4 py-3">
 
@@ -196,7 +254,7 @@ class="w-full border rounded-xl px-4 py-3">
 </select>
 
 <p class="text-xs text-gray-500 mt-1">
-Languages automatically disabled for single country targeting
+Languages disabled if single country
 </p>
 
 </div>
@@ -216,7 +274,7 @@ class="w-full border rounded-xl px-4 py-3"></select>
 
 <p id="interest-warning"
 class="text-xs text-red-600 mt-1 hidden">
-Interest targeting disabled for REACH campaigns
+Interest targeting disabled for Awareness campaigns
 </p>
 
 </div>
@@ -232,7 +290,7 @@ Interest targeting disabled for REACH campaigns
 id="placement-type"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="automatic">Automatic (Recommended)</option>
+<option value="automatic">Automatic</option>
 <option value="manual">Manual</option>
 
 </select>
@@ -241,7 +299,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- PLATFORMS --}}
+{{-- MANUAL PLATFORMS --}}
 <div class="mb-6 hidden" id="platform-section">
 
 <label class="font-semibold block mb-2">Platforms</label>
@@ -300,9 +358,7 @@ initSelect("#platform-select");
 
 
 
-/*
-INTEREST SEARCH
-*/
+/* INTEREST SEARCH */
 
 let interestTimeout;
 
@@ -335,9 +391,7 @@ fetch("/admin/meta/interests?q="+query)
 
 
 
-/*
-OBJECTIVE VALIDATION
-*/
+/* OBJECTIVE VALIDATION */
 
 document.getElementById("campaign-select")
 .addEventListener("change",function(){
@@ -348,12 +402,12 @@ let objective = selected.dataset.objective;
 let warning = document.getElementById("objective-warning");
 let interestWarning = document.getElementById("interest-warning");
 
-if(objective === "REACH"){
+if(objective === "OUTCOME_AWARENESS"){
 
 interestSelect.disable();
 interestWarning.classList.remove("hidden");
 
-warning.innerText = "REACH campaigns use broad targeting. Detailed interests disabled.";
+warning.innerText = "Awareness campaigns use broad targeting.";
 warning.classList.remove("hidden");
 
 }else{
@@ -368,9 +422,7 @@ warning.classList.add("hidden");
 
 
 
-/*
-LANGUAGE VALIDATION
-*/
+/* LANGUAGE VALIDATION */
 
 document.getElementById("country-select")
 .addEventListener("change",function(){
@@ -392,9 +444,7 @@ languages.tomselect.enable();
 
 
 
-/*
-PLACEMENT CONTROL
-*/
+/* PLACEMENT CONTROL */
 
 document.getElementById("placement-type")
 .addEventListener("change",function(){
@@ -411,9 +461,7 @@ section.classList.add("hidden");
 
 
 
-/*
-AGE VALIDATION
-*/
+/* AGE VALIDATION */
 
 document.getElementById("adsetForm")
 .addEventListener("submit",function(e){

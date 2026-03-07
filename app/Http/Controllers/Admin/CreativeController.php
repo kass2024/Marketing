@@ -59,19 +59,12 @@ class CreativeController extends Controller
         Log::info('CREATIVE_STORE_REQUEST', $request->all());
 
         $data = $request->validate([
-
             'name' => 'required|string|max:255',
-
             'headline' => 'nullable|string|max:255',
-
             'body' => 'nullable|string',
-
             'destination_url' => 'nullable|url',
-
             'call_to_action' => 'nullable|string|max:50',
-
             'image' => 'nullable|image|max:4096',
-
             'sync_meta' => 'nullable|boolean'
         ]);
 
@@ -86,7 +79,7 @@ class CreativeController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | STORE IMAGE
+            | STORE IMAGE LOCALLY
             |--------------------------------------------------------------------------
             */
 
@@ -100,7 +93,7 @@ class CreativeController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | META SYNC (OPTIONAL)
+            | META SYNC
             |--------------------------------------------------------------------------
             */
 
@@ -115,7 +108,7 @@ class CreativeController extends Controller
                 $accountId = $account->meta_id;
 
                 if (!str_starts_with($accountId, 'act_')) {
-                    $accountId = 'act_'.$accountId;
+                    $accountId = 'act_' . $accountId;
                 }
 
                 /*
@@ -126,7 +119,7 @@ class CreativeController extends Controller
 
                 if ($imagePath) {
 
-                    $imageFullPath = storage_path('app/public/'.$imagePath);
+                    $imageFullPath = storage_path('app/public/' . $imagePath);
 
                     $imageResponse = $this->meta->uploadImage(
                         $accountId,
@@ -137,12 +130,19 @@ class CreativeController extends Controller
                         throw new Exception('Meta image upload failed.');
                     }
 
-                    $imageHash = array_key_first($imageResponse['images']);
+                    // FIXED: extract actual hash
+                    $image = current($imageResponse['images']);
+
+                    if (!isset($image['hash'])) {
+                        throw new Exception('Meta did not return image hash.');
+                    }
+
+                    $imageHash = $image['hash'];
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | BUILD LINK DATA SAFELY
+                | BUILD LINK DATA
                 |--------------------------------------------------------------------------
                 */
 
@@ -165,10 +165,25 @@ class CreativeController extends Controller
                 }
 
                 if (!empty($data['call_to_action'])) {
-                    $linkData['call_to_action'] = [
+
+                    $cta = [
                         'type' => $data['call_to_action']
                     ];
+
+                    if (!empty($data['destination_url'])) {
+                        $cta['value'] = [
+                            'link' => $data['destination_url']
+                        ];
+                    }
+
+                    $linkData['call_to_action'] = $cta;
                 }
+
+                /*
+                |--------------------------------------------------------------------------
+                | BUILD PAYLOAD
+                |--------------------------------------------------------------------------
+                */
 
                 $payload = [
 
@@ -204,7 +219,7 @@ class CreativeController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | SAVE LOCAL CREATIVE
+            | SAVE LOCAL
             |--------------------------------------------------------------------------
             */
 
@@ -278,17 +293,11 @@ class CreativeController extends Controller
     public function update(Request $request, Creative $creative)
     {
         $data = $request->validate([
-
             'name' => 'required|string|max:255',
-
             'headline' => 'nullable|string|max:255',
-
             'body' => 'nullable|string',
-
             'destination_url' => 'nullable|url',
-
             'call_to_action' => 'nullable|string|max:50',
-
             'image' => 'nullable|image|max:4096'
         ]);
 
@@ -301,23 +310,23 @@ class CreativeController extends Controller
                 }
 
                 $creative->image_url = $request->file('image')
-                    ->store('creatives','public');
+                    ->store('creatives', 'public');
             }
 
             $creative->update($data);
 
             return redirect()
                 ->route('admin.creatives.index')
-                ->with('success','Creative updated successfully.');
+                ->with('success', 'Creative updated successfully.');
 
         } catch (Throwable $e) {
 
             Log::error('CREATIVE_UPDATE_FAILED', [
-                'error'=>$e->getMessage()
+                'error' => $e->getMessage()
             ]);
 
             return back()->withErrors([
-                'meta'=>'Unable to update creative'
+                'meta' => 'Unable to update creative'
             ]);
         }
     }
@@ -338,16 +347,16 @@ class CreativeController extends Controller
 
             $creative->delete();
 
-            return back()->with('success','Creative deleted.');
+            return back()->with('success', 'Creative deleted.');
 
         } catch (Throwable $e) {
 
             Log::error('CREATIVE_DELETE_FAILED', [
-                'error'=>$e->getMessage()
+                'error' => $e->getMessage()
             ]);
 
             return back()->withErrors([
-                'meta'=>'Unable to delete creative.'
+                'meta' => 'Unable to delete creative.'
             ]);
         }
     }

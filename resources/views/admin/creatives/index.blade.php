@@ -91,14 +91,14 @@ class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-l
 {{-- PREVIEW --}}
 <td class="px-6 py-4">
 
-@if(!empty($creative->image))
+@if(!empty($creative->image_url))
 
 <img
-src="{{ asset($creative->image) }}"
+src="{{ $creative->image_url }}"
 class="w-16 h-16 object-cover rounded"
 />
 
-@elseif(!empty($creative->video))
+@elseif(!empty($creative->video_url))
 
 <div class="w-16 h-16 bg-gray-200 flex items-center justify-center rounded text-xs">
 Video
@@ -113,7 +113,6 @@ No Media
 @endif
 
 </td>
-
 
 
 {{-- NAME --}}
@@ -132,24 +131,22 @@ Meta ID: {{ $creative->meta_id }}
 </td>
 
 
-
 {{-- HEADLINE --}}
 <td class="px-6 py-4">
 {{ $creative->headline ?? '-' }}
 </td>
 
 
-
 {{-- STATUS --}}
 <td class="px-6 py-4">
 
-@if($creative->status == 'ACTIVE')
+@if($creative->status === 'ACTIVE')
 
 <span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
 Active
 </span>
 
-@elseif($creative->status == 'PAUSED')
+@elseif($creative->status === 'PAUSED')
 
 <span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
 Paused
@@ -166,12 +163,10 @@ Draft
 </td>
 
 
-
 {{-- CREATED --}}
 <td class="px-6 py-4 text-gray-500">
 {{ optional($creative->created_at)->format('d M Y') }}
 </td>
-
 
 
 {{-- ACTIONS --}}
@@ -183,14 +178,11 @@ class="text-indigo-600 hover:text-indigo-800">
 Preview
 </a>
 
-
 <a
 href="{{ route('admin.creatives.edit',$creative->id) }}"
 class="text-blue-600 hover:text-blue-800">
 Edit
 </a>
-
-
 <form
 action="{{ route('admin.creatives.destroy',$creative->id) }}"
 method="POST"

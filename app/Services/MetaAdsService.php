@@ -34,7 +34,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | FORMAT ACCOUNT ID
+    | FORMAT ACCOUNT
     |--------------------------------------------------------------------------
     */
 
@@ -64,27 +64,22 @@ class MetaAdsService
 
     protected function handleError($response, $endpoint, $payload = [])
     {
-        $status = $response->status();
         $body = $response->json();
 
-        Log::error('META_API_ERROR_FULL', [
+        Log::error('META_API_ERROR', [
             'endpoint' => $endpoint,
-            'status_code' => $status,
-            'request_payload' => $payload,
+            'payload' => $payload,
             'response' => $body
         ]);
 
-        $error = $body['error'] ?? [];
+        $message = $body['error']['message'] ?? 'Meta API Error';
 
-        $message = $error['message'] ?? 'Unknown Meta API error';
-        $code = $error['code'] ?? 0;
-
-        throw new Exception("Meta API Error: {$message} (code: {$code})");
+        throw new Exception($message);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | GET
+    | GET REQUEST
     |--------------------------------------------------------------------------
     */
 
@@ -108,7 +103,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | POST
+    | POST REQUEST (FORM-DATA LIKE CURL)
     |--------------------------------------------------------------------------
     */
 
@@ -134,15 +129,15 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | FETCH FACEBOOK PAGES
+    | FETCH PAGES
     |--------------------------------------------------------------------------
     */
 
     public function getPages(): array
     {
-        $response = $this->get("me/accounts");
+        $res = $this->get("me/accounts");
 
-        return $response['data'] ?? [];
+        return $res['data'] ?? [];
     }
 
     /*
@@ -163,10 +158,8 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            // required
             'special_ad_categories' => json_encode(['NONE']),
 
-            // required if no campaign budget optimization
             'is_adset_budget_sharing_enabled' => false
         ];
 
@@ -177,7 +170,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | ACTIVATE / PAUSE CAMPAIGN
+    | CAMPAIGN STATUS
     |--------------------------------------------------------------------------
     */
 
@@ -193,20 +186,14 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | VALIDATE TARGETING
+    | BUILD TARGETING
     |--------------------------------------------------------------------------
     */
 
-    protected function validateTargeting(array $payload): array
+    protected function buildTargeting(array $targeting): string
     {
-        if (!isset($payload['targeting'])) {
-            return $payload;
-        }
-
-        $targeting = $payload['targeting'];
-
         /*
-        Remove language targeting for single country
+        Remove locales if single country
         */
 
         if (
@@ -217,7 +204,7 @@ class MetaAdsService
         }
 
         /*
-        Required when using detailed targeting
+        Advantage Audience required when interests used
         */
 
         if (isset($targeting['flexible_spec'])) {
@@ -227,11 +214,9 @@ class MetaAdsService
             ];
         }
 
-        $payload['targeting'] = json_encode($targeting);
+        Log::info('META_TARGETING_FINAL', $targeting);
 
-        Log::info('META_TARGETING_VALIDATED', $targeting);
-
-        return $payload;
+        return json_encode($targeting);
     }
 
     /*
@@ -270,18 +255,12 @@ class MetaAdsService
 
             'start_time' => $data['start_time'] ?? now()->addMinutes(5)->toIso8601String(),
 
-            'targeting' => $data['targeting']
+            'targeting' => $this->buildTargeting($data['targeting'])
         ];
-
-        /*
-        PROMOTED OBJECT
-        */
 
         if (isset($data['promoted_object'])) {
             $payload['promoted_object'] = json_encode($data['promoted_object']);
         }
-
-        $payload = $this->validateTargeting($payload);
 
         Log::info('META_ADSET_PAYLOAD', $payload);
 

@@ -93,8 +93,6 @@ Visible only in your dashboard.
 
 </div>
 
-
-
 {{-- ================= OBJECTIVE ================= --}}
 <div class="space-y-2">
 
@@ -111,23 +109,23 @@ class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500
 
 <option value="">Select objective</option>
 
-<option value="LINK_CLICKS" {{ old('objective')=='LINK_CLICKS'?'selected':'' }}>
-Website Traffic (Link Clicks)
+<option value="OUTCOME_TRAFFIC" {{ old('objective')=='OUTCOME_TRAFFIC'?'selected':'' }}>
+Website Traffic
 </option>
 
-<option value="LEAD_GENERATION" {{ old('objective')=='LEAD_GENERATION'?'selected':'' }}>
+<option value="OUTCOME_LEADS" {{ old('objective')=='OUTCOME_LEADS'?'selected':'' }}>
 Lead Generation
 </option>
 
-<option value="POST_ENGAGEMENT" {{ old('objective')=='POST_ENGAGEMENT'?'selected':'' }}>
+<option value="OUTCOME_ENGAGEMENT" {{ old('objective')=='OUTCOME_ENGAGEMENT'?'selected':'' }}>
 Post Engagement
 </option>
 
-<option value="BRAND_AWARENESS" {{ old('objective')=='BRAND_AWARENESS'?'selected':'' }}>
+<option value="OUTCOME_AWARENESS" {{ old('objective')=='OUTCOME_AWARENESS'?'selected':'' }}>
 Brand Awareness
 </option>
 
-<option value="CONVERSIONS" {{ old('objective')=='CONVERSIONS'?'selected':'' }}>
+<option value="OUTCOME_SALES" {{ old('objective')=='OUTCOME_SALES'?'selected':'' }}>
 Sales / Conversions
 </option>
 
@@ -138,12 +136,10 @@ Sales / Conversions
 @enderror
 
 <p class="text-xs text-gray-400">
-These objectives match Meta Ads Manager campaign objectives.
+These objectives match Meta Ads Manager outcome-driven objectives.
 </p>
 
 </div>
-
-
 {{-- ================= STATUS ================= --}}
 <div class="space-y-2">
 

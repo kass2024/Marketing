@@ -111,23 +111,23 @@ class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500
 
 <option value="">Select objective</option>
 
-<option value="LEADS" {{ old('objective')=='LEADS'?'selected':'' }}>
+<option value="LINK_CLICKS" {{ old('objective')=='LINK_CLICKS'?'selected':'' }}>
+Website Traffic (Link Clicks)
+</option>
+
+<option value="LEAD_GENERATION" {{ old('objective')=='LEAD_GENERATION'?'selected':'' }}>
 Lead Generation
 </option>
 
-<option value="TRAFFIC" {{ old('objective')=='TRAFFIC'?'selected':'' }}>
-Website Traffic
-</option>
-
-<option value="ENGAGEMENT" {{ old('objective')=='ENGAGEMENT'?'selected':'' }}>
+<option value="POST_ENGAGEMENT" {{ old('objective')=='POST_ENGAGEMENT'?'selected':'' }}>
 Post Engagement
 </option>
 
-<option value="AWARENESS" {{ old('objective')=='AWARENESS'?'selected':'' }}>
+<option value="BRAND_AWARENESS" {{ old('objective')=='BRAND_AWARENESS'?'selected':'' }}>
 Brand Awareness
 </option>
 
-<option value="SALES" {{ old('objective')=='SALES'?'selected':'' }}>
+<option value="CONVERSIONS" {{ old('objective')=='CONVERSIONS'?'selected':'' }}>
 Sales / Conversions
 </option>
 
@@ -138,11 +138,10 @@ Sales / Conversions
 @enderror
 
 <p class="text-xs text-gray-400">
-Meta will optimize delivery according to this objective.
+These objectives match Meta Ads Manager campaign objectives.
 </p>
 
 </div>
-
 
 
 {{-- ================= STATUS ================= --}}

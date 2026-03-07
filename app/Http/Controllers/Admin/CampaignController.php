@@ -98,19 +98,18 @@ class CampaignController extends Controller
             | Map UI Objective → Meta Objective (v19)
             |--------------------------------------------------------------------------
             */
+$objectiveMap = [
 
-            $objectiveMap = [
+    'LEADS' => 'LEAD_GENERATION',
 
-                'LEADS' => 'LEAD_GENERATION',
+    'TRAFFIC' => 'LINK_CLICKS',
 
-                'TRAFFIC' => 'TRAFFIC',
+    'ENGAGEMENT' => 'POST_ENGAGEMENT',
 
-                'ENGAGEMENT' => 'ENGAGEMENT',
+    'AWARENESS' => 'BRAND_AWARENESS',
 
-                'AWARENESS' => 'AWARENESS',
-
-                'SALES' => 'SALES'
-            ];
+    'SALES' => 'CONVERSIONS'
+];
 
             $metaObjective = $objectiveMap[$data['objective']];
 

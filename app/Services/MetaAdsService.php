@@ -222,6 +222,11 @@ class MetaAdsService
         return $this->get($campaignId, [
             'fields' => 'id,name,objective,status'
         ]);
+        $params = array_merge([
+        'fields' => 'id,name,objective,status,effective_status,created_time'
+    ], $params);
+
+    return $this->fetchAllPages("{$this->adAccountId}/campaigns", $params);
     }
 
     /*

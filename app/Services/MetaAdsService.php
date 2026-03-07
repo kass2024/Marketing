@@ -144,7 +144,7 @@ class MetaAdsService
             Meta requires this field even if empty
             */
 
-            'special_ad_categories' => json_encode([])
+            'special_ad_categories' => []
         ];
 
         Log::info('META_CAMPAIGN_PAYLOAD', $payload);

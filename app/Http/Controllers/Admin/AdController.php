@@ -21,7 +21,7 @@ use Exception;
 
 class AdController extends Controller
 {
-    protected $meta;
+    protected MetaAdsService $meta;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -30,14 +30,14 @@ class AdController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | List Ads
+    | LIST ADS
     |--------------------------------------------------------------------------
     */
 
     public function index(): View
     {
         $ads = Ad::with([
-            'adSet.campaign',
+            'adSet.campaign.adAccount',
             'creative'
         ])
         ->latest()
@@ -46,10 +46,9 @@ class AdController extends Controller
         return view('admin.ads.index', compact('ads'));
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Create Ad Form
+    | CREATE FORM
     |--------------------------------------------------------------------------
     */
 
@@ -64,19 +63,22 @@ class AdController extends Controller
         return view('admin.ads.create', compact('adsets','creatives'));
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Store Ad (Meta + Local)
+    | STORE AD
     |--------------------------------------------------------------------------
     */
 
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'adset_id'    => ['required','exists:ad_sets,id'],
-            'creative_id' => ['required','exists:creatives,id'],
-            'name'        => ['required','string','max:255']
+
+            'name' => 'required|string|max:255',
+
+            'adset_id' => 'required|exists:ad_sets,id',
+
+            'creative_id' => 'required|exists:creatives,id'
+
         ]);
 
         DB::beginTransaction();
@@ -85,7 +87,7 @@ class AdController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Load Models
+            | LOAD MODELS
             |--------------------------------------------------------------------------
             */
 
@@ -94,11 +96,12 @@ class AdController extends Controller
 
             $creative = Creative::findOrFail($data['creative_id']);
 
-            $adAccount = $adset->campaign->adAccount ?? null;
+            $campaign = $adset->campaign;
+            $adAccount = $campaign->adAccount ?? null;
 
             /*
             |--------------------------------------------------------------------------
-            | Validate Meta Sync
+            | VALIDATE META SYNC
             |--------------------------------------------------------------------------
             */
 
@@ -111,18 +114,38 @@ class AdController extends Controller
             }
 
             if (!$adAccount || !$adAccount->meta_id) {
-                throw new Exception('Ad Account not connected.');
-            }
-
-            $metaAccountId = $adAccount->meta_id;
-
-            if (strpos($metaAccountId,'act_') !== 0) {
-                $metaAccountId = 'act_'.$metaAccountId;
+                throw new Exception('Meta Ad Account not connected.');
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Prepare Meta Payload
+            | PREVENT DUPLICATE ADS
+            |--------------------------------------------------------------------------
+            */
+
+            $existing = Ad::where('adset_id',$adset->id)
+                ->where('creative_id',$creative->id)
+                ->first();
+
+            if ($existing) {
+                throw new Exception('Ad already exists for this AdSet and Creative.');
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | FORMAT ACCOUNT
+            |--------------------------------------------------------------------------
+            */
+
+            $accountId = $adAccount->meta_id;
+
+            if (!str_starts_with($accountId,'act_')) {
+                $accountId = 'act_'.$accountId;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | META PAYLOAD
             |--------------------------------------------------------------------------
             */
 
@@ -137,58 +160,63 @@ class AdController extends Controller
                 ],
 
                 'status' => 'PAUSED'
+
             ];
 
             Log::info('META_AD_CREATE_REQUEST', [
-                'account_id' => $metaAccountId,
+                'account' => $accountId,
                 'payload' => $payload
             ]);
 
             /*
             |--------------------------------------------------------------------------
-            | Create Ad on Meta
+            | CREATE AD ON META
             |--------------------------------------------------------------------------
             */
 
             $response = $this->meta->createAd(
-                $metaAccountId,
+                $accountId,
                 $payload
             );
 
             Log::info('META_AD_CREATE_RESPONSE', $response);
 
-            if (!is_array($response) || empty($response['id'])) {
+            if (!isset($response['id'])) {
 
-                $metaError = $response['error']['message']
-                    ?? 'Meta API failed to create Ad';
+                $error = $response['error']['message']
+                    ?? 'Meta API failed creating ad';
 
-                throw new Exception($metaError);
+                throw new Exception($error);
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Save Local Ad
+            | SAVE LOCAL AD
             |--------------------------------------------------------------------------
             */
 
             $ad = Ad::create([
 
-                'adset_id'    => $adset->id,
+                'adset_id' => $adset->id,
 
                 'creative_id' => $creative->id,
 
-                'meta_ad_id'  => $response['id'],
+                'meta_ad_id' => $response['id'],
 
-                'name'        => $data['name'],
+                'name' => $data['name'],
 
-                'status'      => 'PAUSED'
+                'status' => 'PAUSED'
+
             ]);
 
             DB::commit();
 
             Log::info('META_AD_CREATED', [
+
                 'local_ad_id' => $ad->id,
-                'meta_ad_id'  => $response['id']
+
+                'meta_ad_id' => $response['id']
+
             ]);
 
             return redirect()
@@ -201,8 +229,10 @@ class AdController extends Controller
 
             DB::rollBack();
 
-            Log::error('AD_CREATION_EXCEPTION', [
+            Log::error('AD_CREATION_FAILED', [
+
                 'error' => $e->getMessage()
+
             ]);
 
             return back()
@@ -213,10 +243,9 @@ class AdController extends Controller
         }
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Ads by AdSet (AJAX)
+    | ADS BY ADSET (AJAX)
     |--------------------------------------------------------------------------
     */
 
@@ -236,10 +265,9 @@ class AdController extends Controller
         return response()->json($ads);
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Ad Creative Preview
+    | PREVIEW CREATIVE
     |--------------------------------------------------------------------------
     */
 
@@ -248,25 +276,30 @@ class AdController extends Controller
         $creative = $ad->creative;
 
         return response()->json([
-            'image_url' => $creative->image_url ?? null,
+
+            'image_url' => $creative->image ?? null,
+
             'video_url' => $creative->video_url ?? null,
-            'title'     => $creative->title ?? '',
-            'body'      => $creative->body ?? '',
+
+            'headline' => $creative->headline ?? '',
+
+            'body' => $creative->body ?? '',
+
             'call_to_action' => $creative->call_to_action ?? ''
+
         ]);
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Update Ad Status
+    | UPDATE STATUS
     |--------------------------------------------------------------------------
     */
 
     public function updateStatus(Request $request, Ad $ad): RedirectResponse
     {
         $data = $request->validate([
-            'status' => ['required','in:PAUSED,ACTIVE,ARCHIVED']
+            'status' => 'required|in:ACTIVE,PAUSED,ARCHIVED'
         ]);
 
         try {
@@ -299,10 +332,9 @@ class AdController extends Controller
         }
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Delete Ad
+    | DELETE AD
     |--------------------------------------------------------------------------
     */
 

@@ -23,18 +23,18 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Status Constants
+    | Status
     |--------------------------------------------------------------------------
     */
 
-    const STATUS_ACTIVE   = 'ACTIVE';
     const STATUS_DRAFT    = 'DRAFT';
+    const STATUS_ACTIVE   = 'ACTIVE';
     const STATUS_ARCHIVED = 'ARCHIVED';
 
 
     /*
     |--------------------------------------------------------------------------
-    | CTA Constants
+    | Call To Action
     |--------------------------------------------------------------------------
     */
 
@@ -54,25 +54,28 @@ class Creative extends Model
 
     protected $fillable = [
 
+        // Meta reference
         'meta_id',
+
+        // Basic info
         'name',
 
-        // creative content
-        'title',
+        // Ad content
+        'headline',
         'body',
 
-        // media
-        'image_hash',
+        // Media
         'image_url',
         'video_url',
+        'image_hash',
 
         // CTA
         'call_to_action',
 
-        // destination
+        // Landing page
         'destination_url',
 
-        // raw meta payload
+        // Raw Meta payload
         'json_payload',
 
         // lifecycle
@@ -82,7 +85,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Default Attributes
+    | Defaults
     |--------------------------------------------------------------------------
     */
 
@@ -93,7 +96,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Casting
+    | Casts
     |--------------------------------------------------------------------------
     */
 
@@ -173,57 +176,52 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Storage Helper
+    | Storage URL Helper
     |--------------------------------------------------------------------------
     */
 
-    public function getImageAttribute(): ?string
+    public function getImageUrlAttribute($value): ?string
     {
-        if (!$this->image_url) {
+        if (!$value) {
             return null;
         }
 
-        if (str_starts_with($this->image_url, 'http')) {
-            return $this->image_url;
+        if (str_starts_with($value, 'http')) {
+            return $value;
         }
 
-        return Storage::url($this->image_url);
+        return Storage::url($value);
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Preview Helpers
+    | Preview Data
     |--------------------------------------------------------------------------
     */
 
-    public function getHeadlineAttribute(): string
-    {
-        return $this->title ?? '';
-    }
-
-    public function getDescriptionAttribute(): string
-    {
-        return $this->body ?? '';
-    }
-
-    public function getPreviewData(): array
+    public function getPreview(): array
     {
         return [
-            'title'            => $this->title,
-            'body'             => $this->body,
-            'image_url'        => $this->image_url,
-            'video_url'        => $this->video_url,
-            'call_to_action'   => $this->call_to_action,
-            'destination_url'  => $this->destination_url,
-            'status'           => $this->status
+
+            'headline' => $this->headline,
+            'body' => $this->body,
+
+            'image_url' => $this->image_url,
+            'video_url' => $this->video_url,
+
+            'cta' => $this->call_to_action,
+
+            'destination_url' => $this->destination_url,
+
+            'status' => $this->status
         ];
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Meta API Helpers
+    | Meta Payload Helpers
     |--------------------------------------------------------------------------
     */
 
@@ -270,12 +268,14 @@ class Creative extends Model
     public static function ctaOptions(): array
     {
         return [
+
             self::CTA_LEARN_MORE => 'Learn More',
             self::CTA_APPLY_NOW  => 'Apply Now',
             self::CTA_SIGN_UP    => 'Sign Up',
             self::CTA_CONTACT_US => 'Contact Us',
             self::CTA_DOWNLOAD   => 'Download',
             self::CTA_GET_OFFER  => 'Get Offer'
+
         ];
     }
 }

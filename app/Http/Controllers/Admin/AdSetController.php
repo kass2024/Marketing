@@ -40,7 +40,7 @@ class AdSetController extends Controller
             'selectedCampaign' => $campaignId,
             'countries' => config('meta.countries'),
             'languages' => config('meta.languages'),
-            'pages' => $this->meta->getPages() // fetch available pages
+            'pages' => $this->meta->getPages()
         ]);
     }
 
@@ -79,7 +79,6 @@ class AdSetController extends Controller
         ]);
 
         if ($data['age_min'] >= $data['age_max']) {
-
             return back()->withErrors([
                 'age' => 'Max age must be greater than min age'
             ])->withInput();
@@ -101,31 +100,15 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | DETECT CAMPAIGN OBJECTIVE
+            | OPTIMIZATION (MATCH CURL)
             |--------------------------------------------------------------------------
             */
 
-            $objective = $campaign->objective ?? 'OUTCOME_AWARENESS';
+            $optimizationGoal = 'LINK_CLICKS';
 
             /*
             |--------------------------------------------------------------------------
-            | OPTIMIZATION GOAL MAP
-            |--------------------------------------------------------------------------
-            */
-
-            $optimizationMap = [
-                'OUTCOME_AWARENESS' => 'REACH',
-                'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
-                'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
-                'OUTCOME_LEADS' => 'LEAD_GENERATION',
-                'OUTCOME_SALES' => 'CONVERSIONS'
-            ];
-
-            $optimizationGoal = $optimizationMap[$objective] ?? 'REACH';
-
-            /*
-            |--------------------------------------------------------------------------
-            | BILLING EVENT
+            | BILLING EVENT (MATCH CURL)
             |--------------------------------------------------------------------------
             */
 
@@ -133,7 +116,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | TARGETING BASE
+            | TARGETING
             |--------------------------------------------------------------------------
             */
 
@@ -163,7 +146,7 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['interests']) && $optimizationGoal !== 'REACH') {
+            if (!empty($data['interests'])) {
 
                 $targeting['flexible_spec'][] = [
 
@@ -172,6 +155,15 @@ class AdSetController extends Controller
                         ->map(fn ($id) => ['id' => (string)$id])
                         ->values()
                         ->toArray()
+                ];
+
+                /*
+                IMPORTANT
+                Meta now requires advantage audience flag
+                */
+
+                $targeting['targeting_automation'] = [
+                    'advantage_audience' => 0
                 ];
             }
 
@@ -198,16 +190,14 @@ class AdSetController extends Controller
                     throw new Exception('Select at least one platform');
                 }
 
-                $platforms = $data['publisher_platforms'];
-
-                $targeting['publisher_platforms'] = $platforms;
+                $targeting['publisher_platforms'] = $data['publisher_platforms'];
             }
 
             Log::info('META_TARGETING_FINAL', $targeting);
 
             /*
             |--------------------------------------------------------------------------
-            | META PAYLOAD
+            | META PAYLOAD (MATCH CURL)
             |--------------------------------------------------------------------------
             */
 

@@ -136,10 +136,9 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['languages'])) {
-                $targeting['locales'] = array_map('intval', $data['languages']);
-            }
-
+            if (!empty($data['languages']) && count($data['countries']) > 1) {
+    $targeting['locales'] = array_map('intval', $data['languages']);
+}
             /*
             |--------------------------------------------------------------------------
             | PLACEMENTS

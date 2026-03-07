@@ -228,26 +228,25 @@ class MetaAdsService
     |--------------------------------------------------------------------------
     */
 
-    protected function buildTargeting(array $targeting):string
-    {
-        if(
-            isset($targeting['geo_locations']['countries']) &&
-            count($targeting['geo_locations']['countries']) === 1
-        ){
-            unset($targeting['locales']);
-        }
-
-        if(isset($targeting['flexible_spec'])){
-
-            $targeting['targeting_automation'] = [
-                'advantage_audience'=>0
-            ];
-        }
-
-        Log::info('META_TARGETING_FINAL',$targeting);
-
-        return json_encode($targeting);
+protected function buildTargeting(array $targeting): array
+{
+    if(
+        isset($targeting['geo_locations']['countries']) &&
+        count($targeting['geo_locations']['countries']) === 1
+    ){
+        unset($targeting['locales']);
     }
+
+    if(isset($targeting['flexible_spec'])){
+        $targeting['targeting_automation'] = [
+            'advantage_audience' => 0
+        ];
+    }
+
+    Log::info('META_TARGETING_FINAL',$targeting);
+
+    return $targeting;
+}
 
     /*
     |--------------------------------------------------------------------------
@@ -289,13 +288,26 @@ class MetaAdsService
             'targeting'=>$this->buildTargeting($data['targeting'])
         ];
 
-        if(isset($data['promoted_object'])){
-            $payload['promoted_object'] = json_encode($data['promoted_object']);
-        }
+      // Add promoted object if provided
+if (isset($data['promoted_object']) && is_array($data['promoted_object'])) {
+    $payload['promoted_object'] = $data['promoted_object'];
+}
 
-        Log::info('META_ADSET_PAYLOAD',$payload);
+// Log final payload before sending
+Log::info('META_ADSET_PAYSET_PAYLOAD', [
+    'endpoint' => "{$accountId}/adsets",
+    'payload' => $payload
+]);
 
-        return $this->post("{$accountId}/adsets",$payload);
+// Send request to Meta Graph API
+$response = $this->post("{$accountId}/adsets", $payload);
+
+// Log Meta response
+Log::info('META_ADSET_CREATED', [
+    'response' => $response
+]);
+
+return $response;
     }
 
     public function deleteAdSet(string $adsetId):array

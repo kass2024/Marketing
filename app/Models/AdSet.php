@@ -17,7 +17,7 @@ class AdSet extends Model
     |--------------------------------------------------------------------------
     */
 
-    protected $table = 'adsets';
+    protected $table = 'ad_sets';
 
 
     /*

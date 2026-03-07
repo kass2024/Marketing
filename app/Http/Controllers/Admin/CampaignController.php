@@ -33,7 +33,7 @@ class CampaignController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Create Campaign Page
+    | Create Page
     |--------------------------------------------------------------------------
     */
 
@@ -46,7 +46,7 @@ class CampaignController extends Controller
             return redirect()
                 ->route('admin.accounts.index')
                 ->withErrors([
-                    'meta' => 'No Meta Ad Account connected. Please sync accounts first.'
+                    'meta' => 'No Meta Ad Account connected.'
                 ]);
         }
 
@@ -61,10 +61,13 @@ class CampaignController extends Controller
 
     public function store(Request $request)
     {
+        Log::info('META_CAMPAIGN_STORE_REQUEST', $request->all());
+
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'objective' => 'required|in:OUTCOME_LEADS,OUTCOME_TRAFFIC,OUTCOME_ENGAGEMENT,OUTCOME_AWARENESS,OUTCOME_SALES',
-            'daily_budget' => 'required|numeric|min:5'
+            'objective' => 'required|in:LEADS,TRAFFIC,ENGAGEMENT,AWARENESS,SALES',
+            'status' => 'required|in:PAUSED,ACTIVE',
+            'sync_meta' => 'nullable'
         ]);
 
         try {
@@ -72,15 +75,14 @@ class CampaignController extends Controller
             $account = AdAccount::first();
 
             if (!$account) {
-
                 return back()->withErrors([
-                    'meta' => 'No ad account connected.'
+                    'meta' => 'No Meta ad account connected.'
                 ]);
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Prevent duplicate campaign names
+            | Prevent Duplicate Names
             |--------------------------------------------------------------------------
             */
 
@@ -93,52 +95,83 @@ class CampaignController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Create campaign in Meta
+            | Map Objective → Meta Objective
             |--------------------------------------------------------------------------
             */
 
-            Log::info('Creating Meta Campaign', [
-                'ad_account' => $account->meta_id,
-                'payload' => $data
+            $objectiveMap = [
+
+                'LEADS' => 'OUTCOME_LEADS',
+
+                'TRAFFIC' => 'OUTCOME_TRAFFIC',
+
+                'ENGAGEMENT' => 'OUTCOME_ENGAGEMENT',
+
+                'AWARENESS' => 'OUTCOME_AWARENESS',
+
+                'SALES' => 'OUTCOME_SALES'
+            ];
+
+            $metaObjective = $objectiveMap[$data['objective']];
+
+            Log::info('META_OBJECTIVE_MAPPED', [
+                'ui_objective' => $data['objective'],
+                'meta_objective' => $metaObjective
             ]);
 
-            $response = $this->meta->createCampaign(
-                $account->meta_id,
-                [
+            $metaId = null;
+
+            /*
+            |--------------------------------------------------------------------------
+            | Create Campaign On Meta
+            |--------------------------------------------------------------------------
+            */
+
+            if ($request->has('sync_meta')) {
+
+                Log::info('META_CREATE_CAMPAIGN_REQUEST', [
+                    'account' => $account->meta_id,
                     'name' => $data['name'],
-                    'objective' => $data['objective'],
-                    'daily_budget' => $data['daily_budget'] * 100,
-                    'status' => 'PAUSED'
-                ]
-            );
-
-            if (!isset($response['id'])) {
-
-                Log::error('Meta Campaign Creation Failed', [
-                    'response' => $response
+                    'objective' => $metaObjective
                 ]);
 
-                return back()->withErrors([
-                    'meta' => $response['error']['message'] ?? 'Meta API failed to create campaign.'
-                ])->withInput();
+                $response = $this->meta->createCampaign(
+                    $account->meta_id,
+                    [
+                        'name' => $data['name'],
+                        'objective' => $metaObjective,
+                        'status' => $data['status']
+                    ]
+                );
+
+                Log::info('META_CREATE_CAMPAIGN_RESPONSE', $response);
+
+                if (!isset($response['id'])) {
+
+                    return back()->withErrors([
+                        'meta' => $response['error']['message']
+                            ?? 'Meta API failed to create campaign.'
+                    ])->withInput();
+                }
+
+                $metaId = $response['id'];
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Save locally
+            | Save Locally
             |--------------------------------------------------------------------------
             */
 
             $campaign = Campaign::create([
                 'ad_account_id' => $account->id,
-                'meta_id' => $response['id'],
+                'meta_id' => $metaId,
                 'name' => $data['name'],
                 'objective' => $data['objective'],
-                'daily_budget' => $data['daily_budget'] * 100,
-                'status' => 'PAUSED'
+                'status' => $data['status']
             ]);
 
-            Log::info('Campaign Created', [
+            Log::info('META_CAMPAIGN_CREATED', [
                 'campaign_id' => $campaign->id,
                 'meta_id' => $campaign->meta_id
             ]);
@@ -149,87 +182,13 @@ class CampaignController extends Controller
 
         } catch (\Throwable $e) {
 
-            Log::error('Campaign Creation Failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+            Log::error('META_CAMPAIGN_CREATE_FAILED', [
+                'error' => $e->getMessage()
             ]);
 
             return back()->withErrors([
                 'meta' => 'Unable to create campaign: ' . $e->getMessage()
             ])->withInput();
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Edit Campaign
-    |--------------------------------------------------------------------------
-    */
-
-    public function edit(Campaign $campaign)
-    {
-        return view('admin.campaigns.edit', compact('campaign'));
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update Campaign
-    |--------------------------------------------------------------------------
-    */
-
-    public function update(Request $request, Campaign $campaign)
-    {
-        $data = $request->validate([
-            'name' => 'required|string|max:255',
-            'daily_budget' => 'required|numeric|min:5',
-            'status' => 'required|in:PAUSED,ACTIVE'
-        ]);
-
-        try {
-
-            /*
-            |--------------------------------------------------------------------------
-            | Update locally
-            |--------------------------------------------------------------------------
-            */
-
-            $campaign->update([
-                'name' => $data['name'],
-                'daily_budget' => $data['daily_budget'] * 100,
-                'status' => $data['status']
-            ]);
-
-            /*
-            |--------------------------------------------------------------------------
-            | Sync status with Meta
-            |--------------------------------------------------------------------------
-            */
-
-            if ($campaign->meta_id) {
-
-                if ($data['status'] === 'ACTIVE') {
-
-                    $this->meta->activateCampaign($campaign->meta_id);
-
-                } else {
-
-                    $this->meta->pauseCampaign($campaign->meta_id);
-                }
-            }
-
-            return redirect()
-                ->route('admin.campaigns.index')
-                ->with('success', 'Campaign updated successfully.');
-
-        } catch (\Throwable $e) {
-
-            Log::error('Campaign Update Failed', [
-                'error' => $e->getMessage()
-            ]);
-
-            return back()->withErrors([
-                'meta' => 'Unable to update campaign.'
-            ]);
         }
     }
 
@@ -243,18 +202,17 @@ class CampaignController extends Controller
     {
         try {
 
-            Log::info('Deleting Campaign', [
-                'campaign_id' => $campaign->id,
-                'meta_id' => $campaign->meta_id
+            Log::info('META_CAMPAIGN_DELETE', [
+                'campaign_id' => $campaign->id
             ]);
 
             $campaign->delete();
 
-            return back()->with('success', 'Campaign removed locally.');
+            return back()->with('success', 'Campaign deleted.');
 
         } catch (\Throwable $e) {
 
-            Log::error('Campaign Delete Failed', [
+            Log::error('META_CAMPAIGN_DELETE_FAILED', [
                 'error' => $e->getMessage()
             ]);
 

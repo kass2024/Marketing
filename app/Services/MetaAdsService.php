@@ -136,14 +136,12 @@ class MetaAdsService
 
             'name' => $data['name'],
 
+            // v19 objective names
             'objective' => $data['objective'],
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            /*
-            Meta requires this field even if empty
-            */
-
+            // must remain JSON string with form encoding
             'special_ad_categories' => '[]'
         ];
 
@@ -180,7 +178,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | OBJECTIVE → OPTIMIZATION
+    | OBJECTIVE → OPTIMIZATION (v19 compatible)
     |--------------------------------------------------------------------------
     */
 
@@ -188,15 +186,15 @@ class MetaAdsService
     {
         return match ($objective) {
 
-            'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
+            'TRAFFIC' => 'LINK_CLICKS',
 
-            'OUTCOME_LEADS' => 'LEAD_GENERATION',
+            'LEAD_GENERATION' => 'LEAD_GENERATION',
 
-            'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
+            'ENGAGEMENT' => 'POST_ENGAGEMENT',
 
-            'OUTCOME_AWARENESS' => 'REACH',
+            'AWARENESS' => 'REACH',
 
-            'OUTCOME_SALES' => 'CONVERSIONS',
+            'SALES' => 'CONVERSIONS',
 
             default => 'REACH'
         };
@@ -249,7 +247,7 @@ class MetaAdsService
         }
 
         $optimization = $this->resolveOptimization(
-            $data['objective'] ?? 'OUTCOME_AWARENESS'
+            $data['objective'] ?? 'AWARENESS'
         );
 
         $payload = [

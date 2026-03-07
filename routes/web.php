@@ -514,7 +514,8 @@ Route::get('/admin/meta/interests', [\App\Http\Controllers\Admin\MetaTargetingCo
     Route::patch('/profile',[ProfileController::class,'update'])->name('profile.update');
 
     Route::delete('/profile',[ProfileController::class,'destroy'])->name('profile.destroy');
-
+Route::get('/ads/{creative}/preview', [AdController::class, 'preview'])
+    ->name('admin.ads.preview');
 
 
 require __DIR__.'/auth.php';

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 
 class Ad extends Model
 {
@@ -26,9 +27,9 @@ class Ad extends Model
     |--------------------------------------------------------------------------
     */
 
-    const STATUS_ACTIVE = 'ACTIVE';
-    const STATUS_PAUSED = 'PAUSED';
-    const STATUS_DRAFT  = 'DRAFT';
+    const STATUS_ACTIVE   = 'ACTIVE';
+    const STATUS_PAUSED   = 'PAUSED';
+    const STATUS_DRAFT    = 'DRAFT';
     const STATUS_ARCHIVED = 'ARCHIVED';
 
 
@@ -39,6 +40,7 @@ class Ad extends Model
     */
 
     protected $fillable = [
+
         'adset_id',
         'creative_id',
 
@@ -54,9 +56,23 @@ class Ad extends Model
         'clicks',
         'spend',
 
-        // payloads
+        // raw payloads
         'tracking_data',
         'json_payload'
+    ];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Default Attributes
+    |--------------------------------------------------------------------------
+    */
+
+    protected $attributes = [
+        'status' => self::STATUS_DRAFT,
+        'impressions' => 0,
+        'clicks' => 0,
+        'spend' => 0
     ];
 
 
@@ -101,11 +117,18 @@ class Ad extends Model
 
 
     /**
-     * Shortcut to Campaign through AdSet
+     * Ad belongs to Campaign through AdSet
      */
-    public function campaign()
+    public function campaign(): HasOneThrough
     {
-        return $this->adSet?->campaign();
+        return $this->hasOneThrough(
+            Campaign::class,
+            AdSet::class,
+            'id',        // Foreign key on adsets
+            'id',        // Foreign key on campaigns
+            'adset_id',  // Local key on ads
+            'campaign_id'
+        );
     }
 
 
@@ -133,7 +156,7 @@ class Ad extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Metrics
+    | Performance Metrics
     |--------------------------------------------------------------------------
     */
 
@@ -146,7 +169,6 @@ class Ad extends Model
         return round(($this->clicks / $this->impressions) * 100, 2);
     }
 
-
     public function getCpcAttribute(): float
     {
         if ($this->clicks == 0) {
@@ -156,7 +178,6 @@ class Ad extends Model
         return round($this->spend / $this->clicks, 2);
     }
 
-
     public function getCpmAttribute(): float
     {
         if ($this->impressions == 0) {
@@ -164,6 +185,28 @@ class Ad extends Model
         }
 
         return round(($this->spend / $this->impressions) * 1000, 2);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Metrics Update Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    public function increaseImpressions(int $count = 1): void
+    {
+        $this->increment('impressions', $count);
+    }
+
+    public function increaseClicks(int $count = 1): void
+    {
+        $this->increment('clicks', $count);
+    }
+
+    public function addSpend(float $amount): void
+    {
+        $this->increment('spend', $amount);
     }
 
 
@@ -186,28 +229,6 @@ class Ad extends Model
     public function isDraft(): bool
     {
         return $this->status === self::STATUS_DRAFT;
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Metrics Helpers
-    |--------------------------------------------------------------------------
-    */
-
-    public function increaseImpressions(int $count = 1): void
-    {
-        $this->increment('impressions', $count);
-    }
-
-    public function increaseClicks(int $count = 1): void
-    {
-        $this->increment('clicks', $count);
-    }
-
-    public function addSpend(float $amount): void
-    {
-        $this->increment('spend', $amount);
     }
 
 

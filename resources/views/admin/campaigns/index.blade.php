@@ -4,6 +4,7 @@
 
 <div class="max-w-7xl mx-auto space-y-8">
 
+
 {{-- ================= HEADER ================= --}}
 <div class="flex items-center justify-between flex-wrap gap-4">
 
@@ -14,13 +15,12 @@ Campaigns
 </h1>
 
 <p class="text-sm text-gray-500 mt-1">
-Create campaigns first, then add AdSets and Ads.
+Create campaigns first, then add AdSets, Creatives and Ads.
 </p>
 
 </div>
 
 
-{{-- CREATE BUTTON (Always visible for admin testing) --}}
 <a
 href="{{ route('admin.campaigns.create') }}"
 class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition"
@@ -45,9 +45,7 @@ Total Campaigns
 </p>
 
 <p class="text-xl font-bold">
-
 {{ $campaigns->total() ?? 0 }}
-
 </p>
 
 </div>
@@ -61,9 +59,7 @@ Active
 </p>
 
 <p class="text-xl font-bold text-green-600">
-
 {{ $campaigns->where('status','ACTIVE')->count() }}
-
 </p>
 
 </div>
@@ -77,9 +73,7 @@ Paused
 </p>
 
 <p class="text-xl font-bold text-yellow-600">
-
 {{ $campaigns->where('status','PAUSED')->count() }}
-
 </p>
 
 </div>
@@ -93,9 +87,7 @@ Ad Sets
 </p>
 
 <p class="text-xl font-bold text-purple-600">
-
 {{ $totalAdSets ?? 0 }}
-
 </p>
 
 </div>
@@ -162,19 +154,15 @@ Actions
 href="{{ route('admin.campaigns.show',$campaign) }}"
 class="hover:text-blue-600"
 >
-
 {{ $campaign->name }}
-
 </a>
 
 </div>
 
 @if(!empty($campaign->meta_id))
-
 <div class="text-xs text-gray-400 mt-1">
 Meta ID: {{ $campaign->meta_id }}
 </div>
-
 @endif
 
 </td>
@@ -183,9 +171,7 @@ Meta ID: {{ $campaign->meta_id }}
 
 {{-- Objective --}}
 <td class="px-6 py-4">
-
 {{ $campaign->objective ?? 'Not set' }}
-
 </td>
 
 
@@ -194,15 +180,11 @@ Meta ID: {{ $campaign->meta_id }}
 <td class="px-6 py-4">
 
 @if(!empty($campaign->daily_budget))
-
 ${{ number_format($campaign->daily_budget / 100,2) }}/day
-
 @else
-
 <span class="text-gray-400">
 No budget
 </span>
-
 @endif
 
 </td>
@@ -216,9 +198,7 @@ No budget
 href="{{ route('admin.campaigns.adsets.index',$campaign->id) }}"
 class="text-purple-600 hover:text-purple-800 font-medium"
 >
-
 {{ $campaign->ad_sets_count ?? 0 }}
-
 </a>
 
 </td>
@@ -254,22 +234,21 @@ Paused
 
 {{-- Created --}}
 <td class="px-6 py-4 text-gray-500">
-
 {{ optional($campaign->created_at)->format('d M Y') }}
-
 </td>
 
 
 
 {{-- ACTIONS --}}
-<td class="px-6 py-4 text-right space-x-3">
+<td class="px-6 py-4 text-right space-x-4 whitespace-nowrap">
 
 <a
 href="{{ route('admin.campaigns.adsets.index',$campaign->id) }}"
-class="text-purple-600 hover:text-purple-800"
+class="text-purple-600 hover:text-purple-800 font-medium"
 >
 AdSets
 </a>
+
 
 <a
 href="{{ route('admin.campaigns.adsets.create',$campaign->id) }}"
@@ -278,12 +257,49 @@ class="text-blue-600 hover:text-blue-800"
 Add AdSet
 </a>
 
+
+<a
+href="{{ route('admin.creatives.index',['campaign'=>$campaign->id]) }}"
+class="text-green-600 hover:text-green-800"
+>
+Creatives
+</a>
+
+
+<a
+href="{{ route('admin.ads.index',['campaign'=>$campaign->id]) }}"
+class="text-indigo-600 hover:text-indigo-800"
+>
+Ads
+</a>
+
+
 <a
 href="{{ route('admin.campaigns.edit',$campaign) }}"
 class="text-gray-600 hover:text-gray-900"
 >
 Edit
 </a>
+
+
+<form
+action="{{ route('admin.campaigns.destroy',$campaign) }}"
+method="POST"
+class="inline"
+onsubmit="return confirm('Delete this campaign?');"
+>
+
+@csrf
+@method('DELETE')
+
+<button
+class="text-red-600 hover:text-red-800"
+type="submit"
+>
+Delete
+</button>
+
+</form>
 
 </td>
 
@@ -321,9 +337,7 @@ Create First Campaign
 @if($campaigns->hasPages())
 
 <div class="p-4 border-t">
-
 {{ $campaigns->links() }}
-
 </div>
 
 @endif
@@ -355,6 +369,7 @@ Connect account →
 </div>
 
 @endif
+
 
 </div>
 

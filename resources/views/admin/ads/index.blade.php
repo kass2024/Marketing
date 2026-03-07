@@ -2,103 +2,384 @@
 
 @section('content')
 
-<div class="max-w-7xl mx-auto py-10 px-6">
+<div class="max-w-7xl mx-auto space-y-8">
 
-    <div class="bg-white p-8 rounded-2xl shadow">
+{{-- ================= HEADER ================= --}}
+<div class="flex items-center justify-between flex-wrap gap-4">
 
-        <div class="flex justify-between items-center mb-6">
-            <h2 class="text-2xl font-bold text-gray-900">
-                Ads Management
-            </h2>
+<div>
 
-            <a href="{{ route('admin.ads.create') }}"
-               class="bg-blue-600 text-white px-5 py-2 rounded-xl hover:bg-blue-700 transition">
-                + Create Ad
-            </a>
-        </div>
+<h1 class="text-2xl font-bold text-gray-900">
+Ads Manager
+</h1>
 
-        @if(session('success'))
-            <div class="mb-4 p-3 bg-green-100 text-green-700 rounded-lg">
-                {{ session('success') }}
-            </div>
-        @endif
+<p class="text-sm text-gray-500 mt-1">
+Manage ads, creatives and performance metrics.
+</p>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-                <thead>
-                    <tr class="border-b bg-gray-50">
-                        <th class="py-3 px-2">Name</th>
-                        <th class="px-2">Status</th>
-                        <th class="px-2">Ad Set</th>
-                        <th class="px-2">Creative</th>
-                        <th class="px-2">Spend</th>
-                        <th class="px-2 text-right">Actions</th>
-                    </tr>
-                </thead>
+</div>
 
-                <tbody>
-                @forelse($ads as $ad)
-                    <tr class="border-b hover:bg-gray-50">
+<a
+href="{{ route('admin.ads.create') }}"
+class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition">
 
-                        <td class="py-3 px-2 font-medium">
-                            {{ $ad->name }}
-                        </td>
+<span class="text-lg">＋</span>
+<span>Create Ad</span>
 
-                        <td class="px-2">
-                            <span class="px-3 py-1 text-sm rounded-full
-                                {{ $ad->status == 'ACTIVE'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-yellow-100 text-yellow-700' }}">
-                                {{ $ad->status }}
-                            </span>
-                        </td>
+</a>
 
-                        <td class="px-2">
-                            {{ $ad->adSet->name ?? '-' }}
-                        </td>
+</div>
 
-                        <td class="px-2">
-                            {{ $ad->creative->name ?? '-' }}
-                        </td>
 
-                        <td class="px-2">
-                            ${{ number_format($ad->spend ?? 0, 2) }}
-                        </td>
 
-                        <td class="px-2 text-right space-x-4">
+{{-- ================= METRICS ================= --}}
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
-                            <a href="{{ route('admin.ads.edit', $ad->id) }}"
-                               class="text-blue-600 hover:underline">
-                                Edit
-                            </a>
+<div class="bg-white p-5 rounded-xl shadow border">
 
-                            <form method="POST"
-                                  action="{{ route('admin.ads.destroy', $ad->id) }}"
-                                  class="inline">
-                                @csrf
-                                @method('DELETE')
+<p class="text-sm text-gray-500">
+Total Ads
+</p>
 
-                                <button class="text-red-500 hover:underline"
-                                        onclick="return confirm('Delete this ad?')">
-                                    Delete
-                                </button>
-                            </form>
+<p class="text-xl font-bold">
+{{ $ads->total() ?? 0 }}
+</p>
 
-                        </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="6"
-                            class="py-6 text-center text-gray-500">
-                            No ads found.
-                        </td>
-                    </tr>
-                @endforelse
-                </tbody>
-            </table>
-        </div>
+</div>
 
-    </div>
+
+
+<div class="bg-white p-5 rounded-xl shadow border">
+
+<p class="text-sm text-gray-500">
+Active Ads
+</p>
+
+<p class="text-xl font-bold text-green-600">
+{{ $ads->where('status','ACTIVE')->count() }}
+</p>
+
+</div>
+
+
+
+<div class="bg-white p-5 rounded-xl shadow border">
+
+<p class="text-sm text-gray-500">
+Total Spend
+</p>
+
+<p class="text-xl font-bold text-blue-600">
+
+${{ number_format($ads->sum('spend'),2) }}
+
+</p>
+
+</div>
+
+
+
+<div class="bg-white p-5 rounded-xl shadow border">
+
+<p class="text-sm text-gray-500">
+Total Clicks
+</p>
+
+<p class="text-xl font-bold text-purple-600">
+
+{{ $ads->sum('clicks') }}
+
+</p>
+
+</div>
+
+</div>
+
+
+
+{{-- SUCCESS MESSAGE --}}
+@if(session('success'))
+
+<div class="bg-green-50 border-l-4 border-green-400 p-4 rounded">
+
+<p class="text-green-700 text-sm">
+{{ session('success') }}
+</p>
+
+</div>
+
+@endif
+
+
+
+{{-- ================= TABLE ================= --}}
+<div class="bg-white rounded-xl shadow overflow-hidden">
+
+<table class="min-w-full text-sm">
+
+<thead class="bg-gray-50 text-gray-600">
+
+<tr>
+
+<th class="px-6 py-3 text-left">
+Ad
+</th>
+
+<th class="px-6 py-3 text-left">
+Creative
+</th>
+
+<th class="px-6 py-3 text-left">
+AdSet
+</th>
+
+<th class="px-6 py-3 text-left">
+Status
+</th>
+
+<th class="px-6 py-3 text-left">
+Impressions
+</th>
+
+<th class="px-6 py-3 text-left">
+Clicks
+</th>
+
+<th class="px-6 py-3 text-left">
+CTR
+</th>
+
+<th class="px-6 py-3 text-left">
+Spend
+</th>
+
+<th class="px-6 py-3 text-right">
+Actions
+</th>
+
+</tr>
+
+</thead>
+
+
+
+<tbody class="divide-y">
+
+@forelse($ads as $ad)
+
+<tr class="hover:bg-gray-50 transition">
+
+{{-- AD NAME --}}
+<td class="px-6 py-4">
+
+<div class="font-medium text-gray-900">
+
+{{ $ad->name }}
+
+</div>
+
+@if($ad->meta_ad_id)
+
+<div class="text-xs text-gray-400 mt-1">
+Meta ID: {{ $ad->meta_ad_id }}
+</div>
+
+@endif
+
+</td>
+
+
+
+{{-- CREATIVE --}}
+<td class="px-6 py-4">
+
+@if($ad->creative)
+
+<div class="flex items-center gap-3">
+
+@if($ad->creative->image_url)
+
+<img
+src="{{ asset('storage/'.$ad->creative->image_url) }}"
+class="w-10 h-10 rounded object-cover">
+
+@endif
+
+<div class="text-sm">
+
+<div class="font-medium">
+
+{{ $ad->creative->name ?? '-' }}
+
+</div>
+
+</div>
+
+</div>
+
+@else
+
+<span class="text-gray-400">
+No Creative
+</span>
+
+@endif
+
+</td>
+
+
+
+{{-- ADSET --}}
+<td class="px-6 py-4">
+
+{{ $ad->adSet->name ?? '-' }}
+
+</td>
+
+
+
+{{-- STATUS --}}
+<td class="px-6 py-4">
+
+@if($ad->status == 'ACTIVE')
+
+<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
+Active
+</span>
+
+@elseif($ad->status == 'PAUSED')
+
+<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
+Paused
+</span>
+
+@else
+
+<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
+{{ $ad->status }}
+</span>
+
+@endif
+
+</td>
+
+
+
+{{-- IMPRESSIONS --}}
+<td class="px-6 py-4">
+
+{{ number_format($ad->impressions) }}
+
+</td>
+
+
+
+{{-- CLICKS --}}
+<td class="px-6 py-4">
+
+{{ number_format($ad->clicks) }}
+
+</td>
+
+
+
+{{-- CTR --}}
+<td class="px-6 py-4">
+
+{{ $ad->ctr }}%
+
+</td>
+
+
+
+{{-- SPEND --}}
+<td class="px-6 py-4">
+
+${{ number_format($ad->spend,2) }}
+
+</td>
+
+
+
+{{-- ACTIONS --}}
+<td class="px-6 py-4 text-right space-x-3">
+
+<a
+href="{{ route('admin.ads.preview',$ad) }}"
+class="text-indigo-600 hover:text-indigo-800">
+Preview
+</a>
+
+<a
+href="{{ route('admin.ads.edit',$ad) }}"
+class="text-blue-600 hover:text-blue-800">
+Edit
+</a>
+
+<form
+method="POST"
+action="{{ route('admin.ads.destroy',$ad) }}"
+class="inline">
+
+@csrf
+@method('DELETE')
+
+<button
+onclick="return confirm('Delete this ad?')"
+class="text-red-600 hover:text-red-800">
+
+Delete
+
+</button>
+
+</form>
+
+</td>
+
+</tr>
+
+@empty
+
+<tr>
+
+<td colspan="9" class="text-center py-16">
+
+<div class="text-gray-400 text-lg mb-3">
+No ads found
+</div>
+
+<a
+href="{{ route('admin.ads.create') }}"
+class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700">
+
+Create First Ad
+
+</a>
+
+</td>
+
+</tr>
+
+@endforelse
+
+</tbody>
+
+</table>
+
+
+
+@if($ads->hasPages())
+
+<div class="p-4 border-t">
+
+{{ $ads->links() }}
+
+</div>
+
+@endif
+
+</div>
+
 
 </div>
 

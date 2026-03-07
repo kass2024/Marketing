@@ -74,7 +74,7 @@ class AdController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'ad_set_id'   => ['required','exists:ad_sets,id'],
+            'adset_id'   => ['required','exists:ad_sets,id'],
             'creative_id' => ['required','exists:creatives,id'],
             'name'        => ['required','string','max:255']
         ]);
@@ -89,7 +89,7 @@ class AdController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $adset = AdSet::with('campaign.adAccount')->findOrFail($data['ad_set_id']);
+            $adset = AdSet::with('campaign.adAccount')->findOrFail($data['adset_id']);
             $creative = Creative::findOrFail($data['creative_id']);
             $adAccount = $adset->campaign?->adAccount;
 

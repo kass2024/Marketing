@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+
 use App\Models\Campaign;
 use App\Models\AdAccount;
 use App\Services\MetaAdsService;
@@ -33,7 +34,22 @@ class CampaignController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Create Page
+    | Show Campaign (Campaign → AdSets)
+    |--------------------------------------------------------------------------
+    */
+
+    public function show($id)
+    {
+        $campaign = Campaign::with(['adSets' => function ($q) {
+            $q->latest();
+        }])->findOrFail($id);
+
+        return view('admin.campaigns.show', compact('campaign'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Create Campaign Page
     |--------------------------------------------------------------------------
     */
 
@@ -75,6 +91,7 @@ class CampaignController extends Controller
             $account = AdAccount::first();
 
             if (!$account) {
+
                 return back()->withErrors([
                     'meta' => 'No Meta ad account connected.'
                 ]);
@@ -82,7 +99,7 @@ class CampaignController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Prevent Duplicate Names
+            | Prevent duplicate campaign names
             |--------------------------------------------------------------------------
             */
 
@@ -95,10 +112,11 @@ class CampaignController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Map UI Objective → Meta Objective (v19)
+            | Map UI Objective → Meta Objective
             |--------------------------------------------------------------------------
             */
-$metaObjective = $data['objective'];
+
+            $metaObjective = $data['objective'];
 
             Log::info('META_OBJECTIVE_MAPPED', [
                 'ui_objective' => $data['objective'],
@@ -109,7 +127,7 @@ $metaObjective = $data['objective'];
 
             /*
             |--------------------------------------------------------------------------
-            | Create Campaign On Meta
+            | Create campaign on Meta (optional)
             |--------------------------------------------------------------------------
             */
 
@@ -145,7 +163,7 @@ $metaObjective = $data['objective'];
 
             /*
             |--------------------------------------------------------------------------
-            | Save Locally
+            | Save campaign locally
             |--------------------------------------------------------------------------
             */
 

@@ -32,22 +32,10 @@ class MetaAdsService
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | FORMAT ACCOUNT
-    |--------------------------------------------------------------------------
-    */
-
     protected function formatAccount(string $id): string
     {
         return str_starts_with($id, 'act_') ? $id : "act_{$id}";
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | HTTP CLIENT
-    |--------------------------------------------------------------------------
-    */
 
     protected function client()
     {
@@ -55,12 +43,6 @@ class MetaAdsService
             ->retry(2, 500)
             ->acceptJson();
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | DEBUG LOGGER
-    |--------------------------------------------------------------------------
-    */
 
     protected function debug(string $title, array $data = [])
     {
@@ -71,7 +53,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | HANDLE META ERROR (FULL TRACE)
+    | ERROR HANDLER
     |--------------------------------------------------------------------------
     */
 
@@ -97,10 +79,8 @@ class MetaAdsService
         $message = $error['message'] ?? 'Unknown Meta API error';
         $code = $error['code'] ?? 0;
         $subcode = $error['error_subcode'] ?? 0;
-        $type = $error['type'] ?? 'unknown';
 
         Log::error('META_API_ERROR_PARSED', [
-            'type' => $type,
             'message' => $message,
             'code' => $code,
             'subcode' => $subcode
@@ -111,7 +91,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | GET REQUEST
+    | GET
     |--------------------------------------------------------------------------
     */
 
@@ -146,7 +126,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | POST REQUEST
+    | POST
     |--------------------------------------------------------------------------
     */
 
@@ -190,73 +170,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | PAGINATION
-    |--------------------------------------------------------------------------
-    */
-
-    protected function fetchAllPages(string $endpoint, array $params = []): array
-    {
-        $results = [];
-
-        $response = $this->get($endpoint, $params);
-
-        while (true) {
-
-            if (!empty($response['data'])) {
-                $results = array_merge($results, $response['data']);
-            }
-
-            if (!isset($response['paging']['next'])) {
-                break;
-            }
-
-            Log::info('META_PAGINATION_NEXT', [
-                'next' => $response['paging']['next']
-            ]);
-
-            $response = Http::get($response['paging']['next'])->json();
-        }
-
-        return ['data' => $results];
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | CAMPAIGNS
-    |--------------------------------------------------------------------------
-    */
-
-    public function createCampaign(array $data): array
-    {
-        $payload = [
-            'name' => $data['name'],
-            'objective' => $data['objective'],
-            'status' => $data['status'] ?? 'PAUSED',
-            'special_ad_categories' => json_encode([])
-        ];
-
-        Log::info('META_CREATE_CAMPAIGN_PAYLOAD', $payload);
-
-        return $this->post("{$this->adAccountId}/campaigns", $payload);
-    }
-
-    public function getCampaign(string $campaignId): array
-    {
-        return $this->get($campaignId, [
-            'fields' => 'id,name,objective,status'
-        ]);
-    }
-
-    public function getCampaigns(): array
-    {
-        return $this->fetchAllPages("{$this->adAccountId}/campaigns", [
-            'fields' => 'id,name,objective,status,effective_status'
-        ]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | ADSETS
+    | ADSET CREATION (FIXED)
     |--------------------------------------------------------------------------
     */
 
@@ -276,13 +190,31 @@ class MetaAdsService
 
         Log::info('META_TARGETING_RAW', $data['targeting']);
 
+        /*
+        |--------------------------------------------------------------------------
+        | BUILD PAYLOAD
+        |--------------------------------------------------------------------------
+        */
+
         $payload = [
+
             'name' => $data['name'],
+
             'campaign_id' => $data['campaign_id'],
+
             'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
+
             'optimization_goal' => $data['optimization_goal'] ?? 'REACH',
+
             'status' => $data['status'] ?? 'PAUSED',
-            'targeting' => json_encode($data['targeting'])
+
+            /*
+            |--------------------------------------------------------------------------
+            | FIX 1 — DO NOT JSON ENCODE TARGETING
+            |--------------------------------------------------------------------------
+            */
+
+            'targeting' => $data['targeting']
         ];
 
         if (isset($data['daily_budget'])) {
@@ -291,27 +223,24 @@ class MetaAdsService
 
         /*
         |--------------------------------------------------------------------------
-        | ADSET FINALIZATION
+        | START TIME
         |--------------------------------------------------------------------------
         */
 
-        $payload['start_time'] = now()->addMinutes(5)->toIso8601String();
+        $payload['start_time'] = $data['start_time']
+            ?? now()->addMinutes(5)->toIso8601String();
 
         /*
         |--------------------------------------------------------------------------
-        | PROMOTED OBJECT
+        | FIX 2 — ONLY ADD PROMOTED OBJECT IF REQUIRED
         |--------------------------------------------------------------------------
         */
 
-        if (isset($data['promoted_object'])) {
-
+        if (
+            isset($data['promoted_object']) &&
+            $payload['optimization_goal'] !== 'REACH'
+        ) {
             $payload['promoted_object'] = json_encode($data['promoted_object']);
-
-        } elseif (config('services.meta.page_id')) {
-
-            $payload['promoted_object'] = json_encode([
-                'page_id' => config('services.meta.page_id')
-            ]);
         }
 
         Log::info('META_ADSET_PAYLOAD_VALIDATED_FULL', [
@@ -349,7 +278,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | CREATIVES
+    | CREATIVE
     |--------------------------------------------------------------------------
     */
 
@@ -365,35 +294,6 @@ class MetaAdsService
         Log::info('META_CREATE_CREATIVE_PAYLOAD', $payload);
 
         return $this->post("{$accountId}/adcreatives", $payload);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | INTEREST SEARCH
-    |--------------------------------------------------------------------------
-    */
-
-    public function searchInterests(string $query): array
-    {
-        try {
-
-            $response = $this->get('search', [
-                'type' => 'adinterest',
-                'q' => $query,
-                'limit' => 10
-            ]);
-
-            return $response['data'] ?? [];
-
-        } catch (Exception $e) {
-
-            Log::warning('META_INTEREST_SEARCH_FAILED', [
-                'query' => $query,
-                'error' => $e->getMessage()
-            ]);
-
-            return [];
-        }
     }
 
     /*
@@ -419,5 +319,4 @@ class MetaAdsService
             return false;
         }
     }
-
 }

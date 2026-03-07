@@ -93,11 +93,43 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | DETECT OBJECTIVE
+            | DETECT CAMPAIGN OBJECTIVE
             |--------------------------------------------------------------------------
             */
 
-            $objective = $campaign->objective ?? 'REACH';
+            $objective = $campaign->objective ?? 'OUTCOME_AWARENESS';
+
+            /*
+            |--------------------------------------------------------------------------
+            | MAP OPTIMIZATION GOAL
+            |--------------------------------------------------------------------------
+            */
+
+            $optimizationGoalMap = [
+                'OUTCOME_AWARENESS' => 'REACH',
+                'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
+                'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
+                'OUTCOME_LEADS' => 'LEAD_GENERATION',
+                'OUTCOME_SALES' => 'CONVERSIONS'
+            ];
+
+            $optimizationGoal = $optimizationGoalMap[$objective] ?? 'REACH';
+
+            /*
+            |--------------------------------------------------------------------------
+            | BILLING EVENT MAP
+            |--------------------------------------------------------------------------
+            */
+
+            $billingMap = [
+                'REACH' => 'IMPRESSIONS',
+                'LINK_CLICKS' => 'IMPRESSIONS',
+                'POST_ENGAGEMENT' => 'IMPRESSIONS',
+                'LEAD_GENERATION' => 'IMPRESSIONS',
+                'CONVERSIONS' => 'IMPRESSIONS'
+            ];
+
+            $billingEvent = $billingMap[$optimizationGoal] ?? 'IMPRESSIONS';
 
             /*
             |--------------------------------------------------------------------------
@@ -125,27 +157,28 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | INTERESTS (ONLY FOR NON-REACH)
+            | INTEREST TARGETING
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['interests']) && $objective !== 'REACH') {
+            if (!empty($data['interests']) && $optimizationGoal !== 'REACH') {
 
-                $targeting['interests'] = collect($data['interests'])
-                    ->take(5)
-                    ->map(fn($id) => ['id' => (string)$id])
-                    ->values()
-                    ->toArray();
+                $targeting['flexible_spec'][] = [
+                    'interests' => collect($data['interests'])
+                        ->take(5)
+                        ->map(fn ($id) => ['id' => (string)$id])
+                        ->values()
+                        ->toArray()
+                ];
             }
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (ONLY MULTI COUNTRY)
+            | LANGUAGES (ONLY IF MULTI COUNTRY)
             |--------------------------------------------------------------------------
             */
 
             if (!empty($data['languages']) && count($data['countries']) > 1) {
-
                 $targeting['locales'] = array_map('intval', $data['languages']);
             }
 
@@ -193,7 +226,6 @@ class AdSetController extends Controller
                         'classic'
                     ];
                 }
-
             }
 
             Log::info('META_TARGETING_FINAL', $targeting);
@@ -212,9 +244,9 @@ class AdSetController extends Controller
 
                 'daily_budget' => (int)$data['daily_budget'] * 100,
 
-                'billing_event' => 'IMPRESSIONS',
+                'billing_event' => $billingEvent,
 
-                'optimization_goal' => $objective,
+                'optimization_goal' => $optimizationGoal,
 
                 'status' => 'PAUSED',
 
@@ -261,9 +293,9 @@ class AdSetController extends Controller
 
                 'daily_budget' => $payload['daily_budget'],
 
-                'billing_event' => 'IMPRESSIONS',
+                'billing_event' => $billingEvent,
 
-                'optimization_goal' => $objective,
+                'optimization_goal' => $optimizationGoal,
 
                 'targeting' => $targeting,
 
@@ -280,7 +312,6 @@ class AdSetController extends Controller
             return redirect()
                 ->route('admin.campaigns.show', $campaign->id)
                 ->with('success', 'Ad Set created successfully');
-
         }
 
         catch (Throwable $e) {

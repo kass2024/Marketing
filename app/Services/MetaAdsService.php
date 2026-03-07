@@ -140,8 +140,8 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            // REQUIRED by Meta even if empty
-            'special_ad_categories' => '[]'
+            // must be ARRAY
+            'special_ad_categories' => []
         ];
 
         Log::info('META_CAMPAIGN_PAYLOAD', $payload);
@@ -203,12 +203,20 @@ class MetaAdsService
 
         $targeting = $payload['targeting'];
 
+        /*
+        | Remove language targeting if only 1 country
+        */
+
         if (
             isset($targeting['geo_locations']['countries']) &&
             count($targeting['geo_locations']['countries']) === 1
         ) {
             unset($targeting['locales']);
         }
+
+        /*
+        | Ensure correct structure for Meta
+        */
 
         $payload['targeting'] = json_encode($targeting);
 
@@ -235,9 +243,10 @@ class MetaAdsService
             throw new Exception("targeting required");
         }
 
-        $optimization = $this->resolveOptimization(
-            $data['objective'] ?? 'OUTCOME_AWARENESS'
-        );
+        $optimization = $data['optimization_goal']
+            ?? $this->resolveOptimization(
+                $data['objective'] ?? 'OUTCOME_AWARENESS'
+            );
 
         $payload = [
 
@@ -245,13 +254,14 @@ class MetaAdsService
 
             'campaign_id' => $data['campaign_id'],
 
-            'billing_event' => 'IMPRESSIONS',
+            'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
 
             'optimization_goal' => $optimization,
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            'start_time' => $data['start_time'] ?? now()->addMinutes(5)->toIso8601String(),
+            'start_time' => $data['start_time']
+                ?? now()->addMinutes(5)->toIso8601String(),
 
             'targeting' => $data['targeting']
         ];

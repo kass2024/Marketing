@@ -34,7 +34,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | ACCOUNT FORMAT
+    | FORMAT ACCOUNT ID
     |--------------------------------------------------------------------------
     */
 
@@ -155,8 +155,6 @@ class MetaAdsService
     {
         $accountId = $this->formatAccount($accountId);
 
-        Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
-
         $payload = [
 
             'name' => $data['name'],
@@ -165,10 +163,10 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            // REQUIRED BY META
+            // required
             'special_ad_categories' => json_encode(['NONE']),
 
-            // REQUIRED WHEN NOT USING CBO
+            // required if no campaign budget optimization
             'is_adset_budget_sharing_enabled' => false
         ];
 
@@ -185,21 +183,17 @@ class MetaAdsService
 
     public function activateCampaign(string $campaignId): array
     {
-        return $this->post($campaignId, [
-            'status' => 'ACTIVE'
-        ]);
+        return $this->post($campaignId, ['status' => 'ACTIVE']);
     }
 
     public function pauseCampaign(string $campaignId): array
     {
-        return $this->post($campaignId, [
-            'status' => 'PAUSED'
-        ]);
+        return $this->post($campaignId, ['status' => 'PAUSED']);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | TARGETING VALIDATION
+    | VALIDATE TARGETING
     |--------------------------------------------------------------------------
     */
 
@@ -211,11 +205,26 @@ class MetaAdsService
 
         $targeting = $payload['targeting'];
 
+        /*
+        Remove language targeting for single country
+        */
+
         if (
             isset($targeting['geo_locations']['countries']) &&
             count($targeting['geo_locations']['countries']) === 1
         ) {
             unset($targeting['locales']);
+        }
+
+        /*
+        Required when using detailed targeting
+        */
+
+        if (isset($targeting['flexible_spec'])) {
+
+            $targeting['targeting_automation'] = [
+                'advantage_audience' => 0
+            ];
         }
 
         $payload['targeting'] = json_encode($targeting);

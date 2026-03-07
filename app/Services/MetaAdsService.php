@@ -237,10 +237,26 @@ class MetaAdsService
             'status' => $data['status'] ?? 'PAUSED',
             'targeting' => json_encode($data['targeting'])
         ];
+if (isset($data['daily_budget'])) {
+    $payload['daily_budget'] = $data['daily_budget'];
+}
 
-        if (isset($data['daily_budget'])) {
-            $payload['daily_budget'] = $data['daily_budget'];
-        }
+/*
+|--------------------------------------------------------------------------
+| PROMOTED OBJECT (Required by Meta)
+|--------------------------------------------------------------------------
+*/
+
+if (isset($data['promoted_object'])) {
+
+    $payload['promoted_object'] = json_encode($data['promoted_object']);
+
+} elseif (config('services.meta.page_id')) {
+
+    $payload['promoted_object'] = json_encode([
+        'page_id' => config('services.meta.page_id')
+    ]);
+}
 
         /*
         |--------------------------------------------------------------------------

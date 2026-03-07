@@ -44,6 +44,7 @@ return [
          'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
     'token' => env('META_SYSTEM_USER_TOKEN'),
     'ad_account_id' => env('META_AD_ACCOUNT_ID'),
+     'page_id' => env('META_PAGE_ID'),
     'refresh_before_days' => env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
 
         /*

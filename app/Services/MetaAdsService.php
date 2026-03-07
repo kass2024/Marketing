@@ -142,7 +142,7 @@ class MetaAdsService
             'status' => $data['status'] ?? 'PAUSED',
 
             // must remain JSON string with form encoding
-            'special_ad_categories' => '[]'
+            'special_ad_categories' => []
         ];
 
         Log::info('META_CAMPAIGN_PAYLOAD', $payload);

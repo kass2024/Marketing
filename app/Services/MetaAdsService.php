@@ -243,8 +243,19 @@ if (isset($data['daily_budget'])) {
 
 /*
 |--------------------------------------------------------------------------
-| PROMOTED OBJECT (Required by Meta)
+| ADSET FINALIZATION
 |--------------------------------------------------------------------------
+| Adds required parameters before sending request to Meta
+*/
+
+// Meta often requires a start time for delivery
+$payload['start_time'] = now()->addMinutes(5)->toIso8601String();
+
+/*
+|--------------------------------------------------------------------------
+| PROMOTED OBJECT
+|--------------------------------------------------------------------------
+| Use provided promoted_object, otherwise fallback to configured page
 */
 
 if (isset($data['promoted_object'])) {
@@ -258,28 +269,21 @@ if (isset($data['promoted_object'])) {
     ]);
 }
 
-        /*
-        |--------------------------------------------------------------------------
-        | PROMOTED OBJECT FALLBACK
-        |--------------------------------------------------------------------------
-        */
+/*
+|--------------------------------------------------------------------------
+| FINAL DEBUG BEFORE REQUEST
+|--------------------------------------------------------------------------
+*/
 
-        if (isset($data['promoted_object'])) {
+Log::info('META_ADSET_PAYLOAD_VALIDATED', $payload);
 
-            $payload['promoted_object'] = json_encode($data['promoted_object']);
+/*
+|--------------------------------------------------------------------------
+| SEND REQUEST TO META
+|--------------------------------------------------------------------------
+*/
 
-        } elseif (config('services.meta.page_id')) {
-
-            $payload['promoted_object'] = json_encode([
-                'page_id' => config('services.meta.page_id')
-            ]);
-        }
-
-        Log::info('META_ADSET_PAYLOAD_VALIDATED', $payload);
-
-        return $this->post("{$accountId}/adsets", $payload);
-    }
-
+return $this->post("{$accountId}/adsets", $payload);
     /*
     |--------------------------------------------------------------------------
     | ADS

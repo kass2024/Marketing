@@ -110,6 +110,7 @@ class MetaAdsService
         ]);
 
         $response = $this->client()
+            ->asForm()
             ->post("{$this->baseUrl}/{$endpoint}", $payload);
 
         if ($response->failed()) {
@@ -125,30 +126,32 @@ class MetaAdsService
     |--------------------------------------------------------------------------
     */
 
-  public function createCampaign(string $accountId, array $data): array
-{
-    $accountId = $this->formatAccount($accountId);
+    public function createCampaign(string $accountId, array $data): array
+    {
+        $accountId = $this->formatAccount($accountId);
 
-    Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
+        Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
 
-    $payload = [
+        $payload = [
 
-        'name' => $data['name'],
+            'name' => $data['name'],
 
-        'objective' => $data['objective'],
+            'objective' => $data['objective'],
 
-        'status' => $data['status'] ?? 'PAUSED',
+            'status' => $data['status'] ?? 'PAUSED',
 
-        'special_ad_categories' => 'NONE'
-    ];
+            // REQUIRED by Meta even if empty
+            'special_ad_categories' => '[]'
+        ];
 
-    Log::info('META_CAMPAIGN_PAYLOAD', $payload);
+        Log::info('META_CAMPAIGN_PAYLOAD', $payload);
 
-    return $this->post("{$accountId}/campaigns", $payload);
-}
+        return $this->post("{$accountId}/campaigns", $payload);
+    }
+
     /*
     |--------------------------------------------------------------------------
-    | ACTIVATE CAMPAIGN
+    | ACTIVATE / PAUSE CAMPAIGN
     |--------------------------------------------------------------------------
     */
 
@@ -158,12 +161,6 @@ class MetaAdsService
             'status' => 'ACTIVE'
         ]);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PAUSE CAMPAIGN
-    |--------------------------------------------------------------------------
-    */
 
     public function pauseCampaign(string $campaignId): array
     {
@@ -183,13 +180,9 @@ class MetaAdsService
         return match ($objective) {
 
             'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
-
             'OUTCOME_LEADS' => 'LEAD_GENERATION',
-
             'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
-
             'OUTCOME_AWARENESS' => 'REACH',
-
             'OUTCOME_SALES' => 'CONVERSIONS',
 
             default => 'REACH'
@@ -217,7 +210,7 @@ class MetaAdsService
             unset($targeting['locales']);
         }
 
-        $payload['targeting'] = $targeting;
+        $payload['targeting'] = json_encode($targeting);
 
         Log::info('META_TARGETING_VALIDATED', $targeting);
 
@@ -258,15 +251,14 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            'targeting' => json_encode($data['targeting'])
+            'start_time' => $data['start_time'] ?? now()->addMinutes(5)->toIso8601String(),
+
+            'targeting' => $data['targeting']
         ];
 
         if (isset($data['daily_budget'])) {
             $payload['daily_budget'] = $data['daily_budget'];
         }
-
-        $payload['start_time'] =
-            $data['start_time'] ?? now()->addMinutes(5)->toIso8601String();
 
         $payload = $this->validateTargeting($payload);
 

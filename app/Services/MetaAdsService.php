@@ -71,26 +71,40 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | HANDLE META ERROR
+    | HANDLE META ERROR (FULL TRACE)
     |--------------------------------------------------------------------------
     */
 
     protected function handleError($response, $endpoint, $payload = [])
     {
-        $body = $response->json();
+        $status = $response->status();
+        $headers = $response->headers();
+        $rawBody = $response->body();
+        $jsonBody = $response->json();
 
-        Log::error('META_API_ERROR', [
+        Log::error('META_API_ERROR_FULL', [
             'endpoint' => $endpoint,
-            'status' => $response->status(),
-            'payload' => $payload,
-            'response' => $body
+            'status_code' => $status,
+            'request_payload_array' => $payload,
+            'request_payload_json' => json_encode($payload, JSON_PRETTY_PRINT),
+            'response_headers' => $headers,
+            'response_raw' => $rawBody,
+            'response_json' => $jsonBody
         ]);
 
-        $error = $body['error'] ?? [];
+        $error = $jsonBody['error'] ?? [];
 
         $message = $error['message'] ?? 'Unknown Meta API error';
         $code = $error['code'] ?? 0;
         $subcode = $error['error_subcode'] ?? 0;
+        $type = $error['type'] ?? 'unknown';
+
+        Log::error('META_API_ERROR_PARSED', [
+            'type' => $type,
+            'message' => $message,
+            'code' => $code,
+            'subcode' => $subcode
+        ]);
 
         throw new Exception("Meta API Error: {$message} (code:{$code} subcode:{$subcode})");
     }
@@ -105,12 +119,23 @@ class MetaAdsService
     {
         $params['access_token'] = $this->accessToken;
 
-        $this->debug('META_GET_REQUEST', [
+        Log::info('META_GET_REQUEST_FULL', [
             'endpoint' => $endpoint,
-            'params' => $params
+            'params_array' => $params,
+            'params_json' => json_encode($params, JSON_PRETTY_PRINT)
         ]);
 
+        $start = microtime(true);
+
         $response = $this->client()->get("{$this->baseUrl}/{$endpoint}", $params);
+
+        Log::info('META_GET_HTTP_RESULT', [
+            'endpoint' => $endpoint,
+            'status' => $response->status(),
+            'headers' => $response->headers(),
+            'body_raw' => $response->body(),
+            'duration_ms' => round((microtime(true) - $start) * 1000, 2)
+        ]);
 
         if ($response->failed()) {
             $this->handleError($response, $endpoint, $params);
@@ -129,14 +154,25 @@ class MetaAdsService
     {
         $payload['access_token'] = $this->accessToken;
 
-        $this->debug('META_POST_REQUEST', [
+        $start = microtime(true);
+
+        Log::info('META_POST_REQUEST_FULL', [
             'endpoint' => $endpoint,
-            'payload' => $payload
+            'payload_array' => $payload,
+            'payload_json' => json_encode($payload, JSON_PRETTY_PRINT)
         ]);
 
         $response = $this->client()
             ->asForm()
             ->post("{$this->baseUrl}/{$endpoint}", $payload);
+
+        Log::info('META_POST_HTTP_RESULT', [
+            'endpoint' => $endpoint,
+            'status' => $response->status(),
+            'headers' => $response->headers(),
+            'body_raw' => $response->body(),
+            'duration_ms' => round((microtime(true) - $start) * 1000, 2)
+        ]);
 
         if ($response->failed()) {
             $this->handleError($response, $endpoint, $payload);
@@ -144,7 +180,10 @@ class MetaAdsService
 
         $result = $response->json();
 
-        $this->debug('META_POST_RESPONSE', $result);
+        Log::info('META_POST_RESPONSE_FULL', [
+            'endpoint' => $endpoint,
+            'response_json' => $result
+        ]);
 
         return $result;
     }
@@ -171,6 +210,10 @@ class MetaAdsService
                 break;
             }
 
+            Log::info('META_PAGINATION_NEXT', [
+                'next' => $response['paging']['next']
+            ]);
+
             $response = Http::get($response['paging']['next'])->json();
         }
 
@@ -191,6 +234,8 @@ class MetaAdsService
             'status' => $data['status'] ?? 'PAUSED',
             'special_ad_categories' => json_encode([])
         ];
+
+        Log::info('META_CREATE_CAMPAIGN_PAYLOAD', $payload);
 
         return $this->post("{$this->adAccountId}/campaigns", $payload);
     }
@@ -229,6 +274,8 @@ class MetaAdsService
             throw new Exception("targeting is required");
         }
 
+        Log::info('META_TARGETING_RAW', $data['targeting']);
+
         $payload = [
             'name' => $data['name'],
             'campaign_id' => $data['campaign_id'],
@@ -237,54 +284,45 @@ class MetaAdsService
             'status' => $data['status'] ?? 'PAUSED',
             'targeting' => json_encode($data['targeting'])
         ];
-if (isset($data['daily_budget'])) {
-    $payload['daily_budget'] = $data['daily_budget'];
-}
 
-/*
-|--------------------------------------------------------------------------
-| ADSET FINALIZATION
-|--------------------------------------------------------------------------
-| Adds required parameters before sending request to Meta
-*/
+        if (isset($data['daily_budget'])) {
+            $payload['daily_budget'] = $data['daily_budget'];
+        }
 
-// Meta often requires a start time for delivery
-$payload['start_time'] = now()->addMinutes(5)->toIso8601String();
+        /*
+        |--------------------------------------------------------------------------
+        | ADSET FINALIZATION
+        |--------------------------------------------------------------------------
+        */
 
-/*
-|--------------------------------------------------------------------------
-| PROMOTED OBJECT
-|--------------------------------------------------------------------------
-| Use provided promoted_object, otherwise fallback to configured page
-*/
+        $payload['start_time'] = now()->addMinutes(5)->toIso8601String();
 
-if (isset($data['promoted_object'])) {
+        /*
+        |--------------------------------------------------------------------------
+        | PROMOTED OBJECT
+        |--------------------------------------------------------------------------
+        */
 
-    $payload['promoted_object'] = json_encode($data['promoted_object']);
+        if (isset($data['promoted_object'])) {
 
-} elseif (config('services.meta.page_id')) {
+            $payload['promoted_object'] = json_encode($data['promoted_object']);
 
-    $payload['promoted_object'] = json_encode([
-        'page_id' => config('services.meta.page_id')
-    ]);
-}
+        } elseif (config('services.meta.page_id')) {
 
-/*
-|--------------------------------------------------------------------------
-| FINAL DEBUG BEFORE REQUEST
-|--------------------------------------------------------------------------
-*/
+            $payload['promoted_object'] = json_encode([
+                'page_id' => config('services.meta.page_id')
+            ]);
+        }
 
-Log::info('META_ADSET_PAYLOAD_VALIDATED', $payload);
+        Log::info('META_ADSET_PAYLOAD_VALIDATED_FULL', [
+            'payload_array' => $payload,
+            'payload_json' => json_encode($payload, JSON_PRETTY_PRINT)
+        ]);
 
-/*
-|--------------------------------------------------------------------------
-| SEND REQUEST TO META
-|--------------------------------------------------------------------------
-*/
+        return $this->post("{$accountId}/adsets", $payload);
+    }
 
-return $this->post("{$accountId}/adsets", $payload);
-        }    /*
+    /*
     |--------------------------------------------------------------------------
     | ADS
     |--------------------------------------------------------------------------
@@ -304,6 +342,8 @@ return $this->post("{$accountId}/adsets", $payload);
             $payload['creative'] = json_encode($data['creative']);
         }
 
+        Log::info('META_CREATE_AD_PAYLOAD', $payload);
+
         return $this->post("{$accountId}/ads", $payload);
     }
 
@@ -321,6 +361,8 @@ return $this->post("{$accountId}/adsets", $payload);
             'name' => $data['name'],
             'object_story_spec' => json_encode($data['object_story_spec'])
         ];
+
+        Log::info('META_CREATE_CREATIVE_PAYLOAD', $payload);
 
         return $this->post("{$accountId}/adcreatives", $payload);
     }

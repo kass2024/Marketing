@@ -60,8 +60,7 @@ Headline
 type="text"
 name="headline"
 value="{{ old('headline') }}"
-class="w-full border rounded-xl px-4 py-3"
-required>
+class="w-full border rounded-xl px-4 py-3">
 
 </div>
 
@@ -76,24 +75,7 @@ Primary Text
 <textarea
 name="body"
 rows="4"
-class="w-full border rounded-xl px-4 py-3"
-required>{{ old('body') }}</textarea>
-
-</div>
-
-
-{{-- Description --}}
-<div class="mb-6">
-
-<label class="block font-semibold mb-2">
-Description (optional)
-</label>
-
-<input
-type="text"
-name="description"
-value="{{ old('description') }}"
-class="w-full border rounded-xl px-4 py-3">
+class="w-full border rounded-xl px-4 py-3">{{ old('body') }}</textarea>
 
 </div>
 
@@ -107,11 +89,10 @@ Destination URL
 
 <input
 type="url"
-name="link_url"
-value="{{ old('link_url') }}"
+name="destination_url"
+value="{{ old('destination_url') }}"
 class="w-full border rounded-xl px-4 py-3"
-placeholder="https://example.com"
-required>
+placeholder="https://visaconsultantcanada.com">
 
 </div>
 
@@ -124,14 +105,15 @@ Call To Action
 </label>
 
 <select
-name="cta"
+name="call_to_action"
 class="w-full border rounded-xl px-4 py-3">
 
+<option value="">None</option>
 <option value="LEARN_MORE">Learn More</option>
-<option value="SIGN_UP">Sign Up</option>
 <option value="APPLY_NOW">Apply Now</option>
+<option value="SIGN_UP">Sign Up</option>
 <option value="CONTACT_US">Contact Us</option>
-<option value="BOOK_NOW">Book Now</option>
+<option value="DOWNLOAD">Download</option>
 
 </select>
 
@@ -150,8 +132,31 @@ type="file"
 name="image"
 accept="image/*"
 class="w-full border rounded-xl px-4 py-3"
-required
 onchange="previewImage(event)">
+
+</div>
+
+
+{{-- Meta Sync --}}
+<div class="mb-6">
+
+<label class="flex items-center gap-3">
+
+<input
+type="checkbox"
+name="sync_meta"
+value="1"
+class="w-5 h-5">
+
+<span class="font-medium">
+Sync with Meta Ads
+</span>
+
+</label>
+
+<p class="text-sm text-gray-500 mt-1">
+Upload creative directly to Facebook Ads Manager.
+</p>
 
 </div>
 
@@ -250,7 +255,7 @@ Description
 
 <button
 class="mt-3 bg-blue-600 text-white text-sm px-4 py-2 rounded">
-Learn More
+Call To Action
 </button>
 
 </div>

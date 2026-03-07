@@ -4,7 +4,6 @@
 
 <div class="max-w-5xl mx-auto py-10 space-y-8">
 
-
 {{-- ================= HEADER ================= --}}
 <div class="flex items-center justify-between">
 
@@ -15,7 +14,7 @@ Create Campaign
 </h1>
 
 <p class="text-gray-500 mt-2">
-Define the objective and budget for your advertising campaign.
+Define the objective for your Meta advertising campaign.
 </p>
 
 </div>
@@ -43,12 +42,10 @@ id="campaignForm"
 @csrf
 
 
-
 <div class="p-10 space-y-10">
 
 
-
-{{-- ================= GLOBAL ERRORS ================= --}}
+{{-- ================= ERRORS ================= --}}
 @if ($errors->any())
 
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-sm">
@@ -81,19 +78,17 @@ type="text"
 name="name"
 value="{{ old('name') }}"
 required
-placeholder="Example: Canada Study Leads"
+placeholder="Example: Global Study Abroad Campaign"
 class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500
 @if($errors->has('name')) border-red-500 @endif"
 >
 
 @error('name')
-
 <p class="text-sm text-red-500">{{ $message }}</p>
-
 @enderror
 
 <p class="text-xs text-gray-400">
-This name is internal and only visible in your dashboard.
+Visible only in your dashboard.
 </p>
 
 </div>
@@ -116,75 +111,34 @@ class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500
 
 <option value="">Select objective</option>
 
-<option value="OUTCOME_LEADS" {{ old('objective')=='OUTCOME_LEADS'?'selected':'' }}>
+<option value="LEADS" {{ old('objective')=='LEADS'?'selected':'' }}>
 Lead Generation
 </option>
 
-<option value="OUTCOME_TRAFFIC" {{ old('objective')=='OUTCOME_TRAFFIC'?'selected':'' }}>
+<option value="TRAFFIC" {{ old('objective')=='TRAFFIC'?'selected':'' }}>
 Website Traffic
 </option>
 
-<option value="OUTCOME_ENGAGEMENT" {{ old('objective')=='OUTCOME_ENGAGEMENT'?'selected':'' }}>
+<option value="ENGAGEMENT" {{ old('objective')=='ENGAGEMENT'?'selected':'' }}>
 Post Engagement
 </option>
 
-<option value="OUTCOME_AWARENESS" {{ old('objective')=='OUTCOME_AWARENESS'?'selected':'' }}>
+<option value="AWARENESS" {{ old('objective')=='AWARENESS'?'selected':'' }}>
 Brand Awareness
 </option>
 
-<option value="OUTCOME_SALES" {{ old('objective')=='OUTCOME_SALES'?'selected':'' }}>
+<option value="SALES" {{ old('objective')=='SALES'?'selected':'' }}>
 Sales / Conversions
 </option>
 
 </select>
 
 @error('objective')
-
 <p class="text-sm text-red-500">{{ $message }}</p>
-
 @enderror
 
 <p class="text-xs text-gray-400">
-This determines how Meta optimizes ad delivery.
-</p>
-
-</div>
-
-
-
-{{-- ================= DAILY BUDGET ================= --}}
-<div class="space-y-2">
-
-<label class="block text-sm font-semibold text-gray-700">
-Daily Budget
-</label>
-
-<div class="relative">
-
-<span class="absolute left-3 top-3 text-gray-400 text-sm">$</span>
-
-<input
-type="number"
-step="1"
-min="5"
-name="daily_budget"
-value="{{ old('daily_budget') }}"
-required
-placeholder="20"
-class="w-full border rounded-xl pl-8 pr-4 py-3 focus:ring-2 focus:ring-blue-500
-@if($errors->has('daily_budget')) border-red-500 @endif"
->
-
-</div>
-
-@error('daily_budget')
-
-<p class="text-sm text-red-500">{{ $message }}</p>
-
-@enderror
-
-<p class="text-xs text-gray-400">
-Minimum recommended budget: $5/day.
+Meta will optimize delivery according to this objective.
 </p>
 
 </div>
@@ -214,14 +168,14 @@ Active immediately
 </select>
 
 <p class="text-xs text-gray-400">
-Campaigns usually start paused while ads are prepared.
+Campaigns normally start paused until ads are ready.
 </p>
 
 </div>
 
 
 
-{{-- ================= META SYNC OPTION ================= --}}
+{{-- ================= META SYNC ================= --}}
 <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm">
 
 <label class="flex items-center gap-3">
@@ -235,17 +189,16 @@ class="rounded border-gray-300"
 >
 
 <span>
-Create this campaign on Meta Ads Manager
+Create campaign on Meta Ads Manager
 </span>
 
 </label>
 
 <p class="text-xs text-gray-500 mt-2">
-Disable this option if you want to test locally without sending data to Meta.
+Disable to test locally without sending data to Meta.
 </p>
 
 </div>
-
 
 
 </div>
@@ -259,12 +212,8 @@ Disable this option if you want to test locally without sending data to Meta.
 href="{{ route('admin.campaigns.index') }}"
 class="text-sm text-gray-500 hover:text-gray-700"
 >
-
 Cancel
-
 </a>
-
-
 
 <button
 type="submit"
@@ -304,8 +253,6 @@ d="M4 12a8 8 0 018-8v8H4z"
 </button>
 
 </div>
-
-
 
 </form>
 

@@ -110,7 +110,6 @@ class MetaAdsService
         ]);
 
         $response = $this->client()
-            ->asForm()
             ->post("{$this->baseUrl}/{$endpoint}", $payload);
 
         if ($response->failed()) {
@@ -136,13 +135,11 @@ class MetaAdsService
 
             'name' => $data['name'],
 
-            // v19 objective names
             'objective' => $data['objective'],
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            // must remain JSON string with form encoding
-            'special_ad_categories' => json_encode([])
+            'special_ad_categories' => []
         ];
 
         Log::info('META_CAMPAIGN_PAYLOAD', $payload);
@@ -178,7 +175,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | OBJECTIVE → OPTIMIZATION (v19 compatible)
+    | OBJECTIVE → OPTIMIZATION
     |--------------------------------------------------------------------------
     */
 
@@ -186,15 +183,15 @@ class MetaAdsService
     {
         return match ($objective) {
 
-            'TRAFFIC' => 'LINK_CLICKS',
+            'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
 
-            'LEAD_GENERATION' => 'LEAD_GENERATION',
+            'OUTCOME_LEADS' => 'LEAD_GENERATION',
 
-            'ENGAGEMENT' => 'POST_ENGAGEMENT',
+            'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
 
-            'AWARENESS' => 'REACH',
+            'OUTCOME_AWARENESS' => 'REACH',
 
-            'SALES' => 'CONVERSIONS',
+            'OUTCOME_SALES' => 'CONVERSIONS',
 
             default => 'REACH'
         };
@@ -247,7 +244,7 @@ class MetaAdsService
         }
 
         $optimization = $this->resolveOptimization(
-            $data['objective'] ?? 'AWARENESS'
+            $data['objective'] ?? 'OUTCOME_AWARENESS'
         );
 
         $payload = [
@@ -262,7 +259,7 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            'targeting' => $data['targeting']
+            'targeting' => json_encode($data['targeting'])
         ];
 
         if (isset($data['daily_budget'])) {

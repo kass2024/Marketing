@@ -65,7 +65,7 @@ class CampaignController extends Controller
 
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'objective' => 'required|in:LEADS,TRAFFIC,ENGAGEMENT,AWARENESS,SALES',
+            'objective' => 'required|in:LINK_CLICKS,LEAD_GENERATION,POST_ENGAGEMENT,BRAND_AWARENESS,CONVERSIONS',
             'status' => 'required|in:PAUSED,ACTIVE',
             'sync_meta' => 'nullable'
         ]);

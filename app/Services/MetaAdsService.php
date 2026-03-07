@@ -25,6 +25,11 @@ class MetaAdsService
         if (!$this->accessToken) {
             throw new Exception('Meta access token missing in config/services.php');
         }
+
+        Log::info('META_SERVICE_INITIALIZED', [
+            'account' => $this->adAccountId,
+            'graph_version' => $version
+        ]);
     }
 
     /*
@@ -35,11 +40,7 @@ class MetaAdsService
 
     protected function formatAccount(string $id): string
     {
-        if (str_starts_with($id, 'act_')) {
-            return $id;
-        }
-
-        return "act_{$id}";
+        return str_starts_with($id, 'act_') ? $id : "act_{$id}";
     }
 
     /*
@@ -70,7 +71,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | HANDLE ERROR
+    | HANDLE META ERROR
     |--------------------------------------------------------------------------
     */
 
@@ -150,26 +151,6 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | DELETE REQUEST
-    |--------------------------------------------------------------------------
-    */
-
-    protected function delete(string $endpoint): array
-    {
-        $response = $this->client()->delete(
-            "{$this->baseUrl}/{$endpoint}",
-            ['access_token' => $this->accessToken]
-        );
-
-        if ($response->failed()) {
-            $this->handleError($response, $endpoint);
-        }
-
-        return $response->json();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
     | PAGINATION
     |--------------------------------------------------------------------------
     */
@@ -190,10 +171,7 @@ class MetaAdsService
                 break;
             }
 
-            $response = Http::timeout(30)
-                ->retry(2, 500)
-                ->get($response['paging']['next'])
-                ->json();
+            $response = Http::get($response['paging']['next'])->json();
         }
 
         return ['data' => $results];
@@ -222,11 +200,13 @@ class MetaAdsService
         return $this->get($campaignId, [
             'fields' => 'id,name,objective,status'
         ]);
-        $params = array_merge([
-        'fields' => 'id,name,objective,status,effective_status,created_time'
-    ], $params);
+    }
 
-    return $this->fetchAllPages("{$this->adAccountId}/campaigns", $params);
+    public function getCampaigns(): array
+    {
+        return $this->fetchAllPages("{$this->adAccountId}/campaigns", [
+            'fields' => 'id,name,objective,status,effective_status'
+        ]);
     }
 
     /*
@@ -239,30 +219,47 @@ class MetaAdsService
     {
         $accountId = $this->formatAccount($accountId);
 
+        Log::info('META_ADSET_DATA_RECEIVED', $data);
+
+        if (!isset($data['campaign_id'])) {
+            throw new Exception("campaign_id is required");
+        }
+
+        if (!isset($data['targeting'])) {
+            throw new Exception("targeting is required");
+        }
+
         $payload = [
-
             'name' => $data['name'],
-
             'campaign_id' => $data['campaign_id'],
-
             'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
-
             'optimization_goal' => $data['optimization_goal'] ?? 'REACH',
-
             'status' => $data['status'] ?? 'PAUSED',
-
-            'targeting' => is_string($data['targeting'])
-                ? $data['targeting']
-                : json_encode($data['targeting'])
+            'targeting' => json_encode($data['targeting'])
         ];
 
         if (isset($data['daily_budget'])) {
             $payload['daily_budget'] = $data['daily_budget'];
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | PROMOTED OBJECT FALLBACK
+        |--------------------------------------------------------------------------
+        */
+
         if (isset($data['promoted_object'])) {
+
             $payload['promoted_object'] = json_encode($data['promoted_object']);
+
+        } elseif (config('services.meta.page_id')) {
+
+            $payload['promoted_object'] = json_encode([
+                'page_id' => config('services.meta.page_id')
+            ]);
         }
+
+        Log::info('META_ADSET_PAYLOAD_VALIDATED', $payload);
 
         return $this->post("{$accountId}/adsets", $payload);
     }

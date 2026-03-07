@@ -6,12 +6,11 @@
 
 <div class="max-w-5xl mx-auto space-y-8">
 
-{{-- HEADER --}}
 <div class="flex justify-between items-center">
 <div>
 <h1 class="text-3xl font-bold text-gray-900">Create Ad Set</h1>
 <p class="text-sm text-gray-500 mt-1">
-Configure audience targeting and delivery
+Meta validated audience configuration
 </p>
 </div>
 
@@ -22,7 +21,6 @@ Back
 </div>
 
 
-{{-- ERRORS --}}
 @if($errors->any())
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
 <ul class="list-disc ml-6">
@@ -45,24 +43,34 @@ id="adsetForm">
 
 {{-- CAMPAIGN --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">Campaign</label>
 
 <select name="campaign_id"
+id="campaign-select"
 class="w-full border rounded-xl px-4 py-3"
 required>
 
 <option value="">Select campaign</option>
 
 @foreach($campaigns as $campaign)
-<option value="{{ $campaign->id }}"
+
+<option
+value="{{ $campaign->id }}"
+data-objective="{{ $campaign->objective ?? 'REACH' }}"
 {{ old('campaign_id',$selectedCampaign) == $campaign->id ? 'selected' : '' }}>
+
 {{ $campaign->name }}
+
 </option>
+
 @endforeach
 
 </select>
-</div>
 
+<p id="objective-warning" class="text-xs text-blue-600 mt-1 hidden"></p>
+
+</div>
 
 
 {{-- ADSET NAME --}}
@@ -74,7 +82,6 @@ type="text"
 name="name"
 value="{{ old('name') }}"
 class="w-full border rounded-xl px-4 py-3"
-placeholder="Example: Canada Students 18-30"
 required>
 </div>
 
@@ -105,23 +112,17 @@ Minimum recommended budget: $5/day
 
 <div>
 <label class="font-semibold block mb-2">Minimum Age</label>
-<input
-type="number"
-name="age_min"
+<input type="number" name="age_min"
 value="{{ old('age_min',18) }}"
-min="18"
-max="65"
+min="18" max="65"
 class="w-full border rounded-xl px-4 py-3">
 </div>
 
 <div>
 <label class="font-semibold block mb-2">Maximum Age</label>
-<input
-type="number"
-name="age_max"
+<input type="number" name="age_max"
 value="{{ old('age_max',65) }}"
-min="18"
-max="65"
+min="18" max="65"
 class="w-full border rounded-xl px-4 py-3">
 </div>
 
@@ -131,6 +132,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 {{-- GENDER --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">Gender</label>
 
 <select name="genders[]" multiple
@@ -145,12 +147,14 @@ class="w-full border rounded-xl px-4 py-3">
 <p class="text-xs text-gray-500 mt-1">
 Leave empty to target all genders
 </p>
+
 </div>
 
 
 
 {{-- COUNTRIES --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">Countries</label>
 
 <select name="countries[]" multiple
@@ -160,8 +164,7 @@ required>
 
 @foreach($countries as $code => $country)
 
-<option value="{{ $code }}"
-{{ collect(old('countries'))->contains($code) ? 'selected' : '' }}>
+<option value="{{ $code }}">
 {{ $country }}
 </option>
 
@@ -169,17 +172,14 @@ required>
 
 </select>
 
-<p class="text-xs text-gray-500 mt-1">
-At least one country must be selected.
-</p>
-
 </div>
 
 
 
 {{-- LANGUAGES --}}
 <div class="mb-6">
-<label class="font-semibold block mb-2">Languages (Optional)</label>
+
+<label class="font-semibold block mb-2">Languages</label>
 
 <select name="languages[]" multiple
 id="language-select"
@@ -187,8 +187,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 @foreach($languages as $id => $language)
 
-<option value="{{ $id }}"
-{{ collect(old('languages'))->contains($id) ? 'selected' : '' }}>
+<option value="{{ $id }}">
 {{ $language }}
 </option>
 
@@ -197,7 +196,7 @@ class="w-full border rounded-xl px-4 py-3">
 </select>
 
 <p class="text-xs text-gray-500 mt-1">
-Avoid combining languages with very small countries.
+Languages automatically disabled for single country targeting
 </p>
 
 </div>
@@ -206,6 +205,7 @@ Avoid combining languages with very small countries.
 
 {{-- INTERESTS --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">Interest Targeting</label>
 
 <select
@@ -214,31 +214,34 @@ id="interest-select"
 multiple
 class="w-full border rounded-xl px-4 py-3"></select>
 
-<p class="text-xs text-gray-500 mt-1">
-Maximum 5 interests recommended to avoid targeting conflicts.
+<p id="interest-warning"
+class="text-xs text-red-600 mt-1 hidden">
+Interest targeting disabled for REACH campaigns
 </p>
+
 </div>
 
 
 
-{{-- PLACEMENT --}}
+{{-- PLACEMENTS --}}
 <div class="mb-6">
+
 <label class="font-semibold block mb-2">Placement Strategy</label>
 
-<select
-name="placement_type"
+<select name="placement_type"
 id="placement-type"
 class="w-full border rounded-xl px-4 py-3">
 
 <option value="automatic">Automatic (Recommended)</option>
-<option value="manual">Manual Placement</option>
+<option value="manual">Manual</option>
 
 </select>
+
 </div>
 
 
 
-{{-- MANUAL PLATFORMS --}}
+{{-- PLATFORMS --}}
 <div class="mb-6 hidden" id="platform-section">
 
 <label class="font-semibold block mb-2">Platforms</label>
@@ -259,13 +262,14 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- SUBMIT --}}
 <div class="flex justify-end">
 
 <button
 type="submit"
 class="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700">
+
 Create Ad Set
+
 </button>
 
 </div>
@@ -273,7 +277,6 @@ Create Ad Set
 </form>
 
 </div>
-
 </div>
 
 
@@ -297,15 +300,18 @@ initSelect("#platform-select");
 
 
 
+/*
+INTEREST SEARCH
+*/
+
 let interestTimeout;
 
-new TomSelect("#interest-select",{
+const interestSelect = new TomSelect("#interest-select",{
 
 plugins:['remove_button'],
 valueField:'id',
 labelField:'name',
 searchField:'name',
-
 maxItems:5,
 
 load:function(query,callback){
@@ -329,20 +335,32 @@ fetch("/admin/meta/interests?q="+query)
 
 
 
-document.getElementById("placement-type").addEventListener("change",function(){
+/*
+OBJECTIVE VALIDATION
+*/
 
-let section=document.getElementById("platform-section");
-let platforms=document.getElementById("platform-select");
+document.getElementById("campaign-select")
+.addEventListener("change",function(){
 
-if(this.value==="automatic"){
+let selected = this.options[this.selectedIndex];
+let objective = selected.dataset.objective;
 
-section.classList.add("hidden");
-platforms.disabled=true;
+let warning = document.getElementById("objective-warning");
+let interestWarning = document.getElementById("interest-warning");
+
+if(objective === "REACH"){
+
+interestSelect.disable();
+interestWarning.classList.remove("hidden");
+
+warning.innerText = "REACH campaigns use broad targeting. Detailed interests disabled.";
+warning.classList.remove("hidden");
 
 }else{
 
-section.classList.remove("hidden");
-platforms.disabled=false;
+interestSelect.enable();
+interestWarning.classList.add("hidden");
+warning.classList.add("hidden");
 
 }
 
@@ -350,7 +368,55 @@ platforms.disabled=false;
 
 
 
-document.getElementById("adsetForm").addEventListener("submit",function(e){
+/*
+LANGUAGE VALIDATION
+*/
+
+document.getElementById("country-select")
+.addEventListener("change",function(){
+
+let languages=document.getElementById("language-select");
+
+if(this.selectedOptions.length === 1){
+
+languages.tomselect.clear();
+languages.tomselect.disable();
+
+}else{
+
+languages.tomselect.enable();
+
+}
+
+});
+
+
+
+/*
+PLACEMENT CONTROL
+*/
+
+document.getElementById("placement-type")
+.addEventListener("change",function(){
+
+let section=document.getElementById("platform-section");
+
+if(this.value==="manual"){
+section.classList.remove("hidden");
+}else{
+section.classList.add("hidden");
+}
+
+});
+
+
+
+/*
+AGE VALIDATION
+*/
+
+document.getElementById("adsetForm")
+.addEventListener("submit",function(e){
 
 let min=parseInt(document.querySelector("[name='age_min']").value);
 let max=parseInt(document.querySelector("[name='age_max']").value);

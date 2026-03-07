@@ -91,7 +91,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | GET
+    | GET REQUEST
     |--------------------------------------------------------------------------
     */
 
@@ -126,7 +126,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | POST
+    | POST REQUEST
     |--------------------------------------------------------------------------
     */
 
@@ -170,7 +170,59 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | ADSET CREATION (FIXED)
+    | TARGETING VALIDATOR (NEW)
+    |--------------------------------------------------------------------------
+    */
+
+    protected function validateTargeting(array $payload): array
+    {
+        if (!isset($payload['targeting'])) {
+            return $payload;
+        }
+
+        $targeting = $payload['targeting'];
+        $objective = $payload['optimization_goal'] ?? 'REACH';
+
+        /*
+        |--------------------------------------------------------------------------
+        | REACH VALIDATION
+        |--------------------------------------------------------------------------
+        */
+
+        if ($objective === 'REACH') {
+
+            unset($targeting['interests']);
+            unset($targeting['behaviors']);
+            unset($targeting['flexible_spec']);
+
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | LANGUAGE VALIDATION
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            isset($targeting['geo_locations']['countries']) &&
+            count($targeting['geo_locations']['countries']) === 1
+        ) {
+            unset($targeting['locales']);
+        }
+
+        $payload['targeting'] = $targeting;
+
+        Log::info('META_TARGETING_OBJECTIVE_VALIDATED', [
+            'objective' => $objective,
+            'targeting' => $targeting
+        ]);
+
+        return $payload;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CREATE ADSET
     |--------------------------------------------------------------------------
     */
 
@@ -190,12 +242,6 @@ class MetaAdsService
 
         Log::info('META_TARGETING_RAW', $data['targeting']);
 
-        /*
-        |--------------------------------------------------------------------------
-        | BUILD PAYLOAD
-        |--------------------------------------------------------------------------
-        */
-
         $payload = [
 
             'name' => $data['name'],
@@ -208,40 +254,24 @@ class MetaAdsService
 
             'status' => $data['status'] ?? 'PAUSED',
 
-            /*
-            |--------------------------------------------------------------------------
-            | FIX 1 — DO NOT JSON ENCODE TARGETING
-            |--------------------------------------------------------------------------
-            */
-
             'targeting' => $data['targeting']
+
         ];
 
         if (isset($data['daily_budget'])) {
             $payload['daily_budget'] = $data['daily_budget'];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | START TIME
-        |--------------------------------------------------------------------------
-        */
-
-        $payload['start_time'] = $data['start_time']
-            ?? now()->addMinutes(5)->toIso8601String();
+        $payload['start_time'] =
+            $data['start_time'] ?? now()->addMinutes(5)->toIso8601String();
 
         /*
         |--------------------------------------------------------------------------
-        | FIX 2 — ONLY ADD PROMOTED OBJECT IF REQUIRED
+        | VALIDATE TARGETING BEFORE META
         |--------------------------------------------------------------------------
         */
 
-        if (
-            isset($data['promoted_object']) &&
-            $payload['optimization_goal'] !== 'REACH'
-        ) {
-            $payload['promoted_object'] = json_encode($data['promoted_object']);
-        }
+        $payload = $this->validateTargeting($payload);
 
         Log::info('META_ADSET_PAYLOAD_VALIDATED_FULL', [
             'payload_array' => $payload,
@@ -253,7 +283,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | ADS
+    | CREATE AD
     |--------------------------------------------------------------------------
     */
 
@@ -278,7 +308,7 @@ class MetaAdsService
 
     /*
     |--------------------------------------------------------------------------
-    | CREATIVE
+    | CREATE CREATIVE
     |--------------------------------------------------------------------------
     */
 

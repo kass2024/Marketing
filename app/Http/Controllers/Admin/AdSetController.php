@@ -93,6 +93,14 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
+            | DETECT OBJECTIVE
+            |--------------------------------------------------------------------------
+            */
+
+            $objective = $campaign->objective ?? 'REACH';
+
+            /*
+            |--------------------------------------------------------------------------
             | TARGETING BASE
             |--------------------------------------------------------------------------
             */
@@ -117,11 +125,11 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | INTERESTS
+            | INTERESTS (ONLY FOR NON-REACH)
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['interests'])) {
+            if (!empty($data['interests']) && $objective !== 'REACH') {
 
                 $targeting['interests'] = collect($data['interests'])
                     ->take(5)
@@ -132,13 +140,15 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES
+            | LANGUAGES (ONLY MULTI COUNTRY)
             |--------------------------------------------------------------------------
             */
 
             if (!empty($data['languages']) && count($data['countries']) > 1) {
-    $targeting['locales'] = array_map('intval', $data['languages']);
-}
+
+                $targeting['locales'] = array_map('intval', $data['languages']);
+            }
+
             /*
             |--------------------------------------------------------------------------
             | PLACEMENTS
@@ -184,16 +194,6 @@ class AdSetController extends Controller
                     ];
                 }
 
-            } else {
-
-                /*
-                |--------------------------------------------------------------------------
-                | AUTOMATIC PLACEMENTS
-                | DO NOT SEND ANY POSITION FIELDS
-                |--------------------------------------------------------------------------
-                */
-
-                // leave empty intentionally
             }
 
             Log::info('META_TARGETING_FINAL', $targeting);
@@ -214,7 +214,7 @@ class AdSetController extends Controller
 
                 'billing_event' => 'IMPRESSIONS',
 
-                'optimization_goal' => 'REACH',
+                'optimization_goal' => $objective,
 
                 'status' => 'PAUSED',
 
@@ -263,7 +263,7 @@ class AdSetController extends Controller
 
                 'billing_event' => 'IMPRESSIONS',
 
-                'optimization_goal' => 'REACH',
+                'optimization_goal' => $objective,
 
                 'targeting' => $targeting,
 
@@ -280,6 +280,7 @@ class AdSetController extends Controller
             return redirect()
                 ->route('admin.campaigns.show', $campaign->id)
                 ->with('success', 'Ad Set created successfully');
+
         }
 
         catch (Throwable $e) {

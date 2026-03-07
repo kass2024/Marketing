@@ -16,7 +16,7 @@ use Exception;
 
 class AdSetController extends Controller
 {
-    protected MetaAdsService $meta;
+    protected $meta;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -40,11 +40,11 @@ class AdSetController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | LIST ADSETS BY CAMPAIGN  (FIXES YOUR ERROR)
+    | LIST ADSETS BY CAMPAIGN
     |--------------------------------------------------------------------------
     */
 
-    public function indexByCampaign(int $campaignId)
+    public function indexByCampaign($campaignId)
     {
         $campaign = Campaign::findOrFail($campaignId);
 
@@ -64,7 +64,7 @@ class AdSetController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function create(int $campaignId = null)
+    public function create($campaignId = null)
     {
         Log::info('META_ADSET_FORM_OPENED', [
             'campaign_id' => $campaignId
@@ -114,6 +114,7 @@ class AdSetController extends Controller
         ]);
 
         if ($data['age_min'] >= $data['age_max']) {
+
             return back()->withErrors([
                 'age' => 'Max age must be greater than min age'
             ])->withInput();
@@ -123,15 +124,26 @@ class AdSetController extends Controller
 
         try {
 
-            $campaign = Campaign::with('adAccount')
-                ->findOrFail($data['campaign_id']);
+            /*
+            |--------------------------------------------------------------------------
+            | Validate Campaign + Ad Account
+            |--------------------------------------------------------------------------
+            */
+
+            $campaign = Campaign::with('adAccount')->findOrFail($data['campaign_id']);
 
             if (!$campaign->meta_id) {
                 throw new Exception('Campaign not synced with Meta');
             }
 
             if (!$campaign->adAccount || !$campaign->adAccount->meta_id) {
-                throw new Exception('Ad account not connected');
+                throw new Exception('Meta Ad Account not connected');
+            }
+
+            $metaAccountId = $campaign->adAccount->meta_id;
+
+            if (strpos($metaAccountId, 'act_') !== 0) {
+                $metaAccountId = 'act_' . $metaAccountId;
             }
 
             /*
@@ -141,11 +153,9 @@ class AdSetController extends Controller
             */
 
             $targeting = [
-
                 'geo_locations' => [
                     'countries' => array_values($data['countries'])
                 ],
-
                 'age_min' => (int)$data['age_min'],
                 'age_max' => (int)$data['age_max']
             ];
@@ -154,14 +164,24 @@ class AdSetController extends Controller
                 $targeting['genders'] = array_map('intval', $data['genders']);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | INTERESTS
+            |--------------------------------------------------------------------------
+            */
+
             if (!empty($data['interests'])) {
 
-                $targeting['flexible_spec'][] = [
-                    'interests' => collect($data['interests'])
-                        ->take(5)
-                        ->map(fn ($id) => ['id' => (string)$id])
-                        ->values()
-                        ->toArray()
+                $interestList = [];
+
+                foreach (array_slice($data['interests'], 0, 5) as $interestId) {
+                    $interestList[] = ['id' => (string)$interestId];
+                }
+
+                $targeting['flexible_spec'] = [
+                    [
+                        'interests' => $interestList
+                    ]
                 ];
 
                 $targeting['targeting_automation'] = [
@@ -169,14 +189,26 @@ class AdSetController extends Controller
                 ];
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | LANGUAGES
+            |--------------------------------------------------------------------------
+            */
+
             if (!empty($data['languages']) && count($data['countries']) > 1) {
                 $targeting['locales'] = array_map('intval', $data['languages']);
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | PLACEMENTS
+            |--------------------------------------------------------------------------
+            */
+
             if ($data['placement_type'] === 'manual') {
 
                 if (empty($data['publisher_platforms'])) {
-                    throw new Exception('Select at least one platform');
+                    throw new Exception('Select at least one placement platform');
                 }
 
                 $targeting['publisher_platforms'] = $data['publisher_platforms'];
@@ -215,20 +247,31 @@ class AdSetController extends Controller
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 
+            /*
+            |--------------------------------------------------------------------------
+            | CREATE ADSET ON META
+            |--------------------------------------------------------------------------
+            */
+
             $response = $this->meta->createAdSet(
-                $campaign->adAccount->meta_id,
+                $metaAccountId,
                 $payload
             );
 
-            if (!isset($response['id'])) {
+            Log::info('META_ADSET_RESPONSE', $response);
+
+            if (!is_array($response) || empty($response['id'])) {
+
                 throw new Exception(
-                    $response['error']['message'] ?? 'Meta API error'
+                    isset($response['error']['message'])
+                        ? $response['error']['message']
+                        : 'Meta API failed to create AdSet'
                 );
             }
 
             /*
             |--------------------------------------------------------------------------
-            | SAVE LOCAL
+            | SAVE LOCALLY
             |--------------------------------------------------------------------------
             */
 
@@ -246,7 +289,7 @@ class AdSetController extends Controller
 
                 'optimization_goal' => 'LINK_CLICKS',
 
-                'targeting' => $targeting,
+                'targeting' => json_encode($targeting),
 
                 'status' => 'PAUSED'
             ]);
@@ -258,9 +301,9 @@ class AdSetController extends Controller
                 'local_id' => $adset->id
             ]);
 
-           return redirect()
-    ->route('admin.campaigns.index')
-    ->with('success', 'Ad Set created successfully');
+            return redirect()
+                ->route('admin.campaigns.index')
+                ->with('success', 'Ad Set created successfully');
         }
 
         catch (Throwable $e) {
@@ -285,7 +328,7 @@ class AdSetController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function show(int $id)
+    public function show($id)
     {
         $adset = AdSet::with('campaign')->findOrFail($id);
 
@@ -298,14 +341,13 @@ class AdSetController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function destroy(int $id)
+    public function destroy($id)
     {
         $adset = AdSet::findOrFail($id);
 
         try {
 
             if ($adset->meta_id) {
-
                 $this->meta->deleteAdSet($adset->meta_id);
             }
 

@@ -25,7 +25,7 @@ class CampaignController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | Campaign List (Optimized for production)
+    | Campaign List
     |--------------------------------------------------------------------------
     */
 
@@ -38,19 +38,18 @@ class CampaignController extends Controller
                 ->latest()
                 ->paginate(20);
 
-            $totalAdSets = AdSet::count();
-
-            $activeCampaigns = Campaign::where('status', 'ACTIVE')->count();
-            $pausedCampaigns = Campaign::where('status', 'PAUSED')->count();
-
-            $hasAdAccount = AdAccount::exists();
-
             return view('admin.campaigns.index', [
+
                 'campaigns' => $campaigns,
-                'totalAdSets' => $totalAdSets,
-                'activeCampaigns' => $activeCampaigns,
-                'pausedCampaigns' => $pausedCampaigns,
-                'hasAdAccount' => $hasAdAccount
+                'totalAdSets' => AdSet::count(),
+
+                'activeCampaigns' =>
+                    Campaign::where('status','ACTIVE')->count(),
+
+                'pausedCampaigns' =>
+                    Campaign::where('status','PAUSED')->count(),
+
+                'hasAdAccount' => AdAccount::exists()
             ]);
 
         } catch (Throwable $e) {
@@ -59,7 +58,7 @@ class CampaignController extends Controller
                 'error' => $e->getMessage()
             ]);
 
-            abort(500, 'Unable to load campaigns.');
+            abort(500,'Unable to load campaigns.');
         }
     }
 
@@ -74,9 +73,7 @@ class CampaignController extends Controller
         try {
 
             $campaign = Campaign::with([
-                'adSets' => function ($query) {
-                    $query->latest();
-                }
+                'adSets' => fn($q) => $q->latest()
             ])->findOrFail($id);
 
             return view('admin.campaigns.show', compact('campaign'));
@@ -88,7 +85,7 @@ class CampaignController extends Controller
                 'error' => $e->getMessage()
             ]);
 
-            abort(404, 'Campaign not found.');
+            abort(404,'Campaign not found.');
         }
     }
 
@@ -135,23 +132,41 @@ class CampaignController extends Controller
 
         try {
 
-            $account = AdAccount::first();
+            /*
+            |--------------------------------------------------------------------------
+            | Ensure Meta Account Exists
+            |--------------------------------------------------------------------------
+            */
+
+            $account = AdAccount::whereNotNull('meta_id')->first();
 
             if (!$account) {
-                throw new \Exception('No Meta ad account connected.');
+                throw new \Exception('Meta ad account is not connected.');
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Prevent duplicate campaign names
+            | Prevent Duplicate Names
             |--------------------------------------------------------------------------
             */
 
-            if (Campaign::where('name', $data['name'])->exists()) {
+            if (Campaign::where('name',$data['name'])->exists()) {
 
                 return back()->withErrors([
-                    'name' => 'A campaign with this name already exists.'
+                    'name' => 'Campaign name already exists.'
                 ])->withInput();
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Prepare Meta Account ID
+            |--------------------------------------------------------------------------
+            */
+
+            $metaAccountId = $account->meta_id;
+
+            if (!str_starts_with($metaAccountId,'act_')) {
+                $metaAccountId = 'act_'.$metaAccountId;
             }
 
             /*
@@ -162,9 +177,8 @@ class CampaignController extends Controller
 
             $metaObjective = $data['objective'];
 
-            Log::info('META_OBJECTIVE_MAPPED', [
-                'ui_objective' => $data['objective'],
-                'meta_objective' => $metaObjective
+            Log::info('META_OBJECTIVE_MAPPED',[
+                'objective'=>$metaObjective
             ]);
 
             $metaId = null;
@@ -177,24 +191,26 @@ class CampaignController extends Controller
 
             if ($request->has('sync_meta')) {
 
-                Log::info('META_CREATE_CAMPAIGN_REQUEST', [
-                    'account' => $account->meta_id,
-                    'name' => $data['name'],
-                    'objective' => $metaObjective
+                Log::info('META_CREATE_CAMPAIGN_REQUEST',[
+                    'account'=>$metaAccountId,
+                    'name'=>$data['name'],
+                    'objective'=>$metaObjective,
+                    'status'=>$data['status']
                 ]);
 
                 $response = $this->meta->createCampaign(
-                    $account->meta_id,
+                    $metaAccountId,
                     [
-                        'name' => $data['name'],
-                        'objective' => $metaObjective,
-                        'status' => $data['status']
+                        'name'=>$data['name'],
+                        'objective'=>$metaObjective,
+                        'status'=>$data['status'],
+                        'special_ad_categories'=>[]
                     ]
                 );
 
-                Log::info('META_CREATE_CAMPAIGN_RESPONSE', $response);
+                Log::info('META_CREATE_CAMPAIGN_RESPONSE',$response);
 
-                if (!isset($response['id'])) {
+                if (!is_array($response) || empty($response['id'])) {
 
                     throw new \Exception(
                         $response['error']['message']
@@ -212,34 +228,37 @@ class CampaignController extends Controller
             */
 
             $campaign = Campaign::create([
+
                 'ad_account_id' => $account->id,
                 'meta_id' => $metaId,
+
                 'name' => $data['name'],
                 'objective' => $data['objective'],
                 'status' => $data['status']
+
             ]);
 
             DB::commit();
 
-            Log::info('META_CAMPAIGN_CREATED', [
-                'campaign_id' => $campaign->id,
-                'meta_id' => $campaign->meta_id
+            Log::info('META_CAMPAIGN_CREATED',[
+                'campaign_id'=>$campaign->id,
+                'meta_id'=>$campaign->meta_id
             ]);
 
             return redirect()
                 ->route('admin.campaigns.index')
-                ->with('success', 'Campaign created successfully.');
+                ->with('success','Campaign created successfully.');
 
         } catch (Throwable $e) {
 
             DB::rollBack();
 
-            Log::error('META_CAMPAIGN_CREATE_FAILED', [
-                'error' => $e->getMessage()
+            Log::error('META_CAMPAIGN_CREATE_FAILED',[
+                'error'=>$e->getMessage()
             ]);
 
             return back()->withErrors([
-                'meta' => 'Unable to create campaign: ' . $e->getMessage()
+                'meta'=>'Unable to create campaign: '.$e->getMessage()
             ])->withInput();
         }
     }
@@ -254,23 +273,24 @@ class CampaignController extends Controller
     {
         try {
 
-            Log::info('META_CAMPAIGN_DELETE', [
-                'campaign_id' => $campaign->id
+            Log::info('META_CAMPAIGN_DELETE',[
+                'campaign_id'=>$campaign->id,
+                'meta_id'=>$campaign->meta_id
             ]);
 
             $campaign->delete();
 
-            return back()->with('success', 'Campaign deleted.');
+            return back()->with('success','Campaign deleted.');
 
         } catch (Throwable $e) {
 
-            Log::error('META_CAMPAIGN_DELETE_FAILED', [
-                'campaign_id' => $campaign->id,
-                'error' => $e->getMessage()
+            Log::error('META_CAMPAIGN_DELETE_FAILED',[
+                'campaign_id'=>$campaign->id,
+                'error'=>$e->getMessage()
             ]);
 
             return back()->withErrors([
-                'meta' => 'Unable to delete campaign.'
+                'meta'=>'Unable to delete campaign.'
             ]);
         }
     }

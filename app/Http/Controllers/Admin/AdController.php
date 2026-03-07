@@ -21,7 +21,7 @@ use Exception;
 
 class AdController extends Controller
 {
-    protected MetaAdsService $meta;
+    protected $meta;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -74,7 +74,7 @@ class AdController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'adset_id'   => ['required','exists:ad_sets,id'],
+            'adset_id'    => ['required','exists:ad_sets,id'],
             'creative_id' => ['required','exists:creatives,id'],
             'name'        => ['required','string','max:255']
         ]);
@@ -89,9 +89,12 @@ class AdController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $adset = AdSet::with('campaign.adAccount')->findOrFail($data['adset_id']);
+            $adset = AdSet::with('campaign.adAccount')
+                ->findOrFail($data['adset_id']);
+
             $creative = Creative::findOrFail($data['creative_id']);
-            $adAccount = $adset->campaign?->adAccount;
+
+            $adAccount = $adset->campaign->adAccount ?? null;
 
             /*
             |--------------------------------------------------------------------------
@@ -103,12 +106,18 @@ class AdController extends Controller
                 throw new Exception('AdSet not synced with Meta.');
             }
 
-            if (!$creative->meta_creative_id) {
+            if (!$creative->meta_id) {
                 throw new Exception('Creative not synced with Meta.');
             }
 
             if (!$adAccount || !$adAccount->meta_id) {
-                throw new Exception('Ad Account not connected to Meta.');
+                throw new Exception('Ad Account not connected.');
+            }
+
+            $metaAccountId = $adAccount->meta_id;
+
+            if (strpos($metaAccountId,'act_') !== 0) {
+                $metaAccountId = 'act_'.$metaAccountId;
             }
 
             /*
@@ -118,19 +127,20 @@ class AdController extends Controller
             */
 
             $payload = [
+
                 'name' => $data['name'],
 
                 'adset_id' => $adset->meta_id,
 
                 'creative' => [
-                    'creative_id' => $creative->meta_creative_id
+                    'creative_id' => $creative->meta_id
                 ],
 
                 'status' => 'PAUSED'
             ];
 
             Log::info('META_AD_CREATE_REQUEST', [
-                'account_id' => $adAccount->meta_id,
+                'account_id' => $metaAccountId,
                 'payload' => $payload
             ]);
 
@@ -141,17 +151,16 @@ class AdController extends Controller
             */
 
             $response = $this->meta->createAd(
-                $adAccount->meta_id,
+                $metaAccountId,
                 $payload
             );
 
-            if (empty($response['id'])) {
+            Log::info('META_AD_CREATE_RESPONSE', $response);
 
-                $metaError = $response['error']['message'] ?? 'Unknown Meta API error';
+            if (!is_array($response) || empty($response['id'])) {
 
-                Log::error('META_AD_CREATE_FAILED', [
-                    'response' => $response
-                ]);
+                $metaError = $response['error']['message']
+                    ?? 'Meta API failed to create Ad';
 
                 throw new Exception($metaError);
             }
@@ -163,10 +172,15 @@ class AdController extends Controller
             */
 
             $ad = Ad::create([
+
                 'adset_id'    => $adset->id,
+
                 'creative_id' => $creative->id,
+
                 'meta_ad_id'  => $response['id'],
+
                 'name'        => $data['name'],
+
                 'status'      => 'PAUSED'
             ]);
 
@@ -181,13 +195,14 @@ class AdController extends Controller
                 ->route('admin.ads.index')
                 ->with('success','Ad created successfully.');
 
-        } catch (Throwable $e) {
+        }
+
+        catch (Throwable $e) {
 
             DB::rollBack();
 
             Log::error('AD_CREATION_EXCEPTION', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error' => $e->getMessage()
             ]);
 
             return back()
@@ -235,8 +250,8 @@ class AdController extends Controller
         return response()->json([
             'image_url' => $creative->image_url ?? null,
             'video_url' => $creative->video_url ?? null,
-            'title' => $creative->title ?? '',
-            'body'  => $creative->body ?? '',
+            'title'     => $creative->title ?? '',
+            'body'      => $creative->body ?? '',
             'call_to_action' => $creative->call_to_action ?? ''
         ]);
     }
@@ -256,25 +271,13 @@ class AdController extends Controller
 
         try {
 
-            /*
-            |--------------------------------------------------------------------------
-            | Update Meta
-            |--------------------------------------------------------------------------
-            */
-
             if ($ad->meta_ad_id) {
 
-                $this->meta->updateAd($ad->meta_ad_id,[
-                    'status'=>$data['status']
-                ]);
-
+                $this->meta->updateAd(
+                    $ad->meta_ad_id,
+                    ['status'=>$data['status']]
+                );
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Update Local
-            |--------------------------------------------------------------------------
-            */
 
             $ad->update([
                 'status'=>$data['status']
@@ -282,7 +285,9 @@ class AdController extends Controller
 
             return back()->with('success','Ad status updated.');
 
-        } catch (Throwable $e) {
+        }
+
+        catch (Throwable $e) {
 
             Log::error('AD_STATUS_UPDATE_FAILED',[
                 'error'=>$e->getMessage()
@@ -305,29 +310,19 @@ class AdController extends Controller
     {
         try {
 
-            /*
-            |--------------------------------------------------------------------------
-            | Delete From Meta
-            |--------------------------------------------------------------------------
-            */
-
             if ($ad->meta_ad_id) {
 
                 $this->meta->deleteAd($ad->meta_ad_id);
 
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Delete Local
-            |--------------------------------------------------------------------------
-            */
-
             $ad->delete();
 
             return back()->with('success','Ad deleted');
 
-        } catch (Throwable $e) {
+        }
+
+        catch (Throwable $e) {
 
             Log::error('AD_DELETE_FAILED',[
                 'error'=>$e->getMessage()

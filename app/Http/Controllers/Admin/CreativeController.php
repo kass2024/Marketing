@@ -26,7 +26,7 @@ class CreativeController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | LIST CREATIVES
+    | LIST
     |--------------------------------------------------------------------------
     */
 
@@ -37,10 +37,9 @@ class CreativeController extends Controller
         return view('admin.creatives.index', compact('creatives'));
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | CREATE FORM
+    | CREATE
     |--------------------------------------------------------------------------
     */
 
@@ -49,10 +48,9 @@ class CreativeController extends Controller
         return view('admin.creatives.create');
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | STORE CREATIVE
+    | STORE
     |--------------------------------------------------------------------------
     */
 
@@ -64,15 +62,15 @@ class CreativeController extends Controller
 
             'name' => 'required|string|max:255',
 
-            'headline' => 'required|string|max:255',
+            'headline' => 'nullable|string|max:255',
 
-            'body' => 'required|string',
+            'body' => 'nullable|string',
 
-            'destination_url' => 'required|url',
+            'destination_url' => 'nullable|url',
 
-            'call_to_action' => 'required|string|max:50',
+            'call_to_action' => 'nullable|string|max:50',
 
-            'image' => 'required|image|max:4096',
+            'image' => 'nullable|image|max:4096',
 
             'sync_meta' => 'nullable|boolean'
         ]);
@@ -82,13 +80,13 @@ class CreativeController extends Controller
         try {
 
             $imagePath = null;
-            $metaCreativeId = null;
             $imageHash = null;
+            $metaCreativeId = null;
             $payload = [];
 
             /*
             |--------------------------------------------------------------------------
-            | STORE IMAGE LOCALLY
+            | STORE IMAGE
             |--------------------------------------------------------------------------
             */
 
@@ -102,7 +100,7 @@ class CreativeController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | META SYNC
+            | META SYNC (OPTIONAL)
             |--------------------------------------------------------------------------
             */
 
@@ -117,7 +115,7 @@ class CreativeController extends Controller
                 $accountId = $account->meta_id;
 
                 if (!str_starts_with($accountId, 'act_')) {
-                    $accountId = 'act_' . $accountId;
+                    $accountId = 'act_'.$accountId;
                 }
 
                 /*
@@ -128,7 +126,7 @@ class CreativeController extends Controller
 
                 if ($imagePath) {
 
-                    $imageFullPath = storage_path('app/public/' . $imagePath);
+                    $imageFullPath = storage_path('app/public/'.$imagePath);
 
                     $imageResponse = $this->meta->uploadImage(
                         $accountId,
@@ -144,9 +142,33 @@ class CreativeController extends Controller
 
                 /*
                 |--------------------------------------------------------------------------
-                | BUILD CREATIVE PAYLOAD
+                | BUILD LINK DATA SAFELY
                 |--------------------------------------------------------------------------
                 */
+
+                $linkData = [];
+
+                if (!empty($data['headline'])) {
+                    $linkData['name'] = $data['headline'];
+                }
+
+                if (!empty($data['body'])) {
+                    $linkData['message'] = $data['body'];
+                }
+
+                if (!empty($data['destination_url'])) {
+                    $linkData['link'] = $data['destination_url'];
+                }
+
+                if ($imageHash) {
+                    $linkData['image_hash'] = $imageHash;
+                }
+
+                if (!empty($data['call_to_action'])) {
+                    $linkData['call_to_action'] = [
+                        'type' => $data['call_to_action']
+                    ];
+                }
 
                 $payload = [
 
@@ -156,20 +178,7 @@ class CreativeController extends Controller
 
                         'page_id' => config('services.meta.page_id'),
 
-                        'link_data' => [
-
-                            'message' => $data['body'],
-
-                            'link' => $data['destination_url'],
-
-                            'name' => $data['headline'],
-
-                            'image_hash' => $imageHash,
-
-                            'call_to_action' => [
-                                'type' => $data['call_to_action']
-                            ]
-                        ]
+                        'link_data' => $linkData
                     ]
                 ];
 
@@ -195,7 +204,7 @@ class CreativeController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | SAVE CREATIVE LOCALLY
+            | SAVE LOCAL CREATIVE
             |--------------------------------------------------------------------------
             */
 
@@ -203,13 +212,13 @@ class CreativeController extends Controller
 
                 'name' => $data['name'],
 
-                'headline' => $data['headline'],
+                'headline' => $data['headline'] ?? null,
 
-                'body' => $data['body'],
+                'body' => $data['body'] ?? null,
 
-                'destination_url' => $data['destination_url'],
+                'destination_url' => $data['destination_url'] ?? null,
 
-                'call_to_action' => $data['call_to_action'],
+                'call_to_action' => $data['call_to_action'] ?? null,
 
                 'image_url' => $imagePath,
 
@@ -249,10 +258,9 @@ class CreativeController extends Controller
         }
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | EDIT CREATIVE
+    | EDIT
     |--------------------------------------------------------------------------
     */
 
@@ -261,10 +269,9 @@ class CreativeController extends Controller
         return view('admin.creatives.edit', compact('creative'));
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | UPDATE CREATIVE
+    | UPDATE
     |--------------------------------------------------------------------------
     */
 
@@ -274,13 +281,13 @@ class CreativeController extends Controller
 
             'name' => 'required|string|max:255',
 
-            'headline' => 'required|string|max:255',
+            'headline' => 'nullable|string|max:255',
 
-            'body' => 'required|string',
+            'body' => 'nullable|string',
 
-            'destination_url' => 'required|url',
+            'destination_url' => 'nullable|url',
 
-            'call_to_action' => 'required|string|max:50',
+            'call_to_action' => 'nullable|string|max:50',
 
             'image' => 'nullable|image|max:4096'
         ]);
@@ -294,41 +301,30 @@ class CreativeController extends Controller
                 }
 
                 $creative->image_url = $request->file('image')
-                    ->store('creatives', 'public');
+                    ->store('creatives','public');
             }
 
-            $creative->update([
-
-                'name' => $data['name'],
-
-                'headline' => $data['headline'],
-
-                'body' => $data['body'],
-
-                'destination_url' => $data['destination_url'],
-
-                'call_to_action' => $data['call_to_action']
-            ]);
+            $creative->update($data);
 
             return redirect()
                 ->route('admin.creatives.index')
-                ->with('success', 'Creative updated successfully.');
+                ->with('success','Creative updated successfully.');
 
         } catch (Throwable $e) {
 
             Log::error('CREATIVE_UPDATE_FAILED', [
-                'error' => $e->getMessage()
+                'error'=>$e->getMessage()
             ]);
 
-            return back()
-                ->withErrors(['meta' => 'Unable to update creative']);
+            return back()->withErrors([
+                'meta'=>'Unable to update creative'
+            ]);
         }
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | DELETE CREATIVE
+    | DELETE
     |--------------------------------------------------------------------------
     */
 
@@ -342,31 +338,28 @@ class CreativeController extends Controller
 
             $creative->delete();
 
-            return back()->with('success', 'Creative deleted.');
+            return back()->with('success','Creative deleted.');
 
         } catch (Throwable $e) {
 
             Log::error('CREATIVE_DELETE_FAILED', [
-                'error' => $e->getMessage()
+                'error'=>$e->getMessage()
             ]);
 
             return back()->withErrors([
-                'meta' => 'Unable to delete creative.'
+                'meta'=>'Unable to delete creative.'
             ]);
         }
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | PREVIEW CREATIVE
+    | PREVIEW
     |--------------------------------------------------------------------------
     */
 
     public function preview(Creative $creative)
     {
-        return view('admin.creatives.preview', [
-            'creative' => $creative
-        ]);
+        return view('admin.creatives.preview', compact('creative'));
     }
 }

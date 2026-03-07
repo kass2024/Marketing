@@ -125,28 +125,27 @@ class MetaAdsService
     |--------------------------------------------------------------------------
     */
 
-    public function createCampaign(string $accountId, array $data): array
-    {
-        $accountId = $this->formatAccount($accountId);
+  public function createCampaign(string $accountId, array $data): array
+{
+    $accountId = $this->formatAccount($accountId);
 
-        Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
+    Log::info('META_CAMPAIGN_DATA_RECEIVED', $data);
 
-        $payload = [
+    $payload = [
 
-            'name' => $data['name'],
+        'name' => $data['name'],
 
-            'objective' => $data['objective'],
+        'objective' => $data['objective'],
 
-            'status' => $data['status'] ?? 'PAUSED',
+        'status' => $data['status'] ?? 'PAUSED',
 
-            'special_ad_categories' => []
-        ];
+        'special_ad_categories' => 'NONE'
+    ];
 
-        Log::info('META_CAMPAIGN_PAYLOAD', $payload);
+    Log::info('META_CAMPAIGN_PAYLOAD', $payload);
 
-        return $this->post("{$accountId}/campaigns", $payload);
-    }
-
+    return $this->post("{$accountId}/campaigns", $payload);
+}
     /*
     |--------------------------------------------------------------------------
     | ACTIVATE CAMPAIGN

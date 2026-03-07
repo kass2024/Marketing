@@ -93,7 +93,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | TARGETING (Meta Safe Structure)
+            | TARGETING BASE STRUCTURE
             |--------------------------------------------------------------------------
             */
 
@@ -124,14 +124,14 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | INTERESTS (Safe Usage)
+            | INTERESTS (limit for Meta stability)
             |--------------------------------------------------------------------------
             */
 
             if (!empty($data['interests'])) {
 
                 $targeting['interests'] = collect($data['interests'])
-                    ->take(5) // limit interests to avoid conflicts
+                    ->take(5)
                     ->map(fn($id) => ['id' => (string)$id])
                     ->values()
                     ->toArray();
@@ -139,7 +139,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES (only if multiple countries)
+            | LANGUAGES (only if multi-country)
             |--------------------------------------------------------------------------
             */
 
@@ -160,30 +160,62 @@ class AdSetController extends Controller
                     throw new Exception('Select at least one platform');
                 }
 
-                $targeting['publisher_platforms'] = $data['publisher_platforms'];
+                $platforms = $data['publisher_platforms'];
 
-                if (in_array('facebook', $data['publisher_platforms'])) {
-                    $targeting['facebook_positions'] = ['feed', 'story'];
+                $targeting['publisher_platforms'] = $platforms;
+
+                if (in_array('facebook', $platforms)) {
+                    $targeting['facebook_positions'] = [
+                        'feed',
+                        'video_feeds',
+                        'marketplace',
+                        'story'
+                    ];
                 }
 
-                if (in_array('instagram', $data['publisher_platforms'])) {
-                    $targeting['instagram_positions'] = ['stream', 'story'];
+                if (in_array('instagram', $platforms)) {
+                    $targeting['instagram_positions'] = [
+                        'stream',
+                        'story',
+                        'reels'
+                    ];
                 }
 
-                if (in_array('messenger', $data['publisher_platforms'])) {
-                    $targeting['messenger_positions'] = ['messenger_home'];
+                if (in_array('messenger', $platforms)) {
+                    $targeting['messenger_positions'] = [
+                        'messenger_home'
+                    ];
                 }
 
-                if (in_array('audience_network', $data['publisher_platforms'])) {
-                    $targeting['audience_network_positions'] = ['classic'];
+                if (in_array('audience_network', $platforms)) {
+                    $targeting['audience_network_positions'] = [
+                        'classic'
+                    ];
                 }
 
             } else {
 
-                // Automatic placements recommended by Meta
+                /*
+                |--------------------------------------------------------------------------
+                | META SAFE AUTOMATIC PLACEMENTS
+                |--------------------------------------------------------------------------
+                */
+
                 $targeting['publisher_platforms'] = [
                     'facebook',
                     'instagram'
+                ];
+
+                $targeting['facebook_positions'] = [
+                    'feed',
+                    'video_feeds',
+                    'marketplace'
+                ];
+
+                $targeting['instagram_positions'] = [
+                    'stream',
+                    'story',
+                    'reels'
                 ];
             }
 

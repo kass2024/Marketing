@@ -12,6 +12,18 @@ class Conversation extends Model
 
     /*
     |--------------------------------------------------------------------------
+    | STATUS CONSTANTS
+    |--------------------------------------------------------------------------
+    */
+
+    const STATUS_BOT = 'bot';
+    const STATUS_HUMAN = 'human';
+    const STATUS_ESCALATED = 'escalated';
+    const STATUS_CLOSED = 'closed';
+
+
+    /*
+    |--------------------------------------------------------------------------
     | MASS ASSIGNMENT
     |--------------------------------------------------------------------------
     */
@@ -20,31 +32,34 @@ class Conversation extends Model
         'client_id',
         'chatbot_id',
         'phone_number',
-        'channel',               // whatsapp | web | telegram | etc
-        'status',                // bot | human | closed | escalated
+        'channel',
+
+        'status',
         'assigned_agent_id',
 
-        // Onboarding
         'customer_name',
         'customer_email',
         'is_profile_completed',
         'profile_step',
 
-        // Ads Attribution (Enterprise)
         'meta_campaign_id',
         'meta_adset_id',
         'meta_ad_id',
-        'source',                // organic | paid
+        'source',
         'first_contact_at',
 
-        // System
         'last_activity_at',
         'last_message_at',
+
         'escalation_reason',
+        'escalation_started_at',
+        'escalation_level',
+
         'metadata',
         'conversation_score',
         'is_active',
     ];
+
 
     /*
     |--------------------------------------------------------------------------
@@ -54,15 +69,19 @@ class Conversation extends Model
 
     protected $casts = [
         'metadata'              => 'array',
-        'last_activity_at'      => 'datetime',
-        'last_message_at'       => 'datetime',
-        'first_contact_at'      => 'datetime',
         'conversation_score'    => 'float',
         'is_active'             => 'boolean',
         'is_profile_completed'  => 'boolean',
+
+        'first_contact_at'      => 'datetime',
+        'last_activity_at'      => 'datetime',
+        'last_message_at'       => 'datetime',
+        'escalation_started_at' => 'datetime',
+
         'created_at'            => 'datetime',
         'updated_at'            => 'datetime',
     ];
+
 
     /*
     |--------------------------------------------------------------------------
@@ -73,11 +92,15 @@ class Conversation extends Model
     protected static function booted()
     {
         static::creating(function ($conversation) {
+
             $conversation->is_active ??= true;
-            $conversation->status ??= 'bot';
+            $conversation->status ??= self::STATUS_BOT;
             $conversation->source ??= 'organic';
+            $conversation->first_contact_at ??= now();
+
         });
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -105,10 +128,26 @@ class Conversation extends Model
         return $this->hasOne(ConversationState::class);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | AGENT RELATIONS
+    |--------------------------------------------------------------------------
+    */
+
     public function assignedAgent()
     {
         return $this->belongsTo(User::class, 'assigned_agent_id');
     }
+
+    /*
+    | Alias for controller compatibility
+    */
+
+    public function agent()
+    {
+        return $this->belongsTo(User::class, 'assigned_agent_id');
+    }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -123,22 +162,22 @@ class Conversation extends Model
 
     public function scopeBot(Builder $query)
     {
-        return $query->where('status', 'bot');
+        return $query->where('status', self::STATUS_BOT);
     }
 
     public function scopeHuman(Builder $query)
     {
-        return $query->where('status', 'human');
+        return $query->where('status', self::STATUS_HUMAN);
     }
 
     public function scopeEscalated(Builder $query)
     {
-        return $query->where('status', 'escalated');
+        return $query->where('status', self::STATUS_ESCALATED);
     }
 
     public function scopeClosed(Builder $query)
     {
-        return $query->where('status', 'closed');
+        return $query->where('status', self::STATUS_CLOSED);
     }
 
     public function scopePaid(Builder $query)
@@ -161,6 +200,7 @@ class Conversation extends Model
         return $query->where('is_profile_completed', false);
     }
 
+
     /*
     |--------------------------------------------------------------------------
     | STATUS MANAGEMENT
@@ -170,15 +210,16 @@ class Conversation extends Model
     public function markAsHuman(?int $agentId = null): void
     {
         $this->update([
-            'status' => 'human',
+            'status' => self::STATUS_HUMAN,
             'assigned_agent_id' => $agentId,
+            'escalation_started_at' => now(),
         ]);
     }
 
     public function markAsBot(): void
     {
         $this->update([
-            'status' => 'bot',
+            'status' => self::STATUS_BOT,
             'assigned_agent_id' => null,
         ]);
     }
@@ -186,18 +227,20 @@ class Conversation extends Model
     public function escalate(string $reason): void
     {
         $this->update([
-            'status' => 'escalated',
+            'status' => self::STATUS_ESCALATED,
             'escalation_reason' => $reason,
+            'escalation_started_at' => now(),
         ]);
     }
 
     public function close(): void
     {
         $this->update([
-            'status' => 'closed',
+            'status' => self::STATUS_CLOSED,
             'is_active' => false,
         ]);
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -220,9 +263,32 @@ class Conversation extends Model
         ]);
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | ATTRIBUTION MANAGEMENT (Enterprise)
+    | ESCALATION HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function escalationTimeSeconds(): int
+    {
+        if (!$this->escalation_started_at) {
+            return 0;
+        }
+
+        return now()->diffInSeconds($this->escalation_started_at);
+    }
+
+    public function isEscalated(): bool
+    {
+        return $this->status === self::STATUS_HUMAN
+            || $this->status === self::STATUS_ESCALATED;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | ATTRIBUTION MANAGEMENT
     |--------------------------------------------------------------------------
     */
 
@@ -232,16 +298,19 @@ class Conversation extends Model
         ?string $adId,
         string $source = 'organic'
     ): void {
-        // First-touch protection
+
         if ($this->source === 'organic' && $source === 'paid') {
+
             $this->update([
                 'meta_campaign_id' => $campaignId,
                 'meta_adset_id'    => $adsetId,
                 'meta_ad_id'       => $adId,
                 'source'           => 'paid',
             ]);
+
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -262,11 +331,14 @@ class Conversation extends Model
     public function startOnboarding(): void
     {
         if (!$this->profile_step) {
+
             $this->update([
                 'profile_step' => 'ask_name'
             ]);
+
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -281,11 +353,25 @@ class Conversation extends Model
 
     public function isBotHandled(): bool
     {
-        return $this->status === 'bot';
+        return $this->status === self::STATUS_BOT;
     }
 
     public function isHumanHandled(): bool
     {
-        return $this->status === 'human';
+        return $this->status === self::STATUS_HUMAN;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | UNREAD MESSAGES
+    |--------------------------------------------------------------------------
+    */
+
+    public function unreadMessages()
+    {
+        return $this->messages()
+            ->where('direction', 'incoming')
+            ->where('is_read', false);
     }
 }

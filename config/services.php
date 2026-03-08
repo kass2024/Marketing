@@ -41,7 +41,7 @@ return [
         'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
         'graph_url'     => env('META_GRAPH_URL', 'https://graph.facebook.com'),
         'oauth_url'     => env('META_OAUTH_URL', 'https://www.facebook.com'),
-         'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
+         
     'token' => env('META_SYSTEM_USER_TOKEN'),
     'ad_account_id' => env('META_AD_ACCOUNT_ID'),
      'page_id' => env('META_PAGE_ID'),
@@ -81,10 +81,12 @@ return [
     */
     'whatsapp' => [
 
-        'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
-        'graph_url'     => env('META_GRAPH_URL', 'https://graph.facebook.com'),
+       'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
+    'graph_url'     => env('META_GRAPH_URL', 'https://graph.facebook.com'),
+    'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
+    'access_token'    => env('WHATSAPP_ACCESS_TOKEN'),
+    'timeout' => (int) env('WHATSAPP_TIMEOUT', 30),
 
-        'timeout' => (int) env('WHATSAPP_TIMEOUT', 30),
     ],
 
     /*

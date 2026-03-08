@@ -37,6 +37,25 @@ class AIEngine
         $requestId = Str::uuid()->toString();
         $normalized = $this->normalize($message);
         $hash = hash('sha256', $clientId . $normalized);
+        /*
+|--------------------------------------------------------------------------
+| HUMAN MODE PROTECTION
+|--------------------------------------------------------------------------
+*/
+
+if ($conversation && $conversation->status === 'human') {
+
+    $this->log('AI BLOCKED - HUMAN ACTIVE', [
+        'conversation_id' => $conversation->id
+    ], $requestId);
+
+    return [
+        'text' => '',
+        'attachments' => [],
+        'confidence' => 0,
+        'source' => 'human_active'
+    ];
+}
 
         $this->log('START', [
             'client_id' => $clientId,
@@ -135,12 +154,43 @@ class AIEngine
             // PURE AI
             $this->log('PURE AI MODE', [], $requestId);
 
-            return $this->handlePureAI(
-                $clientId,
-                $hash,
-                $normalized,
-                $requestId
-            );
+          $response = $this->handlePureAI(
+    $clientId,
+    $hash,
+    $normalized,
+    $requestId
+);
+
+/*
+|--------------------------------------------------------------------------
+| HUMAN ESCALATION
+|--------------------------------------------------------------------------
+*/
+
+if ($this->needsHuman($normalized, $response['confidence'] ?? 0)) {
+
+    if ($conversation) {
+
+        $conversation->update([
+            'status' => 'human',
+            'escalation_reason' => 'ai_escalation',
+            'last_activity_at' => now()
+        ]);
+
+        $this->log('ESCALATED TO HUMAN', [
+            'conversation_id' => $conversation->id
+        ], $requestId);
+    }
+
+    return [
+        'text' => "I'm connecting you to a human agent 👩‍💻 Please wait.",
+        'attachments' => [],
+        'confidence' => 0,
+        'source' => 'handover'
+    ];
+}
+
+return $response;
 
         } catch (\Throwable $e) {
 
@@ -321,7 +371,30 @@ $message";
             'good morning','good afternoon','good evening'
         ]);
     }
+protected function needsHuman(string $message, float $confidence = 1): bool
+{
+    $keywords = [
+        'human',
+        'agent',
+        'support',
+        'representative',
+        'talk to someone',
+        'call me',
+        'customer care'
+    ];
 
+    foreach ($keywords as $word) {
+        if (str_contains($message, $word)) {
+            return true;
+        }
+    }
+
+    if ($confidence < 0.35) {
+        return true;
+    }
+
+    return false;
+}
     protected function formatResponse(string $text, array $attachments, float $confidence, string $source): array
     {
         return compact('text','attachments','confidence','source');

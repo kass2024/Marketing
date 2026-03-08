@@ -1,42 +1,53 @@
 <x-app-layout>
 
-<div class="h-screen bg-gray-100 flex overflow-hidden">
+<div class="h-screen flex bg-[#f0f2f5] overflow-hidden">
 
-{{-- ================= SIDEBAR ================= --}}
+{{-- =====================================================
+SIDEBAR
+===================================================== --}}
 <div id="sidebar"
-class="w-[340px] bg-white border-r flex flex-col
-md:flex relative z-20
-fixed md:relative h-full md:h-auto
-transition-transform duration-300">
+class="w-full md:w-[360px] bg-white border-r flex flex-col
+fixed md:relative z-30 h-full
+transition-transform duration-300
+-translate-x-full md:translate-x-0">
 
-<div class="p-4 border-b flex justify-between items-center">
-<h2 class="font-semibold text-gray-700">Inbox</h2>
+{{-- HEADER --}}
+<div class="px-4 py-3 bg-[#f0f2f5] border-b flex justify-between items-center">
+
+<h2 class="font-semibold text-gray-700 text-sm">
+Inbox
+</h2>
 
 <a href="/admin/bulk"
-class="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg">
+class="bg-green-500 text-white text-xs px-3 py-1 rounded-md">
 Bulk Send
 </a>
+
 </div>
 
-<div class="p-4 border-b">
+{{-- SEARCH --}}
+<div class="p-3 border-b">
+
 <input
 type="text"
 name="search"
 value="{{ $search }}"
-placeholder="Search conversations..."
-class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-blue-500">
+placeholder="Search conversations"
+class="w-full bg-[#f0f2f5] rounded-lg px-4 py-2 text-sm border-0 focus:ring-2 focus:ring-green-500">
+
 </div>
 
-<div class="px-4 py-3 flex gap-2 text-xs flex-wrap">
+{{-- FILTERS --}}
+<div class="flex gap-2 px-3 py-2 text-xs overflow-x-auto">
 
 @foreach(['all','unread','human','bot','closed'] as $f)
 
 <a
 href="?filter={{ $f }}"
-class="px-3 py-1 rounded-full font-medium
+class="px-3 py-1 rounded-full whitespace-nowrap
 {{ $filter === $f
-? 'bg-blue-600 text-white'
-: 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+? 'bg-green-500 text-white'
+: 'bg-gray-200 text-gray-700' }}">
 {{ ucfirst($f) }}
 </a>
 
@@ -44,6 +55,7 @@ class="px-3 py-1 rounded-full font-medium
 
 </div>
 
+{{-- CHAT LIST --}}
 <div class="flex-1 overflow-y-auto">
 
 @foreach($conversations as $conversation)
@@ -55,26 +67,28 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 
 <div class="relative">
 
-<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
+<div class="w-11 h-11 rounded-full bg-green-100 flex items-center justify-center font-semibold text-green-700">
 {{ strtoupper(substr($conversation->customer_name ?? 'U',0,1)) }}
 </div>
 
-@if($conversation->is_online ?? false)
+@if($conversation->is_online)
 <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
 @endif
 
 </div>
 
-<div class="flex-1">
+<div class="flex-1 min-w-0">
 
-<p class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+<p class="text-sm font-semibold text-gray-800 truncate">
+
 {{ $conversation->customer_name ?? $conversation->phone_number }}
 
 @if($conversation->status === 'human')
-<span class="text-[10px] bg-yellow-500 text-white px-2 py-0.5 rounded">
+<span class="ml-1 text-[10px] bg-yellow-500 text-white px-2 rounded">
 ESCALATED
 </span>
 @endif
+
 </p>
 
 <p class="text-xs text-gray-500 truncate">
@@ -84,7 +98,7 @@ ESCALATED
 </div>
 
 @if($conversation->unread_count > 0)
-<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+<span class="bg-green-500 text-white text-xs px-2 py-[2px] rounded-full">
 {{ $conversation->unread_count }}
 </span>
 @endif
@@ -95,7 +109,7 @@ ESCALATED
 
 </div>
 
-<div class="p-3 border-t">
+<div class="p-2 border-t">
 {{ $conversations->links() }}
 </div>
 
@@ -103,26 +117,31 @@ ESCALATED
 
 
 
-{{-- ================= CHAT AREA ================= --}}
+{{-- =====================================================
+CHAT AREA
+===================================================== --}}
 <div class="flex-1 flex flex-col h-full">
 
 @if($activeConversation)
 
-<div class="bg-white border-b px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+{{-- CHAT HEADER --}}
+<div class="bg-[#f0f2f5] border-b px-4 py-3 flex justify-between items-center">
 
 <div class="flex items-center gap-3">
 
-<button onclick="toggleSidebar()" class="md:hidden text-gray-500">
+{{-- MOBILE MENU --}}
+<button onclick="toggleSidebar()" class="md:hidden text-gray-600 text-xl">
 ☰
 </button>
 
 <div class="relative">
 
-<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
+<div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center font-semibold text-green-700">
 {{ strtoupper(substr($activeConversation->customer_name ?? 'U',0,1)) }}
 </div>
 
-<div id="onlineIndicator"
+<div
+id="onlineIndicator"
 class="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full
 {{ $activeConversation->is_online ? 'bg-green-500' : 'bg-gray-300' }}">
 </div>
@@ -130,57 +149,103 @@ class="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full
 </div>
 
 <div>
-<p class="font-semibold text-gray-800">
+
+<p class="font-semibold text-gray-800 text-sm">
 {{ $activeConversation->customer_name }}
 </p>
 
 <p class="text-xs text-gray-500">
 {{ $activeConversation->customer_email }}
 </p>
-</div>
 
 </div>
 
-<div class="flex gap-2">
+</div>
+
+
+{{-- DESKTOP ACTIONS --}}
+<div class="hidden md:flex items-center gap-2">
 
 <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
 @csrf
-<button class="px-4 py-2 rounded-lg text-sm
-{{ $activeConversation->status === 'bot'
-? 'bg-blue-600 text-white'
-: 'bg-yellow-500 text-white' }}">
-{{ $activeConversation->status === 'bot'
-? 'Switch to Human'
-: 'Switch to Bot' }}
+<button class="text-xs px-3 py-1 bg-green-600 text-white rounded">
+Switch
 </button>
 </form>
 
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
 @csrf
-<button class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm">
+<button class="text-xs px-3 py-1 bg-red-500 text-white rounded">
 Close
 </button>
 </form>
 
 <form method="POST"
 action="{{ route('admin.inbox.delete',$activeConversation->id) }}"
-onsubmit="return confirm('Delete this conversation permanently?')">
+onsubmit="return confirm('Delete conversation?')">
 @csrf
 @method('DELETE')
-<button class="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm">
+
+<button class="text-xs px-3 py-1 bg-gray-800 text-white rounded">
 Delete
 </button>
+
+</form>
+
+</div>
+
+
+{{-- MOBILE 3 DOT MENU --}}
+<div class="relative md:hidden">
+
+<button onclick="toggleMenu()" class="text-xl text-gray-600">
+⋮
+</button>
+
+<div id="menu"
+class="hidden absolute right-0 mt-2 w-40 bg-white shadow-lg rounded-lg border text-sm">
+
+<form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
+@csrf
+<button class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+Switch Human/Bot
+</button>
+</form>
+
+<form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
+@csrf
+<button class="block w-full text-left px-4 py-2 hover:bg-gray-100">
+Close
+</button>
+</form>
+
+<form method="POST"
+action="{{ route('admin.inbox.delete',$activeConversation->id) }}"
+onsubmit="return confirm('Delete conversation?')">
+@csrf
+@method('DELETE')
+
+<button class="block w-full text-left px-4 py-2 hover:bg-gray-100 text-red-600">
+Delete
+</button>
+
 </form>
 
 </div>
 
 </div>
 
+</div>
 
 
-{{-- ================= MESSAGE STREAM ================= --}}
-<div id="chatBox"
-class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
+
+{{-- =====================================================
+MESSAGES
+===================================================== --}}
+<div
+id="chatBox"
+class="flex-1 overflow-y-auto p-6 space-y-3
+bg-[url('/img/whatsapp-bg.png')] bg-repeat">
 
 @foreach($activeConversation->messages as $message)
 
@@ -188,34 +253,33 @@ class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
 data-message-id="{{ $message->id }}"
 class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }}">
 
-<div class="max-w-[70%]">
+<div class="max-w-[85%] md:max-w-[65%]">
 
 <div class="px-4 py-2 text-sm rounded-lg shadow
+break-words
 {{ $message->direction === 'outgoing'
-? 'bg-blue-600 text-white rounded-br-none'
+? 'bg-green-500 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none' }}">
 
-@if($message->content)
 {!! nl2br(e($message->content)) !!}
-@endif
 
 </div>
 
 <div
 id="msg-status-{{ $message->id }}"
-class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
-{{ $message->direction === 'outgoing' ? 'justify-end' : '' }}">
+class="text-[11px] text-gray-500 mt-1
+{{ $message->direction === 'outgoing' ? 'text-right' : '' }}">
 
 {{ $message->created_at->format('H:i') }}
 
 @if($message->direction === 'outgoing')
 
 @if($message->status === 'sent')
-<span>✓</span>
+✓
 @endif
 
 @if($message->status === 'delivered')
-<span>✓✓</span>
+✓✓
 @endif
 
 @if($message->status === 'read')
@@ -236,8 +300,10 @@ class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
 
 
 
-{{-- ================= REPLY BOX ================= --}}
-<div class="bg-white border-t p-3 sticky bottom-0">
+{{-- =====================================================
+MESSAGE INPUT
+===================================================== --}}
+<div class="bg-[#f0f2f5] border-t p-3">
 
 <form
 method="POST"
@@ -246,18 +312,18 @@ enctype="multipart/form-data">
 
 @csrf
 
-<div class="flex gap-2 items-center">
+<div class="flex items-center gap-2">
 
 <input
 type="text"
 name="message"
-placeholder="Type a message..."
-class="flex-1 bg-gray-100 rounded-full px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500">
+placeholder="Type a message"
+class="flex-1 bg-white rounded-full px-4 py-2 text-sm border border-gray-200 focus:ring-2 focus:ring-green-500">
 
-<input type="file" name="attachment" class="text-sm">
+<input type="file" name="attachment" class="text-xs">
 
 <button
-class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full font-semibold">
+class="bg-green-500 hover:bg-green-600 text-white px-5 py-2 rounded-full text-sm">
 Send
 </button>
 
@@ -275,30 +341,36 @@ Send
 
 
 
+{{-- =====================================================
+JS
+===================================================== --}}
 <script>
 
 function toggleSidebar(){
-document.getElementById("sidebar").classList.toggle("-translate-x-full");
+document.getElementById('sidebar').classList.toggle('-translate-x-full');
+}
+
+function toggleMenu(){
+document.getElementById('menu').classList.toggle('hidden');
 }
 
 const chatBox = document.getElementById("chatBox");
 
-function isAtBottom(){
-return chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 100;
-}
-
 function scrollBottom(){
+if(chatBox){
 chatBox.scrollTop = chatBox.scrollHeight;
 }
-
-if(chatBox){
-scrollBottom();
 }
+
+scrollBottom();
 
 </script>
 
 
 
+{{-- =====================================================
+REALTIME FETCH
+===================================================== --}}
 <script>
 
 @if($activeConversation)
@@ -308,20 +380,11 @@ let lastMessageId = document.querySelector('[data-message-id]:last-child')?.data
 
 function fetchMessages(){
 
-const shouldScroll = isAtBottom();
-
 fetch(`/admin/inbox/${conversationId}/messages`)
 .then(res => res.json())
 .then(data => {
 
-const messages = data.messages;
-const online = data.online;
-
-updateOnline(online);
-
-messages.forEach(msg => {
-
-updateStatus(msg);
+data.messages.forEach(msg => {
 
 if(msg.id > lastMessageId){
 
@@ -332,64 +395,31 @@ lastMessageId = msg.id;
 
 });
 
-if(shouldScroll) scrollBottom();
-
 });
-
-}
-
-function updateOnline(online){
-
-const dot = document.getElementById("onlineIndicator");
-
-if(!dot) return;
-
-dot.classList.remove("bg-green-500","bg-gray-300");
-
-dot.classList.add(online ? "bg-green-500" : "bg-gray-300");
-
-}
-
-function updateStatus(msg){
-
-if(!msg.status) return;
-
-const el = document.getElementById("msg-status-"+msg.id);
-
-if(!el) return;
-
-let ticks = "";
-
-if(msg.status==="sent") ticks="✓";
-if(msg.status==="delivered") ticks="✓✓";
-if(msg.status==="read") ticks='<span class="text-blue-500">✓✓</span>';
-
-el.innerHTML = msg.time+" "+ticks;
 
 }
 
 function appendMessage(msg){
 
-let content = msg.content ? `<p>${msg.content}</p>` : "";
-
-const wrapper = document.createElement("div");
+let wrapper = document.createElement("div");
 
 wrapper.className =
 "flex " + (msg.direction === "outgoing" ? "justify-end" : "justify-start");
 
 wrapper.innerHTML = `
-<div class="max-w-[70%]">
-<div class="px-4 py-2 text-sm rounded-lg shadow
+<div class="max-w-[85%] md:max-w-[65%]">
+<div class="px-4 py-2 text-sm rounded-lg shadow break-words
 ${msg.direction === 'outgoing'
-? 'bg-blue-600 text-white rounded-br-none'
+? 'bg-green-500 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none'}">
-${content}
+${msg.content}
 </div>
-<div id="msg-status-${msg.id}" class="text-[11px] text-gray-400 mt-1">${msg.time}</div>
+<div class="text-[11px] text-gray-500 mt-1">${msg.time}</div>
 </div>
 `;
 
 chatBox.appendChild(wrapper);
+scrollBottom();
 
 }
 

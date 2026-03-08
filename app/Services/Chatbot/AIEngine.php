@@ -27,218 +27,230 @@ class AIEngine
     }
 
     /*
+|--------------------------------------------------------------------------
+| MAIN ENTRY
+|--------------------------------------------------------------------------
+*/
+
+public function reply(int $clientId, string $message, $conversation = null): array
+{
+    $requestId = Str::uuid()->toString();
+    $normalized = $this->normalize($message);
+    $hash = hash('sha256', $clientId . $normalized);
+
+    $this->log('MESSAGE_RECEIVED', [
+        'conversation_id' => $conversation?->id,
+        'message' => $normalized
+    ], $requestId);
+
+    /*
     |--------------------------------------------------------------------------
-    | MAIN ENTRY
+    | HUMAN MODE PROTECTION
     |--------------------------------------------------------------------------
     */
 
-    public function reply(int $clientId, string $message, $conversation = null): array
-    {
-        $requestId = Str::uuid()->toString();
-        $normalized = $this->normalize($message);
-        $this->log('MESSAGE_RECEIVED', [
-    'conversation_id' => $conversation?->id,
-    'message' => $normalized
-], $requestId);
-        $hash = hash('sha256', $clientId . $normalized);
-        /*
-|--------------------------------------------------------------------------
-| HUMAN MODE PROTECTION
-|--------------------------------------------------------------------------
-*/
+    if ($conversation && $conversation->status === 'human') {
 
-if ($conversation && $conversation->status === 'human') {
-
-    $this->log('AI BLOCKED - HUMAN ACTIVE', [
-        'conversation_id' => $conversation->id
-    ], $requestId);
-
-    return [
-        'text' => '',
-        'attachments' => [],
-        'confidence' => 0,
-        'source' => 'human_active'
-    ];
-}
-
-        $this->log('START', [
-            'client_id' => $clientId,
-            'message'   => $normalized
-        ], $requestId);
-
-        try {
-
-            if ($normalized === '') {
-                return $this->fallback("How can we assist you today?");
-            }
-
-            // CACHE
-            if ($cached = AiCache::where('client_id', $clientId)
-                ->where('message_hash', $hash)
-                ->first()) {
-
-                $decoded = json_decode($cached->response, true);
-
-                if (is_array($decoded)) {
-                    $this->log('CACHE HIT', [], $requestId);
-                    return $decoded;
-                }
-            }
-
-            // GREETING
-            if ($this->isGreeting($normalized)) {
-                return $this->formatResponse(
-                    "Hello 👋 How can we assist you?",
-                    [],
-                    1.0,
-                    'system'
-                );
-            }
-
-            // EXACT MATCH (Deterministic)
-            $exact = KnowledgeBase::forClient($clientId)
-                ->active()
-                ->whereRaw('LOWER(question) = ?', [$normalized])
-                ->with('attachments')
-                ->first();
-
-            if ($exact) {
-                $this->log('EXACT FAQ MATCH', [], $requestId);
-
-                return $this->store(
-                    $clientId,
-                    $hash,
-                    $this->formatFromKnowledge($exact, 1.0, 'faq_exact')
-                );
-            }
-
-            // SEMANTIC RETRIEVAL
-            $candidates = $this->retrieveCandidates($clientId, $normalized, $requestId);
-
-            if (!empty($candidates)) {
-
-                $best = $candidates[0];
-
-                $this->log('TOP MATCH', [
-                    'score' => round($best['score'], 4),
-                    'question' => $best['knowledge']->question
-                ], $requestId);
-
-                // FAQ MODE
-                if ($best['score'] >= $this->faqThreshold) {
-
-                    $this->log('FAQ MODE', [], $requestId);
-
-                    return $this->store(
-                        $clientId,
-                        $hash,
-                        $this->formatFromKnowledge(
-                            $best['knowledge'],
-                            $best['score'],
-                            'faq_semantic'
-                        )
-                    );
-                }
-
-                // GROUNDED MODE
-                if ($best['score'] >= $this->groundThreshold) {
-
-                    $this->log('GROUNDED MODE', [], $requestId);
-
-                    return $this->handleGroundedAI(
-                        $clientId,
-                        $hash,
-                        $normalized,
-                        $candidates,
-                        $requestId
-                    );
-                }
-            }
-
-            // PURE AI
-            $this->log('PURE AI MODE', [], $requestId);
-
-          $response = $this->handlePureAI(
-    $clientId,
-    $hash,
-    $normalized,
-    $requestId
-);
-
-/*
-|--------------------------------------------------------------------------
-| HUMAN ESCALATION
-|--------------------------------------------------------------------------
-*/
-
-if ($this->needsHuman($normalized, $response['confidence'] ?? 0)) {
-
-    if ($conversation) {
-
-        $conversation->update([
-            'status' => 'human',
-            'escalation_reason' => 'ai_escalation',
-            'last_activity_at' => now()
-        ]);
-
-        $this->log('ESCALATED_TO_HUMAN', [
+        $this->log('AI_BLOCKED_HUMAN_ACTIVE', [
             'conversation_id' => $conversation->id
         ], $requestId);
 
+        return [
+            'text' => '',
+            'attachments' => [],
+            'confidence' => 0,
+            'source' => 'human_active'
+        ];
+    }
+
+    try {
+
         /*
         |--------------------------------------------------------------------------
-        | ASSIGN AGENT
+        | EMPTY MESSAGE
         |--------------------------------------------------------------------------
         */
 
-        $router = app(\App\Services\AgentRouter::class);
-        $agent = $router->assignAgent($conversation);
+        if ($normalized === '') {
+            return $this->fallback("How can we assist you today?");
+        }
 
-        if ($agent) {
+        /*
+        |--------------------------------------------------------------------------
+        | USER REQUESTED HUMAN
+        |--------------------------------------------------------------------------
+        */
 
-            $this->log('AGENT_SELECTED', [
-                'agent_id' => $agent->id,
-                'agent_name' => $agent->name
+        if ($this->needsHuman($normalized)) {
+
+            $this->log('USER_REQUESTED_AGENT', [
+                'conversation_id' => $conversation?->id
+            ], $requestId);
+
+            return $this->handoverToHuman($conversation, $requestId);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | CACHE
+        |--------------------------------------------------------------------------
+        */
+
+        $cached = AiCache::where('client_id', $clientId)
+            ->where('message_hash', $hash)
+            ->first();
+
+        if ($cached) {
+
+            $decoded = json_decode($cached->response, true);
+
+            if (is_array($decoded)) {
+
+                $this->log('CACHE_HIT', [], $requestId);
+
+                return $decoded;
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | GREETING
+        |--------------------------------------------------------------------------
+        */
+
+        if ($this->isGreeting($normalized)) {
+
+            return $this->formatResponse(
+                "Hello 👋 How can we assist you?",
+                [],
+                1.0,
+                'system'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | EXACT FAQ MATCH
+        |--------------------------------------------------------------------------
+        */
+
+        $exact = KnowledgeBase::forClient($clientId)
+            ->active()
+            ->whereRaw('LOWER(question) = ?', [$normalized])
+            ->with('attachments')
+            ->first();
+
+        if ($exact) {
+
+            $this->log('FAQ_EXACT_MATCH', [], $requestId);
+
+            return $this->store(
+                $clientId,
+                $hash,
+                $this->formatFromKnowledge($exact, 1.0, 'faq_exact')
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | SEMANTIC RETRIEVAL
+        |--------------------------------------------------------------------------
+        */
+
+        $candidates = $this->retrieveCandidates($clientId, $normalized, $requestId);
+
+        if (!empty($candidates)) {
+
+            $best = $candidates[0];
+
+            $this->log('SEMANTIC_TOP_MATCH', [
+                'score' => round($best['score'], 4),
+                'question' => $best['knowledge']->question
             ], $requestId);
 
             /*
             |--------------------------------------------------------------------------
-            | NOTIFY AGENT
+            | FAQ SEMANTIC
             |--------------------------------------------------------------------------
             */
 
-            app(\App\Services\AgentNotifier::class)
-                ->notifyAgent($agent, $conversation);
+            if ($best['score'] >= $this->faqThreshold) {
 
-        } else {
+                $this->log('FAQ_SEMANTIC_MODE', [], $requestId);
 
-            $this->log('NO_AGENT_AVAILABLE', [], $requestId);
+                return $this->store(
+                    $clientId,
+                    $hash,
+                    $this->formatFromKnowledge(
+                        $best['knowledge'],
+                        $best['score'],
+                        'faq_semantic'
+                    )
+                );
+            }
 
+            /*
+            |--------------------------------------------------------------------------
+            | GROUNDED AI
+            |--------------------------------------------------------------------------
+            */
+
+            if ($best['score'] >= $this->groundThreshold) {
+
+                $this->log('GROUNDED_AI_MODE', [], $requestId);
+
+                return $this->handleGroundedAI(
+                    $clientId,
+                    $hash,
+                    $normalized,
+                    $candidates,
+                    $requestId
+                );
+            }
         }
 
-    }
+        /*
+        |--------------------------------------------------------------------------
+        | PURE AI
+        |--------------------------------------------------------------------------
+        */
 
-    return [
-        'text' => "I'm connecting you to a human agent 👩‍💻 Please wait.",
-        'attachments' => [],
-        'confidence' => 0,
-        'source' => 'handover'
-    ];
+        $this->log('PURE_AI_MODE', [], $requestId);
+
+        $response = $this->handlePureAI(
+            $clientId,
+            $hash,
+            $normalized,
+            $requestId
+        );
+
+        /*
+        |--------------------------------------------------------------------------
+        | LOW CONFIDENCE ESCALATION
+        |--------------------------------------------------------------------------
+        */
+
+        if (($response['confidence'] ?? 1) < 0.35) {
+
+            $this->log('AI_LOW_CONFIDENCE_ESCALATION', [
+                'confidence' => $response['confidence'] ?? null
+            ], $requestId);
+
+            return $this->handoverToHuman($conversation, $requestId);
+        }
+
+        return $response;
+
+    } catch (\Throwable $e) {
+
+        Log::error('AIENGINE_FATAL', [
+            'error' => $e->getMessage(),
+            'request_id' => $requestId
+        ]);
+
+        return $this->fallback("Sorry, something went wrong.");
+    }
 }
-
-return $response;
-
-        } catch (\Throwable $e) {
-
-            Log::error('AIEngine FATAL', [
-                'error' => $e->getMessage(),
-                'request_id' => $requestId
-            ]);
-
-            return $this->fallback("Sorry, something went wrong.");
-        }
-    }
-
     /*
     |--------------------------------------------------------------------------
     | RETRIEVAL
@@ -366,13 +378,11 @@ $message";
                 ]);
 
             if ($response->failed()) {
-
-               Log::error('OPENAI_FAILED', [
+Log::error('OPENAI_FAILED', [
     'status' => $response->status(),
     'body' => $response->body(),
     'request_id' => $requestId
-]);;
-
+]);
                 return null;
             }
 
@@ -409,7 +419,7 @@ $message";
             'good morning','good afternoon','good evening'
         ]);
     }
-protected function needsHuman(string $message, float $confidence = 1): bool
+protected function needsHuman(string $message, ?float $confidence = null): bool
 {
     $keywords = [
         'human',
@@ -435,7 +445,7 @@ protected function needsHuman(string $message, float $confidence = 1): bool
         }
     }
 
-    if ($confidence < 0.35) {
+    if ($confidence !== null && $confidence < 0.35) {
 
         Log::info('AI_ESCALATION_LOW_CONFIDENCE', [
             'confidence' => $confidence,
@@ -446,6 +456,39 @@ protected function needsHuman(string $message, float $confidence = 1): bool
     }
 
     return false;
+}
+protected function handoverToHuman($conversation, string $requestId): array
+{
+
+    if ($conversation) {
+
+        $conversation->update([
+            'status' => 'human',
+            'escalation_reason' => 'ai_escalation',
+            'last_activity_at' => now()
+        ]);
+
+        $this->log('ESCALATED_TO_HUMAN', [
+            'conversation_id' => $conversation->id
+        ], $requestId);
+
+        $router = app(\App\Services\AgentRouter::class);
+        $agent = $router->assignAgent($conversation);
+
+        if ($agent) {
+
+            app(\App\Services\AgentNotifier::class)
+                ->notifyAgent($agent, $conversation);
+
+        }
+    }
+
+    return [
+        'text' => "I'm connecting you to a human agent 👩‍💻 Please wait.",
+        'attachments' => [],
+        'confidence' => 1,
+        'source' => 'handover'
+    ];
 }
     protected function formatResponse(string $text, array $attachments, float $confidence, string $source): array
     {

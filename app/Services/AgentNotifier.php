@@ -10,7 +10,7 @@ use App\Models\User;
 class AgentNotifier
 {
     /**
-     * Notify agent about new conversation escalation
+     * Notify agent about new conversation escalation using WhatsApp template
      */
     public function notifyAgent(User $agent, Conversation $conversation): bool
     {
@@ -33,49 +33,67 @@ class AgentNotifier
 
             /*
             |--------------------------------------------------------------------------
-            | Normalize phone number (remove spaces + symbols)
+            | Normalize numbers
             |--------------------------------------------------------------------------
             */
 
             $agentPhone = preg_replace('/[^0-9]/', '', $agent->whatsapp_number);
             $customerPhone = preg_replace('/[^0-9]/', '', $conversation->phone_number);
 
-            /*
-            |--------------------------------------------------------------------------
-            | Build notification message
-            |--------------------------------------------------------------------------
-            */
+            $dashboardLink = config('app.url') . "/login/" . $conversation->id;
 
-            $message =
-                "⚠️ New support request\n\n".
-                "Customer: {$customerPhone}\n\n".
-                "Open chat:\n".
-                "https://wa.me/{$customerPhone}";
+            Log::info('AGENT_NOTIFICATION_START', [
+                'agent_id' => $agent->id,
+                'agent_name' => $agent->name,
+                'agent_phone' => $agentPhone,
+                'customer_phone' => $customerPhone,
+                'conversation_id' => $conversation->id
+            ]);
 
             /*
             |--------------------------------------------------------------------------
-            | Send WhatsApp message via Meta API
+            | Send WhatsApp Template Message
             |--------------------------------------------------------------------------
             */
 
             $response = Http::withToken(config('services.whatsapp.token'))
-                ->timeout(15)
+                ->timeout(20)
                 ->retry(2, 500)
                 ->post(
-                    "https://graph.facebook.com/v19.0/".config('services.whatsapp.phone_number_id')."/messages",
+                    "https://graph.facebook.com/v19.0/" .
+                    config('services.whatsapp.phone_number_id') .
+                    "/messages",
                     [
                         "messaging_product" => "whatsapp",
                         "to" => $agentPhone,
-                        "type" => "text",
-                        "text" => [
-                            "body" => $message
+                        "type" => "template",
+                        "template" => [
+                            "name" => "agent_support_alert",
+                            "language" => [
+                                "code" => "en"
+                            ],
+                            "components" => [
+                                [
+                                    "type" => "body",
+                                    "parameters" => [
+                                        [
+                                            "type" => "text",
+                                            "text" => $customerPhone
+                                        ],
+                                        [
+                                            "type" => "text",
+                                            "text" => $dashboardLink
+                                        ]
+                                    ]
+                                ]
+                            ]
                         ]
                     ]
                 );
 
             /*
             |--------------------------------------------------------------------------
-            | Check Meta API response
+            | Handle Meta response
             |--------------------------------------------------------------------------
             */
 
@@ -85,17 +103,11 @@ class AgentNotifier
                     'agent_id' => $agent->id,
                     'phone' => $agentPhone,
                     'status' => $response->status(),
-                    'body' => $response->body()
+                    'response' => $response->body()
                 ]);
 
                 return false;
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Success log
-            |--------------------------------------------------------------------------
-            */
 
             Log::info('AGENT_NOTIFICATION_SENT', [
                 'agent_id' => $agent->id,
@@ -111,6 +123,7 @@ class AgentNotifier
 
             Log::error('AGENT_NOTIFICATION_EXCEPTION', [
                 'agent_id' => $agent->id ?? null,
+                'conversation_id' => $conversation->id ?? null,
                 'error' => $e->getMessage()
             ]);
 

@@ -36,12 +36,6 @@ class Kernel extends ConsoleKernel
         | META MARKETING SYNC ENGINE
         |--------------------------------------------------------------------------
         | Unified Meta Ads synchronization engine.
-        | Internally runs:
-        | - sync accounts
-        | - sync campaigns
-        | - sync adsets
-        | - sync ads
-        | - sync insights
         */
 
         $schedule->command('meta:sync')
@@ -51,6 +45,26 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->name('meta-sync-engine')
             ->appendOutputTo(storage_path('logs/meta-sync.log'));
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | AGENT ESCALATION MONITOR
+        |--------------------------------------------------------------------------
+        | Ensures human escalations are handled quickly.
+        | If an assigned agent does not respond within the configured timeout,
+        | the conversation is automatically reassigned to the next available agent.
+        |
+        | Default timeout recommended: 60 seconds
+        */
+
+        $schedule->command('agents:monitor')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground()
+            ->name('agent-escalation-monitor')
+            ->appendOutputTo(storage_path('logs/agent-monitor.log'));
 
 
         /*
@@ -85,6 +99,7 @@ class Kernel extends ConsoleKernel
 
         // $schedule->command('queue:restart')
         //     ->dailyAt('02:00');
+
     }
 
 

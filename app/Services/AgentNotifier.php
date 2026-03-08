@@ -1,28 +1,47 @@
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\Http;
+
 class AgentNotifier
 {
-    public function notify($conversation)
-    {
 
-        $token = config('services.whatsapp.access_token');
+public function notify($conversation,$agent)
+{
 
-        $endpoint =
-        config('services.whatsapp.graph_url').'/'
-        .config('services.whatsapp.graph_version').'/'
-        .config('services.whatsapp.phone_number_id').'/messages';
+$token = config('services.whatsapp.access_token');
 
-        Http::withToken($token)->post($endpoint,[
+$endpoint =
+config('services.whatsapp.graph_url').'/'
+.config('services.whatsapp.graph_version').'/'
+.config('services.whatsapp.phone_number_id').'/messages';
 
-        "messaging_product"=>"whatsapp",
+$waLink = "https://wa.me/".$conversation->phone_number;
 
-        "to"=>config('support.agent_phone'),
+$message = "🚨 New support request
 
-        "type"=>"text",
+Customer: ".$conversation->customer_name."
 
-        "text"=>[
-        "body"=>"⚠️ Customer needs help: ".$conversation->phone_number
-        ]
+Phone: ".$conversation->phone_number."
 
-        ]);
+Open chat:
+".$waLink;
 
-    }
+Http::withToken($token)->post($endpoint,[
+
+"messaging_product"=>"whatsapp",
+
+"to"=>$agent->whatsapp_number,
+
+"type"=>"text",
+
+"text"=>[
+"body"=>$message
+]
+
+]);
+
+}
+
 }

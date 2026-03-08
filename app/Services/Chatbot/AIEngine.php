@@ -171,15 +171,33 @@ if ($this->needsHuman($normalized, $response['confidence'] ?? 0)) {
 
     if ($conversation) {
 
-        $conversation->update([
-            'status' => 'human',
-            'escalation_reason' => 'ai_escalation',
-            'last_activity_at' => now()
-        ]);
+      $conversation->update([
+    'status' => 'human',
+    'escalation_reason' => 'ai_escalation',
+    'escalation_started_at' => now(),
+    'last_activity_at' => now()
+]);
 
         $this->log('ESCALATED TO HUMAN', [
             'conversation_id' => $conversation->id
         ], $requestId);
+
+        /*
+        |--------------------------------------------------------------------------
+        | ASSIGN AGENT + NOTIFY
+        |--------------------------------------------------------------------------
+        */
+
+        $agent = app(\App\Services\AgentRouter::class)
+            ->assign($conversation);
+
+        if ($agent) {
+
+            app(\App\Services\AgentNotifier::class)
+                ->notify($conversation, $agent);
+
+        }
+
     }
 
     return [

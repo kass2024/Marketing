@@ -1,148 +1,249 @@
 <x-app-layout>
 
-<div class="h-[85vh] flex bg-white rounded-2xl shadow overflow-hidden">
+<div class="h-[88vh] bg-gray-100 p-6">
 
-    {{-- LEFT: Conversation List --}}
-    <div class="w-1/3 border-r flex flex-col">
+<div class="h-full bg-white rounded-2xl shadow-lg flex overflow-hidden">
 
-        {{-- Search + Filters --}}
-        <div class="p-4 border-b space-y-3">
+{{-- LEFT SIDEBAR --}}
+<div class="w-[340px] border-r flex flex-col">
 
-            <form method="GET">
-                <input type="text"
-                       name="search"
-                       value="{{ $search }}"
-                       placeholder="Search name, email, phone..."
-                       class="w-full border rounded-lg px-3 py-2">
-            </form>
+{{-- SEARCH --}}
+<div class="p-4 border-b">
+<input
+type="text"
+name="search"
+value="{{ $search }}"
+placeholder="Search conversations..."
+class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-blue-500">
+</div>
 
-            <div class="flex gap-2 text-sm">
-                @foreach(['all','unread','human','bot','closed'] as $f)
-                    <a href="?filter={{ $f }}"
-                       class="px-3 py-1 rounded-full
-                       {{ $filter === $f ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600' }}">
-                        {{ ucfirst($f) }}
-                    </a>
-                @endforeach
-            </div>
+{{-- FILTERS --}}
+<div class="px-4 py-3 flex gap-2 text-xs">
 
-        </div>
+@foreach(['all','unread','human','bot','closed'] as $f)
 
-        {{-- Conversations --}}
-        <div class="flex-1 overflow-y-auto">
+<a
+href="?filter={{ $f }}"
+class="px-3 py-1 rounded-full font-medium transition
+{{ $filter === $f
+? 'bg-blue-600 text-white'
+: 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
 
-            @foreach($conversations as $conversation)
-                <a href="?conversation={{ $conversation->id }}"
-                   class="block p-4 border-b hover:bg-gray-50
-                   {{ request('conversation') == $conversation->id ? 'bg-gray-100' : '' }}">
+{{ ucfirst($f) }}
 
-                    <div class="flex justify-between">
-                        <div>
-                            <p class="font-semibold">
-                                {{ $conversation->customer_name ?? $conversation->phone_number }}
-                            </p>
-                            <p class="text-xs text-gray-500">
-                                {{ $conversation->customer_email }}
-                            </p>
-                        </div>
+</a>
 
-                        @if($conversation->unread_count > 0)
-                            <span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                                {{ $conversation->unread_count }}
-                            </span>
-                        @endif
-                    </div>
+@endforeach
 
-                </a>
-            @endforeach
+</div>
 
-        </div>
+{{-- CONVERSATION LIST --}}
+<div class="flex-1 overflow-y-auto">
 
-        <div class="p-4">
-            {{ $conversations->links() }}
-        </div>
+@foreach($conversations as $conversation)
 
-    </div>
+<a
+href="?conversation={{ $conversation->id }}"
+class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 transition
+{{ request('conversation') == $conversation->id ? 'bg-gray-100' : '' }}">
 
-    {{-- RIGHT: Chat Area --}}
-    <div class="flex-1 flex flex-col">
+{{-- AVATAR --}}
+<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
+{{ strtoupper(substr($conversation->customer_name ?? 'U',0,1)) }}
+</div>
 
-        @if($activeConversation)
+<div class="flex-1">
 
-            {{-- Header --}}
-            <div class="p-4 border-b flex justify-between items-center">
-                <div>
-                    <h2 class="font-bold text-lg">
-                        {{ $activeConversation->customer_name }}
-                    </h2>
-                    <p class="text-sm text-gray-500">
-                        {{ $activeConversation->customer_email }}
-                    </p>
-                </div>
+<p class="text-sm font-semibold text-gray-800">
+{{ $conversation->customer_name ?? $conversation->phone_number }}
+</p>
 
-                <div class="flex gap-2">
+<p class="text-xs text-gray-500 truncate">
+{{ $conversation->customer_email }}
+</p>
 
-                    <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
-                        @csrf
-                        <button class="px-3 py-1 rounded-lg text-sm
-                            {{ $activeConversation->status === 'bot' ? 'bg-blue-600 text-white' : 'bg-yellow-500 text-white' }}">
-                            {{ $activeConversation->status === 'bot' ? 'Switch to Human' : 'Switch to Bot' }}
-                        </button>
-                    </form>
+</div>
 
-                    <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
-                        @csrf
-                        <button class="px-3 py-1 bg-red-500 text-white rounded-lg text-sm">
-                            Close
-                        </button>
-                    </form>
+@if($conversation->unread_count > 0)
+<div class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+{{ $conversation->unread_count }}
+</div>
+@endif
 
-                </div>
-            </div>
+</a>
 
-            {{-- Messages --}}
-            <div class="flex-1 overflow-y-auto p-6 bg-gray-50 space-y-4">
+@endforeach
 
-                @foreach($activeConversation->messages as $message)
-                    <div class="{{ $message->direction === 'outgoing' ? 'text-right' : '' }}">
-                        <div class="inline-block px-4 py-2 rounded-xl
-                            {{ $message->direction === 'outgoing'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-gray-200 text-gray-800' }}">
-                            {{ $message->content }}
-                        </div>
-                        <div class="text-xs text-gray-400 mt-1">
-                            {{ $message->created_at->format('H:i') }}
-                        </div>
-                    </div>
-                @endforeach
+</div>
 
-            </div>
+<div class="p-3 border-t">
+{{ $conversations->links() }}
+</div>
 
-            {{-- Reply --}}
-            <div class="p-4 border-t">
-                <form method="POST"
-                      action="{{ route('admin.inbox.reply',$activeConversation->id) }}">
-                    @csrf
-                    <div class="flex gap-3">
-                        <input type="text"
-                               name="message"
-                               class="flex-1 border rounded-lg px-4 py-2"
-                               placeholder="Type your reply..." required>
-                        <button class="bg-blue-600 text-white px-6 py-2 rounded-lg">
-                            Send
-                        </button>
-                    </div>
-                </form>
-            </div>
+</div>
 
-        @else
-            <div class="flex-1 flex items-center justify-center text-gray-400">
-                Select a conversation
-            </div>
-        @endif
 
-    </div>
+
+{{-- RIGHT CHAT AREA --}}
+<div class="flex-1 flex flex-col bg-gray-50">
+
+@if($activeConversation)
+
+{{-- HEADER --}}
+<div class="bg-white border-b px-6 py-4 flex justify-between items-center">
+
+<div class="flex items-center gap-3">
+
+<div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
+{{ strtoupper(substr($activeConversation->customer_name ?? 'U',0,1)) }}
+</div>
+
+<div>
+
+<p class="font-semibold text-gray-800">
+{{ $activeConversation->customer_name }}
+</p>
+
+<p class="text-xs text-gray-500">
+{{ $activeConversation->customer_email }}
+</p>
+
+</div>
+
+</div>
+
+<div class="flex gap-2">
+
+<form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
+@csrf
+<button class="px-4 py-2 rounded-lg text-sm font-medium
+{{ $activeConversation->status === 'bot'
+? 'bg-blue-600 text-white'
+: 'bg-yellow-500 text-white' }}">
+{{ $activeConversation->status === 'bot'
+? 'Switch to Human'
+: 'Switch to Bot' }}
+</button>
+</form>
+
+<form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
+@csrf
+<button class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium">
+Close
+</button>
+</form>
+
+</div>
+
+</div>
+
+
+
+{{-- MESSAGE THREADS --}}
+<div class="flex-1 overflow-y-auto p-8 space-y-6">
+
+@php
+$messages = $activeConversation->messages;
+@endphp
+
+@for($i = 0; $i < count($messages); $i++)
+
+@if($messages[$i]->direction === 'incoming')
+
+<div class="bg-white border rounded-xl shadow-sm p-6">
+
+{{-- QUESTION --}}
+<div class="mb-4">
+
+<div class="text-xs font-semibold text-gray-400 mb-1">
+Customer Question
+</div>
+
+<div class="bg-gray-100 rounded-lg px-4 py-3 text-sm text-gray-800">
+{{ $messages[$i]->content }}
+</div>
+
+<div class="text-xs text-gray-400 mt-1">
+{{ $messages[$i]->created_at->format('H:i') }}
+</div>
+
+</div>
+
+
+{{-- ANSWER --}}
+@if(isset($messages[$i+1]) && $messages[$i+1]->direction === 'outgoing')
+
+<div>
+
+<div class="text-xs font-semibold text-blue-500 mb-1">
+Your Reply
+</div>
+
+<div class="bg-blue-600 text-white rounded-lg px-4 py-3 text-sm">
+{{ $messages[$i+1]->content }}
+</div>
+
+<div class="text-xs text-gray-300 mt-1">
+{{ $messages[$i+1]->created_at->format('H:i') }}
+</div>
+
+</div>
+
+@php $i++; @endphp
+
+@endif
+
+</div>
+
+@endif
+
+@endfor
+
+</div>
+
+
+
+{{-- REPLY BOX --}}
+<div class="bg-white border-t p-4">
+
+<form method="POST"
+action="{{ route('admin.inbox.reply',$activeConversation->id) }}">
+
+@csrf
+
+<div class="flex gap-3">
+
+<input
+type="text"
+name="message"
+placeholder="Write your reply..."
+class="flex-1 bg-gray-100 rounded-lg px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500"
+required>
+
+<button
+class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold">
+
+Send
+
+</button>
+
+</div>
+
+</form>
+
+</div>
+
+@else
+
+<div class="flex-1 flex items-center justify-center text-gray-400 text-lg">
+Select a conversation
+</div>
+
+@endif
+
+</div>
+
+</div>
 
 </div>
 

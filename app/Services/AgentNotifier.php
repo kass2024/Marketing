@@ -52,7 +52,7 @@ class AgentNotifier
 
             /*
             |--------------------------------------------------------------------------
-            | Normalize numbers
+            | Normalize phone numbers
             |--------------------------------------------------------------------------
             */
 
@@ -61,11 +61,28 @@ class AgentNotifier
 
             /*
             |--------------------------------------------------------------------------
-            | Dashboard link
+            | Customer information
             |--------------------------------------------------------------------------
             */
 
-            $dashboardLink = config('app.url') . "/admin/inbox/" . $conversation->id;
+            $customerName  = $conversation->full_name ?? 'Customer';
+            $customerEmail = $conversation->email ?? 'Not provided';
+
+            /*
+            |--------------------------------------------------------------------------
+            | Clickable phone link
+            |--------------------------------------------------------------------------
+            */
+
+            $phoneLink = "https://wa.me/{$customerPhone}";
+
+            /*
+            |--------------------------------------------------------------------------
+            | Dashboard conversation link
+            |--------------------------------------------------------------------------
+            */
+
+            $dashboardLink = config('app.url') . "/login/" . $conversation->id;
 
             Log::info('AGENT_NOTIFICATION_START', [
                 'agent_id' => $agent->id,
@@ -77,7 +94,7 @@ class AgentNotifier
 
             /*
             |--------------------------------------------------------------------------
-            | Send WhatsApp template
+            | Send WhatsApp Template Message
             |--------------------------------------------------------------------------
             */
 
@@ -101,7 +118,15 @@ class AgentNotifier
                                     "parameters" => [
                                         [
                                             "type" => "text",
-                                            "text" => $customerPhone
+                                            "text" => $customerName
+                                        ],
+                                        [
+                                            "type" => "text",
+                                            "text" => $customerEmail
+                                        ],
+                                        [
+                                            "type" => "text",
+                                            "text" => $phoneLink
                                         ],
                                         [
                                             "type" => "text",

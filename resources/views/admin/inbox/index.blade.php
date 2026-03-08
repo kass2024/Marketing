@@ -7,10 +7,8 @@
 class="w-[340px] bg-white border-r flex flex-col
 md:flex relative z-20
 fixed md:relative h-full md:h-auto
-translate-x-0 md:translate-x-0
 transition-transform duration-300">
 
-{{-- HEADER --}}
 <div class="p-4 border-b flex justify-between items-center">
 <h2 class="font-semibold text-gray-700">Inbox</h2>
 
@@ -20,7 +18,6 @@ Bulk Send
 </a>
 </div>
 
-{{-- SEARCH --}}
 <div class="p-4 border-b">
 <input
 type="text"
@@ -30,7 +27,6 @@ placeholder="Search conversations..."
 class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-blue-500">
 </div>
 
-{{-- FILTERS --}}
 <div class="px-4 py-3 flex gap-2 text-xs flex-wrap">
 
 @foreach(['all','unread','human','bot','closed'] as $f)
@@ -41,17 +37,13 @@ class="px-3 py-1 rounded-full font-medium
 {{ $filter === $f
 ? 'bg-blue-600 text-white'
 : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
-
 {{ ucfirst($f) }}
-
 </a>
 
 @endforeach
 
 </div>
 
-
-{{-- CONVERSATION LIST --}}
 <div class="flex-1 overflow-y-auto">
 
 @foreach($conversations as $conversation)
@@ -64,12 +56,9 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 <div class="relative">
 
 <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
-
 {{ strtoupper(substr($conversation->customer_name ?? 'U',0,1)) }}
-
 </div>
 
-{{-- ONLINE DOT --}}
 @if($conversation->is_online ?? false)
 <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
 @endif
@@ -86,7 +75,6 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 ESCALATED
 </span>
 @endif
-
 </p>
 
 <p class="text-xs text-gray-500 truncate">
@@ -120,12 +108,10 @@ ESCALATED
 
 @if($activeConversation)
 
-{{-- CHAT HEADER --}}
 <div class="bg-white border-b px-4 py-3 flex justify-between items-center sticky top-0 z-10">
 
 <div class="flex items-center gap-3">
 
-{{-- MOBILE BACK --}}
 <button onclick="toggleSidebar()" class="md:hidden text-gray-500">
 ☰
 </button>
@@ -136,14 +122,14 @@ ESCALATED
 {{ strtoupper(substr($activeConversation->customer_name ?? 'U',0,1)) }}
 </div>
 
-@if($activeConversation->is_online ?? false)
-<div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
-@endif
+<div id="onlineIndicator"
+class="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full
+{{ $activeConversation->is_online ? 'bg-green-500' : 'bg-gray-300' }}">
+</div>
 
 </div>
 
 <div>
-
 <p class="font-semibold text-gray-800">
 {{ $activeConversation->customer_name }}
 </p>
@@ -151,7 +137,6 @@ ESCALATED
 <p class="text-xs text-gray-500">
 {{ $activeConversation->customer_email }}
 </p>
-
 </div>
 
 </div>
@@ -160,18 +145,14 @@ ESCALATED
 
 <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
 @csrf
-
 <button class="px-4 py-2 rounded-lg text-sm
 {{ $activeConversation->status === 'bot'
 ? 'bg-blue-600 text-white'
 : 'bg-yellow-500 text-white' }}">
-
 {{ $activeConversation->status === 'bot'
 ? 'Switch to Human'
 : 'Switch to Bot' }}
-
 </button>
-
 </form>
 
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
@@ -181,18 +162,14 @@ Close
 </button>
 </form>
 
-{{-- DELETE CONVERSATION --}}
 <form method="POST"
 action="{{ route('admin.inbox.delete',$activeConversation->id) }}"
-onsubmit="return confirm('Are you sure you want to permanently delete this conversation?')">
-
+onsubmit="return confirm('Delete this conversation permanently?')">
 @csrf
 @method('DELETE')
-
-<button class="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm hover:bg-gray-900">
+<button class="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm">
 Delete
 </button>
-
 </form>
 
 </div>
@@ -218,29 +195,19 @@ class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-sta
 ? 'bg-blue-600 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none' }}">
 
-@if($message->media_type === 'image')
-<img src="{{ $message->media_url }}" class="rounded-lg max-w-xs mb-2">
-@endif
-
-@if($message->media_type === 'document')
-<a href="{{ $message->media_url }}" target="_blank"
-class="underline text-blue-600 block mb-2">
-📎 {{ $message->filename }}
-</a>
-@endif
-
 @if($message->content)
 {!! nl2br(e($message->content)) !!}
 @endif
 
 </div>
 
-<div class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
+<div
+id="msg-status-{{ $message->id }}"
+class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
 {{ $message->direction === 'outgoing' ? 'justify-end' : '' }}">
 
 {{ $message->created_at->format('H:i') }}
 
-{{-- MESSAGE STATUS --}}
 @if($message->direction === 'outgoing')
 
 @if($message->status === 'sent')
@@ -300,12 +267,6 @@ Send
 
 </div>
 
-@else
-
-<div class="flex-1 flex items-center justify-center text-gray-400 text-lg">
-Select a conversation
-</div>
-
 @endif
 
 </div>
@@ -314,51 +275,53 @@ Select a conversation
 
 
 
-{{-- ================= AUTO SCROLL ================= --}}
-<script>
-
-const chat = document.getElementById('chatBox');
-
-if(chat){
-chat.scrollTop = chat.scrollHeight;
-}
-
-</script>
-
-
-
-{{-- ================= MOBILE SIDEBAR ================= --}}
 <script>
 
 function toggleSidebar(){
+document.getElementById("sidebar").classList.toggle("-translate-x-full");
+}
 
-const sidebar = document.getElementById("sidebar");
+const chatBox = document.getElementById("chatBox");
 
-sidebar.classList.toggle("-translate-x-full");
+function isAtBottom(){
+return chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 100;
+}
 
+function scrollBottom(){
+chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+if(chatBox){
+scrollBottom();
 }
 
 </script>
 
 
 
-{{-- ================= LIVE POLLING ================= --}}
 <script>
 
 @if($activeConversation)
 
 const conversationId = {{ $activeConversation->id }};
-const chatBox = document.getElementById("chatBox");
-
 let lastMessageId = document.querySelector('[data-message-id]:last-child')?.dataset.messageId || 0;
 
 function fetchMessages(){
 
+const shouldScroll = isAtBottom();
+
 fetch(`/admin/inbox/${conversationId}/messages`)
 .then(res => res.json())
-.then(messages => {
+.then(data => {
+
+const messages = data.messages;
+const online = data.online;
+
+updateOnline(online);
 
 messages.forEach(msg => {
+
+updateStatus(msg);
 
 if(msg.id > lastMessageId){
 
@@ -369,29 +332,50 @@ lastMessageId = msg.id;
 
 });
 
+if(shouldScroll) scrollBottom();
+
 });
+
+}
+
+function updateOnline(online){
+
+const dot = document.getElementById("onlineIndicator");
+
+if(!dot) return;
+
+dot.classList.remove("bg-green-500","bg-gray-300");
+
+dot.classList.add(online ? "bg-green-500" : "bg-gray-300");
+
+}
+
+function updateStatus(msg){
+
+if(!msg.status) return;
+
+const el = document.getElementById("msg-status-"+msg.id);
+
+if(!el) return;
+
+let ticks = "";
+
+if(msg.status==="sent") ticks="✓";
+if(msg.status==="delivered") ticks="✓✓";
+if(msg.status==="read") ticks='<span class="text-blue-500">✓✓</span>';
+
+el.innerHTML = msg.time+" "+ticks;
 
 }
 
 function appendMessage(msg){
 
-let content = '';
-
-if(msg.media_type === 'image'){
-content = `<img src="${msg.media_url}" class="max-w-xs rounded-lg mb-2">`;
-}
-
-if(msg.media_type === 'document'){
-content = `<a href="${msg.media_url}" target="_blank">📎 ${msg.filename}</a>`;
-}
-
-if(msg.content){
-content += `<p>${msg.content}</p>`;
-}
+let content = msg.content ? `<p>${msg.content}</p>` : "";
 
 const wrapper = document.createElement("div");
 
-wrapper.className = "flex " + (msg.direction === "outgoing" ? "justify-end" : "justify-start");
+wrapper.className =
+"flex " + (msg.direction === "outgoing" ? "justify-end" : "justify-start");
 
 wrapper.innerHTML = `
 <div class="max-w-[70%]">
@@ -401,14 +385,11 @@ ${msg.direction === 'outgoing'
 : 'bg-white text-gray-800 rounded-bl-none'}">
 ${content}
 </div>
-<div class="text-[11px] text-gray-400 mt-1">
-${msg.time}
-</div>
+<div id="msg-status-${msg.id}" class="text-[11px] text-gray-400 mt-1">${msg.time}</div>
 </div>
 `;
 
 chatBox.appendChild(wrapper);
-chatBox.scrollTop = chatBox.scrollHeight;
 
 }
 

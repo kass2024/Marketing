@@ -534,4 +534,6 @@ Route::post('/admin/bulk-send',
 
 Route::delete('/admin/inbox/{conversation}/delete', [InboxController::class,'deleteConversation'])
     ->name('admin.inbox.delete');
+    Route::get('/admin/inbox/{conversation}/messages', [InboxController::class, 'fetchMessages'])
+    ->name('admin.inbox.messages');
 require __DIR__.'/auth.php';

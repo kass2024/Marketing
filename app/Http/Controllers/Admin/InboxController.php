@@ -266,10 +266,9 @@ if ($response->successful()) {
 $wamid=$response->json()['messages'][0]['id'] ?? null;
 
 $message->update([
-'status'=>'sent',
-'external_id'=>$wamid
+'status' => 'sent',
+'external_message_id' => $wamid
 ]);
-
 } else {
 
 $message->update([
@@ -351,24 +350,53 @@ public function fetchMessages(Conversation $conversation)
 $messages = $conversation->messages()
 ->orderBy('created_at','asc')
 ->get()
-->map(function($m){
+->map(function ($m) {
 
-return [
-'id'=>$m->id,
-'content'=>$m->content,
-'direction'=>$m->direction,
-'time'=>$m->created_at->format('H:i'),
-'media_type'=>$m->media_type,
-'media_url'=>$m->media_url,
-'filename'=>$m->filename
-];
+    return [
+
+        'id' => $m->id,
+
+        'direction' => $m->direction,
+
+        'content' => $m->content,
+
+        'media_type' => $m->media_type,
+        'media_url'  => $m->media_url,
+        'filename'   => $m->filename,
+
+        // delivery status
+        'status' => $m->status ?? 'pending',
+
+        'time' => optional($m->created_at)->format('H:i')
+
+    ];
 
 });
 
-return response()->json($messages);
+
+/*
+|--------------------------------------------------------------------------
+| ONLINE DETECTION
+|--------------------------------------------------------------------------
+| online if last activity < 60 seconds
+*/
+
+$online = false;
+
+if ($conversation->last_activity_at) {
+
+    $online = now()->diffInSeconds($conversation->last_activity_at) < 60;
 
 }
 
+return response()->json([
+
+    'messages' => $messages,
+    'online'   => $online
+
+]);
+
+}
 
 /*
 |--------------------------------------------------------------------------

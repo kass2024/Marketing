@@ -175,30 +175,44 @@ if ($this->needsHuman($normalized, $response['confidence'] ?? 0)) {
 
     if ($conversation) {
 
-      $conversation->update([
-    'status' => 'human',
-    'escalation_reason' => 'ai_escalation',
-    'escalation_started_at' => now(),
-    'last_activity_at' => now()
-]);
+        $conversation->update([
+            'status' => 'human',
+            'escalation_reason' => 'ai_escalation',
+            'last_activity_at' => now()
+        ]);
 
-        $this->log('ESCALATED TO HUMAN', [
+        $this->log('ESCALATED_TO_HUMAN', [
             'conversation_id' => $conversation->id
         ], $requestId);
 
         /*
         |--------------------------------------------------------------------------
-        | ASSIGN AGENT + NOTIFY
+        | ASSIGN AGENT
         |--------------------------------------------------------------------------
         */
 
-        $agent = app(\App\Services\AgentRouter::class)
-            ->assign($conversation);
+        $router = app(\App\Services\AgentRouter::class);
+        $agent = $router->assignAgent($conversation);
 
         if ($agent) {
 
+            $this->log('AGENT_SELECTED', [
+                'agent_id' => $agent->id,
+                'agent_name' => $agent->name
+            ], $requestId);
+
+            /*
+            |--------------------------------------------------------------------------
+            | NOTIFY AGENT
+            |--------------------------------------------------------------------------
+            */
+
             app(\App\Services\AgentNotifier::class)
-                ->notify($conversation, $agent);
+                ->notifyAgent($agent, $conversation);
+
+        } else {
+
+            $this->log('NO_AGENT_AVAILABLE', [], $requestId);
 
         }
 

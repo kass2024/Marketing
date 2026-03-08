@@ -71,9 +71,7 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 <div class="relative">
 
 <div class="w-11 h-11 rounded-full bg-green-500 text-white flex items-center justify-center font-semibold">
-
 {{ strtoupper(substr($conversation->customer_name ?? 'U',0,1)) }}
-
 </div>
 
 @if($conversation->is_online)
@@ -140,9 +138,7 @@ ESCALATED
 <div class="relative">
 
 <div class="w-10 h-10 rounded-full bg-green-500 text-white flex items-center justify-center font-semibold">
-
 {{ strtoupper(substr($activeConversation->customer_name ?? 'U',0,1)) }}
-
 </div>
 
 <div
@@ -172,9 +168,18 @@ class="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full
 
 <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
 @csrf
-<button class="text-xs px-3 py-1 bg-green-600 text-white rounded">
-Switch
+
+<button class="text-xs px-3 py-1 rounded
+{{ $activeConversation->status === 'bot'
+? 'bg-blue-600 text-white'
+: 'bg-yellow-500 text-white' }}">
+
+{{ $activeConversation->status === 'bot'
+? 'Switch to Human'
+: 'Switch to Bot' }}
+
 </button>
+
 </form>
 
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
@@ -211,9 +216,15 @@ class="hidden absolute right-0 top-8 bg-white shadow-xl rounded-lg border w-40 z
 
 <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
 @csrf
+
 <button class="block w-full text-left px-4 py-2 hover:bg-gray-100">
-Switch
+
+{{ $activeConversation->status === 'bot'
+? 'Switch to Human'
+: 'Switch to Bot' }}
+
 </button>
+
 </form>
 
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">

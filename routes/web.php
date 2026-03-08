@@ -531,4 +531,7 @@ return view('admin.bulk.index');
 Route::post('/admin/bulk-send',
 [InboxController::class,'bulkSend']
 )->name('admin.bulk.send')->middleware('auth');
+
+Route::delete('/admin/inbox/{conversation}/delete', [InboxController::class,'deleteConversation'])
+    ->name('admin.inbox.delete');
 require __DIR__.'/auth.php';

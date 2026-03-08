@@ -1,12 +1,16 @@
 <x-app-layout>
 
-<div class="h-[90vh] bg-gray-100 p-4">
+<div class="h-screen bg-gray-100 flex overflow-hidden">
 
-<div class="h-full bg-white rounded-2xl shadow flex overflow-hidden">
+{{-- ================= SIDEBAR ================= --}}
+<div id="sidebar"
+class="w-[340px] bg-white border-r flex flex-col
+md:flex relative z-20
+fixed md:relative h-full md:h-auto
+translate-x-0 md:translate-x-0
+transition-transform duration-300">
 
-{{-- ================= LEFT SIDEBAR ================= --}}
-<div class="w-[340px] border-r flex flex-col bg-white">
-
+{{-- HEADER --}}
 <div class="p-4 border-b flex justify-between items-center">
 <h2 class="font-semibold text-gray-700">Inbox</h2>
 
@@ -15,7 +19,6 @@ class="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg">
 Bulk Send
 </a>
 </div>
-
 
 {{-- SEARCH --}}
 <div class="p-4 border-b">
@@ -27,9 +30,8 @@ placeholder="Search conversations..."
 class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-blue-500">
 </div>
 
-
 {{-- FILTERS --}}
-<div class="px-4 py-3 flex gap-2 text-xs">
+<div class="px-4 py-3 flex gap-2 text-xs flex-wrap">
 
 @foreach(['all','unread','human','bot','closed'] as $f)
 
@@ -59,9 +61,18 @@ href="?conversation={{ $conversation->id }}"
 class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 {{ request('conversation') == $conversation->id ? 'bg-gray-100' : '' }}">
 
+<div class="relative">
+
 <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
 
 {{ strtoupper(substr($conversation->customer_name ?? 'U',0,1)) }}
+
+</div>
+
+{{-- ONLINE DOT --}}
+@if($conversation->is_online ?? false)
+<div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+@endif
 
 </div>
 
@@ -96,7 +107,6 @@ ESCALATED
 
 </div>
 
-
 <div class="p-3 border-t">
 {{ $conversations->links() }}
 </div>
@@ -104,21 +114,36 @@ ESCALATED
 </div>
 
 
+
 {{-- ================= CHAT AREA ================= --}}
-<div class="flex-1 flex flex-col bg-gray-50">
+<div class="flex-1 flex flex-col h-full">
 
 @if($activeConversation)
 
-{{-- HEADER --}}
-<div class="bg-white border-b px-6 py-4 flex justify-between items-center">
+{{-- CHAT HEADER --}}
+<div class="bg-white border-b px-4 py-3 flex justify-between items-center sticky top-0 z-10">
 
 <div class="flex items-center gap-3">
+
+{{-- MOBILE BACK --}}
+<button onclick="toggleSidebar()" class="md:hidden text-gray-500">
+☰
+</button>
+
+<div class="relative">
 
 <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
 {{ strtoupper(substr($activeConversation->customer_name ?? 'U',0,1)) }}
 </div>
 
+@if($activeConversation->is_online ?? false)
+<div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+@endif
+
+</div>
+
 <div>
+
 <p class="font-semibold text-gray-800">
 {{ $activeConversation->customer_name }}
 </p>
@@ -126,10 +151,10 @@ ESCALATED
 <p class="text-xs text-gray-500">
 {{ $activeConversation->customer_email }}
 </p>
-</div>
 
 </div>
 
+</div>
 
 <div class="flex gap-2">
 
@@ -149,12 +174,23 @@ ESCALATED
 
 </form>
 
-
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
 @csrf
-
 <button class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm">
 Close
+</button>
+</form>
+
+{{-- DELETE CONVERSATION --}}
+<form method="POST"
+action="{{ route('admin.inbox.delete',$activeConversation->id) }}"
+onsubmit="return confirm('Are you sure you want to permanently delete this conversation?')">
+
+@csrf
+@method('DELETE')
+
+<button class="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm hover:bg-gray-900">
+Delete
 </button>
 
 </form>
@@ -164,54 +200,8 @@ Close
 </div>
 
 
-{{-- ================= ESCALATION MONITOR ================= --}}
-@if($activeConversation->status === 'human')
 
-<div class="bg-yellow-50 border-b px-6 py-3 flex justify-between items-center">
-
-<div class="flex items-center gap-6 text-sm">
-
-<div class="font-semibold text-yellow-700">
-⚠ Escalated Conversation
-</div>
-
-<div>
-Agent:
-<span class="font-semibold text-gray-800">
-{{ optional($activeConversation->agent)->name ?? 'Unassigned' }}
-</span>
-</div>
-
-<div>
-Level:
-<span class="text-red-600 font-semibold">
-{{ $activeConversation->escalation_level ?? 1 }}
-</span>
-</div>
-
-<div>
-Waiting:
-<span
-id="escalationTimer"
-data-start="{{ optional($activeConversation->escalation_started_at)->timestamp ?? now()->timestamp }}"
-class="font-semibold text-gray-700">
-0s
-</span>
-</div>
-
-</div>
-
-<div class="text-xs text-gray-500">
-Auto escalation monitor
-</div>
-
-</div>
-
-@endif
-
-
-
-{{-- ================= CHAT STREAM ================= --}}
+{{-- ================= MESSAGE STREAM ================= --}}
 <div id="chatBox"
 class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
 
@@ -221,48 +211,51 @@ class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
 data-message-id="{{ $message->id }}"
 class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }}">
 
-<div class="max-w-[65%]">
+<div class="max-w-[70%]">
 
 <div class="px-4 py-2 text-sm rounded-lg shadow
 {{ $message->direction === 'outgoing'
 ? 'bg-blue-600 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none' }}">
 
-{{-- IMAGE --}}
 @if($message->media_type === 'image')
-
-<img
-src="{{ $message->media_url }}"
-class="rounded-lg max-w-xs mb-2">
-
+<img src="{{ $message->media_url }}" class="rounded-lg max-w-xs mb-2">
 @endif
 
-{{-- DOCUMENT --}}
 @if($message->media_type === 'document')
-
-<a
-href="{{ $message->media_url }}"
-target="_blank"
+<a href="{{ $message->media_url }}" target="_blank"
 class="underline text-blue-600 block mb-2">
-
 📎 {{ $message->filename }}
-
 </a>
-
 @endif
 
-
-{{-- TEXT --}}
 @if($message->content)
 {!! nl2br(e($message->content)) !!}
 @endif
 
 </div>
 
-<div class="text-[11px] text-gray-400 mt-1
-{{ $message->direction === 'outgoing' ? 'text-right' : '' }}">
+<div class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
+{{ $message->direction === 'outgoing' ? 'justify-end' : '' }}">
 
 {{ $message->created_at->format('H:i') }}
+
+{{-- MESSAGE STATUS --}}
+@if($message->direction === 'outgoing')
+
+@if($message->status === 'sent')
+<span>✓</span>
+@endif
+
+@if($message->status === 'delivered')
+<span>✓✓</span>
+@endif
+
+@if($message->status === 'read')
+<span class="text-blue-500">✓✓</span>
+@endif
+
+@endif
 
 </div>
 
@@ -275,8 +268,9 @@ class="underline text-blue-600 block mb-2">
 </div>
 
 
+
 {{-- ================= REPLY BOX ================= --}}
-<div class="bg-white border-t p-4">
+<div class="bg-white border-t p-3 sticky bottom-0">
 
 <form
 method="POST"
@@ -285,24 +279,19 @@ enctype="multipart/form-data">
 
 @csrf
 
-<div class="flex gap-3 items-center">
+<div class="flex gap-2 items-center">
 
 <input
 type="text"
 name="message"
 placeholder="Type a message..."
-class="flex-1 bg-gray-100 rounded-lg px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500">
+class="flex-1 bg-gray-100 rounded-full px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500">
 
-<input
-type="file"
-name="attachment"
-class="text-sm">
+<input type="file" name="attachment" class="text-sm">
 
 <button
-class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold">
-
+class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full font-semibold">
 Send
-
 </button>
 
 </div>
@@ -323,7 +312,6 @@ Select a conversation
 
 </div>
 
-</div>
 
 
 {{-- ================= AUTO SCROLL ================= --}}
@@ -338,7 +326,23 @@ chat.scrollTop = chat.scrollHeight;
 </script>
 
 
-{{-- ================= LIVE CHAT POLLING ================= --}}
+
+{{-- ================= MOBILE SIDEBAR ================= --}}
+<script>
+
+function toggleSidebar(){
+
+const sidebar = document.getElementById("sidebar");
+
+sidebar.classList.toggle("-translate-x-full");
+
+}
+
+</script>
+
+
+
+{{-- ================= LIVE POLLING ================= --}}
 <script>
 
 @if($activeConversation)
@@ -369,7 +373,6 @@ lastMessageId = msg.id;
 
 }
 
-
 function appendMessage(msg){
 
 let content = '';
@@ -391,16 +394,14 @@ const wrapper = document.createElement("div");
 wrapper.className = "flex " + (msg.direction === "outgoing" ? "justify-end" : "justify-start");
 
 wrapper.innerHTML = `
-<div class="max-w-[65%]">
+<div class="max-w-[70%]">
 <div class="px-4 py-2 text-sm rounded-lg shadow
 ${msg.direction === 'outgoing'
 ? 'bg-blue-600 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none'}">
 ${content}
 </div>
-
-<div class="text-[11px] text-gray-400 mt-1
-${msg.direction === 'outgoing' ? 'text-right' : ''}">
+<div class="text-[11px] text-gray-400 mt-1">
 ${msg.time}
 </div>
 </div>
@@ -414,42 +415,6 @@ chatBox.scrollTop = chatBox.scrollHeight;
 setInterval(fetchMessages,3000);
 
 @endif
-
-</script>
-
-
-{{-- ================= ESCALATION TIMER ================= --}}
-<script>
-
-const escalationTimer = document.getElementById("escalationTimer");
-
-if(escalationTimer){
-
-const start = parseInt(escalationTimer.dataset.start) * 1000;
-
-function updateTimer(){
-
-const now = Date.now();
-const seconds = Math.floor((now - start)/1000);
-
-let label = seconds + "s";
-
-if(seconds > 60){
-label = Math.floor(seconds/60)+"m "+(seconds%60)+"s";
-}
-
-if(seconds > 120){
-escalationTimer.classList.add("text-red-600");
-}
-
-escalationTimer.innerText = label;
-
-}
-
-updateTimer();
-setInterval(updateTimer,1000);
-
-}
 
 </script>
 

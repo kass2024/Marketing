@@ -470,5 +470,18 @@ $conversation->update([
 return back();
 
 }
+public function deleteConversation($id)
+{
+    // Find the conversation
+    $conversation = Conversation::findOrFail($id);
 
+    // Delete all messages linked to this conversation
+    $conversation->messages()->delete();
+
+    // Delete the conversation itself
+    $conversation->delete();
+
+    // Redirect back to the inbox page
+    return redirect('/admin/inbox')->with('success', 'Conversation deleted successfully.');
+}
 }

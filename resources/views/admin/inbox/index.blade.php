@@ -1,13 +1,19 @@
 <x-app-layout>
 
-<div class="h-screen bg-gray-100 flex overflow-hidden">
+<div class="h-screen bg-gray-100 flex overflow-hidden relative">
+
+{{-- MOBILE OVERLAY --}}
+<div id="overlay"
+class="fixed inset-0 bg-black/40 hidden md:hidden z-20"
+onclick="toggleSidebar()"></div>
+
 
 {{-- ================= SIDEBAR ================= --}}
 <div id="sidebar"
-class="w-[340px] bg-white border-r flex flex-col
-md:flex relative z-20
-fixed md:relative h-full md:h-auto
-transition-transform duration-300">
+class="w-[320px] bg-white border-r flex flex-col
+fixed md:relative h-full
+transform -translate-x-full md:translate-x-0
+transition-transform duration-300 z-30">
 
 <div class="p-4 border-b flex justify-between items-center">
 <h2 class="font-semibold text-gray-700">Inbox</h2>
@@ -18,6 +24,7 @@ Bulk Send
 </a>
 </div>
 
+
 <div class="p-4 border-b">
 <input
 type="text"
@@ -26,6 +33,7 @@ value="{{ $search }}"
 placeholder="Search conversations..."
 class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-blue-500">
 </div>
+
 
 <div class="px-4 py-3 flex gap-2 text-xs flex-wrap">
 
@@ -43,6 +51,7 @@ class="px-3 py-1 rounded-full font-medium
 @endforeach
 
 </div>
+
 
 <div class="flex-1 overflow-y-auto">
 
@@ -65,9 +74,9 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 
 </div>
 
-<div class="flex-1">
+<div class="flex-1 min-w-0">
 
-<p class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+<p class="text-sm font-semibold text-gray-800 flex items-center gap-2 truncate">
 {{ $conversation->customer_name ?? $conversation->phone_number }}
 
 @if($conversation->status === 'human')
@@ -95,6 +104,7 @@ ESCALATED
 
 </div>
 
+
 <div class="p-3 border-t">
 {{ $conversations->links() }}
 </div>
@@ -104,15 +114,16 @@ ESCALATED
 
 
 {{-- ================= CHAT AREA ================= --}}
-<div class="flex-1 flex flex-col h-full">
+<div class="flex-1 flex flex-col h-full min-w-0">
 
 @if($activeConversation)
 
-<div class="bg-white border-b px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+{{-- HEADER --}}
+<div class="bg-white border-b px-3 md:px-4 py-3 flex justify-between items-center sticky top-0 z-10">
 
 <div class="flex items-center gap-3">
 
-<button onclick="toggleSidebar()" class="md:hidden text-gray-500">
+<button onclick="toggleSidebar()" class="md:hidden text-gray-600 text-lg">
 ☰
 </button>
 
@@ -129,23 +140,24 @@ class="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full
 
 </div>
 
-<div>
-<p class="font-semibold text-gray-800">
+<div class="min-w-0">
+<p class="font-semibold text-gray-800 truncate">
 {{ $activeConversation->customer_name }}
 </p>
 
-<p class="text-xs text-gray-500">
+<p class="text-xs text-gray-500 truncate">
 {{ $activeConversation->customer_email }}
 </p>
 </div>
 
 </div>
 
-<div class="flex gap-2">
+
+<div class="flex gap-2 flex-wrap">
 
 <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
 @csrf
-<button class="px-4 py-2 rounded-lg text-sm
+<button class="px-3 py-2 rounded-lg text-sm
 {{ $activeConversation->status === 'bot'
 ? 'bg-blue-600 text-white'
 : 'bg-yellow-500 text-white' }}">
@@ -157,7 +169,7 @@ class="absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full
 
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
 @csrf
-<button class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm">
+<button class="px-3 py-2 bg-red-500 text-white rounded-lg text-sm">
 Close
 </button>
 </form>
@@ -167,7 +179,7 @@ action="{{ route('admin.inbox.delete',$activeConversation->id) }}"
 onsubmit="return confirm('Delete this conversation permanently?')">
 @csrf
 @method('DELETE')
-<button class="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm">
+<button class="px-3 py-2 bg-gray-800 text-white rounded-lg text-sm">
 Delete
 </button>
 </form>
@@ -180,7 +192,7 @@ Delete
 
 {{-- ================= MESSAGE STREAM ================= --}}
 <div id="chatBox"
-class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
+class="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-3 bg-gray-100">
 
 @foreach($activeConversation->messages as $message)
 
@@ -188,9 +200,9 @@ class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
 data-message-id="{{ $message->id }}"
 class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }}">
 
-<div class="max-w-[70%]">
+<div class="max-w-[85%] md:max-w-[65%]">
 
-<div class="px-4 py-2 text-sm rounded-lg shadow
+<div class="px-3 py-2 text-sm rounded-lg shadow
 {{ $message->direction === 'outgoing'
 ? 'bg-blue-600 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none' }}">
@@ -246,7 +258,7 @@ enctype="multipart/form-data">
 
 @csrf
 
-<div class="flex gap-2 items-center">
+<div class="flex flex-col md:flex-row gap-2">
 
 <input
 type="text"
@@ -254,12 +266,19 @@ name="message"
 placeholder="Type a message..."
 class="flex-1 bg-gray-100 rounded-full px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500">
 
-<input type="file" name="attachment" class="text-sm">
+<div class="flex gap-2 items-center">
+
+<input
+type="file"
+name="attachment"
+class="text-xs md:text-sm">
 
 <button
-class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full font-semibold">
+class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 md:px-6 md:py-3 rounded-full font-semibold">
 Send
 </button>
+
+</div>
 
 </div>
 
@@ -275,20 +294,28 @@ Send
 
 
 
+{{-- ================= UI SCRIPTS ================= --}}
 <script>
 
 function toggleSidebar(){
-document.getElementById("sidebar").classList.toggle("-translate-x-full");
+const sidebar = document.getElementById("sidebar");
+const overlay = document.getElementById("overlay");
+
+sidebar.classList.toggle("-translate-x-full");
+overlay.classList.toggle("hidden");
 }
 
 const chatBox = document.getElementById("chatBox");
 
 function isAtBottom(){
+if(!chatBox) return true;
 return chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 100;
 }
 
 function scrollBottom(){
+if(chatBox){
 chatBox.scrollTop = chatBox.scrollHeight;
+}
 }
 
 if(chatBox){
@@ -345,7 +372,6 @@ const dot = document.getElementById("onlineIndicator");
 if(!dot) return;
 
 dot.classList.remove("bg-green-500","bg-gray-300");
-
 dot.classList.add(online ? "bg-green-500" : "bg-gray-300");
 
 }
@@ -378,8 +404,8 @@ wrapper.className =
 "flex " + (msg.direction === "outgoing" ? "justify-end" : "justify-start");
 
 wrapper.innerHTML = `
-<div class="max-w-[70%]">
-<div class="px-4 py-2 text-sm rounded-lg shadow
+<div class="max-w-[85%] md:max-w-[65%]">
+<div class="px-3 py-2 text-sm rounded-lg shadow
 ${msg.direction === 'outgoing'
 ? 'bg-blue-600 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none'}">

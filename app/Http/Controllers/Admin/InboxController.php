@@ -372,7 +372,87 @@ return response()->json($messages);
 | CLOSE CONVERSATION
 |--------------------------------------------------------------------------
 */
+public function bulkSend(Request $request)
+{
 
+$request->validate([
+'message'=>'required|string|max:5000'
+]);
+
+$messageText = $request->message;
+
+$phoneNumberId = config('services.whatsapp.phone_number_id');
+$token = config('services.whatsapp.access_token');
+
+$endpoint =
+config('services.whatsapp.graph_url').'/'
+.config('services.whatsapp.graph_version').'/'
+.$phoneNumberId.'/messages';
+
+
+$conversations = Conversation::where('channel','whatsapp')
+->where('is_active',1)
+->limit(50)
+->get();
+
+
+foreach($conversations as $conversation){
+
+try{
+
+$response = Http::withToken($token)->post($endpoint,[
+
+"messaging_product"=>"whatsapp",
+
+"to"=>$conversation->phone_number,
+
+"type"=>"text",
+
+"text"=>[
+"body"=>str_replace(
+'{name}',
+$conversation->customer_name ?? '',
+$messageText
+)
+]
+
+]);
+
+if($response->successful()){
+
+Message::create([
+'conversation_id'=>$conversation->id,
+'direction'=>'outgoing',
+'content'=>$messageText,
+'status'=>'sent',
+'is_read'=>1
+]);
+
+}else{
+
+Log::error('Bulk send failed',[
+'phone'=>$conversation->phone_number,
+'body'=>$response->body()
+]);
+
+}
+
+sleep(1);
+
+}catch(\Throwable $e){
+
+Log::error('Bulk exception',[
+'phone'=>$conversation->phone_number,
+'error'=>$e->getMessage()
+]);
+
+}
+
+}
+
+return back()->with('success','Bulk messages sent');
+
+}
 public function close(Conversation $conversation)
 {
 

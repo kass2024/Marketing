@@ -524,4 +524,11 @@ Route::get(
 Route::get('/admin/inbox/{conversation}/messages', 
     [App\Http\Controllers\Admin\InboxController::class, 'fetchMessages']
 )->name('admin.inbox.fetch');
+Route::get('/admin/bulk', function(){
+return view('admin.bulk.index');
+})->middleware('auth');
+
+Route::post('/admin/bulk-send',
+[InboxController::class,'bulkSend']
+)->name('admin.bulk.send')->middleware('auth');
 require __DIR__.'/auth.php';

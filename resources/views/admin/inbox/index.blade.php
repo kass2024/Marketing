@@ -1,8 +1,8 @@
 <x-app-layout>
 
-<div class="h-[88vh] bg-gray-100 p-6">
+<div class="h-[90vh] bg-gray-100 p-4">
 
-<div class="h-full bg-white rounded-2xl shadow-lg flex overflow-hidden">
+<div class="h-full bg-white rounded-2xl shadow flex overflow-hidden">
 
 {{-- LEFT SIDEBAR --}}
 <div class="w-[340px] border-r flex flex-col">
@@ -14,7 +14,7 @@ type="text"
 name="search"
 value="{{ $search }}"
 placeholder="Search conversations..."
-class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-blue-500">
+class="w-full bg-gray-100 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 border-0">
 </div>
 
 {{-- FILTERS --}}
@@ -24,7 +24,7 @@ class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-
 
 <a
 href="?filter={{ $f }}"
-class="px-3 py-1 rounded-full font-medium transition
+class="px-3 py-1 rounded-full font-medium
 {{ $filter === $f
 ? 'bg-blue-600 text-white'
 : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
@@ -37,17 +37,17 @@ class="px-3 py-1 rounded-full font-medium transition
 
 </div>
 
-{{-- CONVERSATION LIST --}}
+
+{{-- CONVERSATIONS --}}
 <div class="flex-1 overflow-y-auto">
 
 @foreach($conversations as $conversation)
 
 <a
 href="?conversation={{ $conversation->id }}"
-class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 transition
+class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 {{ request('conversation') == $conversation->id ? 'bg-gray-100' : '' }}">
 
-{{-- AVATAR --}}
 <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-600">
 {{ strtoupper(substr($conversation->customer_name ?? 'U',0,1)) }}
 </div>
@@ -65,9 +65,9 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 transition
 </div>
 
 @if($conversation->unread_count > 0)
-<div class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
+<span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
 {{ $conversation->unread_count }}
-</div>
+</span>
 @endif
 
 </a>
@@ -84,7 +84,7 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 transition
 
 
 
-{{-- RIGHT CHAT AREA --}}
+{{-- CHAT AREA --}}
 <div class="flex-1 flex flex-col bg-gray-50">
 
 @if($activeConversation)
@@ -116,7 +116,7 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 transition
 
 <form method="POST" action="{{ route('admin.inbox.toggle',$activeConversation->id) }}">
 @csrf
-<button class="px-4 py-2 rounded-lg text-sm font-medium
+<button class="px-4 py-2 rounded-lg text-sm
 {{ $activeConversation->status === 'bot'
 ? 'bg-blue-600 text-white'
 : 'bg-yellow-500 text-white' }}">
@@ -128,7 +128,7 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 transition
 
 <form method="POST" action="{{ route('admin.inbox.close',$activeConversation->id) }}">
 @csrf
-<button class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium">
+<button class="px-4 py-2 bg-red-500 text-white rounded-lg text-sm">
 Close
 </button>
 </form>
@@ -139,65 +139,36 @@ Close
 
 
 
-{{-- MESSAGE THREADS --}}
-<div class="flex-1 overflow-y-auto p-8 space-y-6">
+{{-- CHAT STREAM --}}
+<div id="chatBox" class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-100">
 
-@php
-$messages = $activeConversation->messages;
-@endphp
+@foreach($activeConversation->messages as $message)
 
-@for($i = 0; $i < count($messages); $i++)
+<div class="flex {{ $message->direction === 'outgoing' ? 'justify-end' : 'justify-start' }}">
 
-@if($messages[$i]->direction === 'incoming')
+<div class="max-w-[65%]">
 
-<div class="bg-white border rounded-xl shadow-sm p-6">
+<div class="px-4 py-2 text-sm rounded-lg shadow
+{{ $message->direction === 'outgoing'
+? 'bg-blue-600 text-white rounded-br-none'
+: 'bg-white text-gray-800 rounded-bl-none' }}">
 
-{{-- QUESTION --}}
-<div class="mb-4">
+{{ $message->content }}
 
-<div class="text-xs font-semibold text-gray-400 mb-1">
-Customer Question
 </div>
 
-<div class="bg-gray-100 rounded-lg px-4 py-3 text-sm text-gray-800">
-{{ $messages[$i]->content }}
-</div>
+<div class="text-[11px] text-gray-400 mt-1
+{{ $message->direction === 'outgoing' ? 'text-right' : '' }}">
 
-<div class="text-xs text-gray-400 mt-1">
-{{ $messages[$i]->created_at->format('H:i') }}
+{{ $message->created_at->format('H:i') }}
+
 </div>
 
 </div>
 
-
-{{-- ANSWER --}}
-@if(isset($messages[$i+1]) && $messages[$i+1]->direction === 'outgoing')
-
-<div>
-
-<div class="text-xs font-semibold text-blue-500 mb-1">
-Your Reply
 </div>
 
-<div class="bg-blue-600 text-white rounded-lg px-4 py-3 text-sm">
-{{ $messages[$i+1]->content }}
-</div>
-
-<div class="text-xs text-gray-300 mt-1">
-{{ $messages[$i+1]->created_at->format('H:i') }}
-</div>
-
-</div>
-
-@php $i++; @endphp
-
-@endif
-
-</div>
-
-@endif
-
-@endfor
+@endforeach
 
 </div>
 
@@ -216,7 +187,7 @@ action="{{ route('admin.inbox.reply',$activeConversation->id) }}">
 <input
 type="text"
 name="message"
-placeholder="Write your reply..."
+placeholder="Type a message..."
 class="flex-1 bg-gray-100 rounded-lg px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500"
 required>
 
@@ -246,5 +217,14 @@ Select a conversation
 </div>
 
 </div>
+
+
+{{-- AUTO SCROLL --}}
+<script>
+const chat = document.getElementById('chatBox');
+if(chat){
+    chat.scrollTop = chat.scrollHeight;
+}
+</script>
 
 </x-app-layout>

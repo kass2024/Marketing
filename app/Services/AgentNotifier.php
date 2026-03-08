@@ -10,11 +10,30 @@ use App\Models\User;
 class AgentNotifier
 {
     /**
-     * Notify agent about new conversation escalation using WhatsApp template
+     * Send WhatsApp template notification to agent
      */
     public function notifyAgent(User $agent, Conversation $conversation): bool
     {
         try {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Validate configuration
+            |--------------------------------------------------------------------------
+            */
+
+            $phoneNumberId = config('services.whatsapp.phone_number_id');
+            $accessToken   = config('services.whatsapp.access_token');
+
+            if (!$phoneNumberId || !$accessToken) {
+
+                Log::error('AGENT_NOTIFICATION_CONFIG_MISSING', [
+                    'phone_number_id' => $phoneNumberId,
+                    'token_present' => !empty($accessToken)
+                ]);
+
+                return false;
+            }
 
             /*
             |--------------------------------------------------------------------------
@@ -37,10 +56,16 @@ class AgentNotifier
             |--------------------------------------------------------------------------
             */
 
-            $agentPhone = preg_replace('/[^0-9]/', '', $agent->whatsapp_number);
+            $agentPhone    = preg_replace('/[^0-9]/', '', $agent->whatsapp_number);
             $customerPhone = preg_replace('/[^0-9]/', '', $conversation->phone_number);
 
-            $dashboardLink = config('app.url') . "/login/" . $conversation->id;
+            /*
+            |--------------------------------------------------------------------------
+            | Dashboard link
+            |--------------------------------------------------------------------------
+            */
+
+            $dashboardLink = config('app.url') . "/admin/inbox/" . $conversation->id;
 
             Log::info('AGENT_NOTIFICATION_START', [
                 'agent_id' => $agent->id,
@@ -52,17 +77,15 @@ class AgentNotifier
 
             /*
             |--------------------------------------------------------------------------
-            | Send WhatsApp Template Message
+            | Send WhatsApp template
             |--------------------------------------------------------------------------
             */
 
-            $response = Http::withToken(config('services.whatsapp.token'))
+            $response = Http::withToken($accessToken)
                 ->timeout(20)
                 ->retry(2, 500)
                 ->post(
-                    "https://graph.facebook.com/v19.0/" .
-                    config('services.whatsapp.phone_number_id') .
-                    "/messages",
+                    "https://graph.facebook.com/v19.0/{$phoneNumberId}/messages",
                     [
                         "messaging_product" => "whatsapp",
                         "to" => $agentPhone,
@@ -101,7 +124,7 @@ class AgentNotifier
 
                 Log::error('AGENT_NOTIFICATION_META_ERROR', [
                     'agent_id' => $agent->id,
-                    'phone' => $agentPhone,
+                    'agent_phone' => $agentPhone,
                     'status' => $response->status(),
                     'response' => $response->body()
                 ]);
@@ -112,7 +135,7 @@ class AgentNotifier
             Log::info('AGENT_NOTIFICATION_SENT', [
                 'agent_id' => $agent->id,
                 'agent_name' => $agent->name,
-                'phone' => $agentPhone,
+                'agent_phone' => $agentPhone,
                 'conversation_id' => $conversation->id,
                 'meta_response' => $response->json()
             ]);

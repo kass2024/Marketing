@@ -10,82 +10,60 @@ class AgentRouter
 {
 
     /**
-     * Assign best available agent
+     * Assign an agent to a conversation
      */
     public function assignAgent(Conversation $conversation): ?User
     {
 
-        try {
+        /*
+        |--------------------------------------------------------------------------
+        | PRIORITY ORDER
+        |--------------------------------------------------------------------------
+        */
 
-            /*
-            |--------------------------------------------------------------------------
-            | Get all active agents
-            |--------------------------------------------------------------------------
-            */
+        $priorityAgents = [4, 5]; // first try ID 4 then ID 5
 
-            $agents = User::where('role','agent')
-                ->where('status','active')
-                ->get();
+        foreach ($priorityAgents as $agentId) {
 
-            if ($agents->isEmpty()) {
+            $agent = User::where('id', $agentId)
+                ->where('role', 'agent')
+                ->where('status', 'active')
+                ->first();
 
-                Log::warning('AGENT_ROUTER_NO_AGENTS');
-
-                return null;
+            if (!$agent) {
+                continue;
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Find agent with least active conversations
+            | Assign agent
             |--------------------------------------------------------------------------
             */
 
-            $selectedAgent = null;
-            $minLoad = PHP_INT_MAX;
-
-            foreach ($agents as $agent) {
-
-                $activeLoad = Conversation::where('assigned_agent_id',$agent->id)
-                    ->where('status','human')
-                    ->count();
-
-                if ($activeLoad < $minLoad) {
-
-                    $minLoad = $activeLoad;
-                    $selectedAgent = $agent;
-                }
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Assign agent to conversation
-            |--------------------------------------------------------------------------
-            */
-
-            if ($selectedAgent) {
-
-                $conversation->update([
-                    'assigned_agent_id' => $selectedAgent->id,
-                    'status' => 'human'
-                ]);
-
-                Log::info('AGENT_ROUTER_ASSIGNED',[
-                    'conversation_id' => $conversation->id,
-                    'agent_id' => $selectedAgent->id,
-                    'agent_name' => $selectedAgent->name,
-                    'agent_load' => $minLoad
-                ]);
-            }
-
-            return $selectedAgent;
-
-        } catch (\Throwable $e) {
-
-            Log::error('AGENT_ROUTER_ERROR',[
-                'error'=>$e->getMessage()
+            $conversation->update([
+                'agent_id' => $agent->id
             ]);
 
-            return null;
+            Log::info('AGENT_ROUTER_ASSIGNED', [
+                'conversation_id' => $conversation->id,
+                'agent_id' => $agent->id,
+                'agent_name' => $agent->name
+            ]);
+
+            return $agent;
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | No agent available
+        |--------------------------------------------------------------------------
+        */
+
+        Log::warning('AGENT_ROUTER_NO_AGENT_AVAILABLE', [
+            'conversation_id' => $conversation->id
+        ]);
+
+        return null;
     }
+
 }

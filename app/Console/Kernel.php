@@ -73,7 +73,8 @@ class Kernel extends ConsoleKernel
         |--------------------------------------------------------------------------
         | Scheduler heartbeat to confirm cron is alive.
         */
-
+       $schedule->command('agents:monitor')
+    ->everyMinute();
         $schedule->call(function () {
 
             Log::info('SYSTEM_SCHEDULER_HEARTBEAT', [

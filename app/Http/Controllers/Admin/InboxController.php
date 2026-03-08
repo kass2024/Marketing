@@ -120,7 +120,9 @@ Log::info('Admin sending message',[
 'phone'=>$conversation->phone_number,
 'message'=>$text
 ]);
-
+$conversation->update([
+    'last_activity_at' => now()
+]);
 /*
 |--------------------------------------------------------------------------
 | HANDLE FILE UPLOAD

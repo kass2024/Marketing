@@ -36,6 +36,10 @@ class AIEngine
     {
         $requestId = Str::uuid()->toString();
         $normalized = $this->normalize($message);
+        $this->log('MESSAGE_RECEIVED', [
+    'conversation_id' => $conversation?->id,
+    'message' => $normalized
+], $requestId);
         $hash = hash('sha256', $clientId . $normalized);
         /*
 |--------------------------------------------------------------------------
@@ -349,9 +353,11 @@ $message";
 
             if ($response->failed()) {
 
-                $this->log('OPENAI FAILED', [
-                    'status' => $response->status()
-                ], $requestId);
+               Log::error('OPENAI_FAILED', [
+    'status' => $response->status(),
+    'body' => $response->body(),
+    'request_id' => $requestId
+]);;
 
                 return null;
             }
@@ -398,16 +404,30 @@ protected function needsHuman(string $message, float $confidence = 1): bool
         'representative',
         'talk to someone',
         'call me',
-        'customer care'
+        'customer care',
+        'live agent'
     ];
 
     foreach ($keywords as $word) {
+
         if (str_contains($message, $word)) {
+
+            Log::info('AI_ESCALATION_KEYWORD', [
+                'keyword' => $word,
+                'message' => $message
+            ]);
+
             return true;
         }
     }
 
     if ($confidence < 0.35) {
+
+        Log::info('AI_ESCALATION_LOW_CONFIDENCE', [
+            'confidence' => $confidence,
+            'message' => $message
+        ]);
+
         return true;
     }
 

@@ -462,11 +462,13 @@ protected function handoverToHuman($conversation, string $requestId): array
 
     if ($conversation) {
 
-        $conversation->update([
-            'status' => 'human',
-            'escalation_reason' => 'ai_escalation',
-            'last_activity_at' => now()
-        ]);
+     $conversation->update([
+    'status' => 'human',
+    'escalation_reason' => 'ai_escalation',
+    'last_activity_at' => now(),
+    'escalation_level' => 1,
+    'escalation_started_at' => now()
+]);
 
         $this->log('ESCALATED_TO_HUMAN', [
             'conversation_id' => $conversation->id

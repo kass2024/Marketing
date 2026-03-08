@@ -67,8 +67,15 @@ class="flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50
 
 <div class="flex-1">
 
-<p class="text-sm font-semibold text-gray-800">
+<p class="text-sm font-semibold text-gray-800 flex items-center gap-2">
 {{ $conversation->customer_name ?? $conversation->phone_number }}
+
+@if($conversation->status === 'human')
+<span class="text-[10px] bg-yellow-500 text-white px-2 py-0.5 rounded">
+ESCALATED
+</span>
+@endif
+
 </p>
 
 <p class="text-xs text-gray-500 truncate">
@@ -155,6 +162,53 @@ Close
 </div>
 
 </div>
+
+
+{{-- ================= ESCALATION MONITOR ================= --}}
+@if($activeConversation->status === 'human')
+
+<div class="bg-yellow-50 border-b px-6 py-3 flex justify-between items-center">
+
+<div class="flex items-center gap-6 text-sm">
+
+<div class="font-semibold text-yellow-700">
+⚠ Escalated Conversation
+</div>
+
+<div>
+Agent:
+<span class="font-semibold text-gray-800">
+{{ optional($activeConversation->agent)->name ?? 'Unassigned' }}
+</span>
+</div>
+
+<div>
+Level:
+<span class="text-red-600 font-semibold">
+{{ $activeConversation->escalation_level ?? 1 }}
+</span>
+</div>
+
+<div>
+Waiting:
+<span
+id="escalationTimer"
+data-start="{{ optional($activeConversation->escalation_started_at)->timestamp ?? now()->timestamp }}"
+class="font-semibold text-gray-700">
+0s
+</span>
+</div>
+
+</div>
+
+<div class="text-xs text-gray-500">
+Auto escalation monitor
+</div>
+
+</div>
+
+@endif
+
 
 
 {{-- ================= CHAT STREAM ================= --}}
@@ -360,6 +414,42 @@ chatBox.scrollTop = chatBox.scrollHeight;
 setInterval(fetchMessages,3000);
 
 @endif
+
+</script>
+
+
+{{-- ================= ESCALATION TIMER ================= --}}
+<script>
+
+const escalationTimer = document.getElementById("escalationTimer");
+
+if(escalationTimer){
+
+const start = parseInt(escalationTimer.dataset.start) * 1000;
+
+function updateTimer(){
+
+const now = Date.now();
+const seconds = Math.floor((now - start)/1000);
+
+let label = seconds + "s";
+
+if(seconds > 60){
+label = Math.floor(seconds/60)+"m "+(seconds%60)+"s";
+}
+
+if(seconds > 120){
+escalationTimer.classList.add("text-red-600");
+}
+
+escalationTimer.innerText = label;
+
+}
+
+updateTimer();
+setInterval(updateTimer,1000);
+
+}
 
 </script>
 

@@ -10,60 +10,74 @@ class AgentRouter
 {
 
     /**
-     * Assign an agent to a conversation
+     * Assign an agent based on escalation level
      */
     public function assignAgent(Conversation $conversation): ?User
     {
 
         /*
         |--------------------------------------------------------------------------
-        | PRIORITY ORDER
+        | Agent priority list
         |--------------------------------------------------------------------------
         */
 
-        $priorityAgents = [4, 5]; // first try ID 4 then ID 5
+        $priorityAgents = [4,5]; // add more IDs if needed
 
-        foreach ($priorityAgents as $agentId) {
+        /*
+        |--------------------------------------------------------------------------
+        | Determine escalation level
+        |--------------------------------------------------------------------------
+        */
 
-            $agent = User::where('id', $agentId)
-                ->where('role', 'agent')
-                ->where('status', 'active')
-                ->first();
+        $level = $conversation->escalation_level ?? 1;
 
-            if (!$agent) {
-                continue;
-            }
+        $index = $level - 1;
 
-            /*
-            |--------------------------------------------------------------------------
-            | Assign agent
-            |--------------------------------------------------------------------------
-            */
+        if (!isset($priorityAgents[$index])) {
 
-            $conversation->update([
-                'agent_id' => $agent->id
-            ]);
-
-            Log::info('AGENT_ROUTER_ASSIGNED', [
+            Log::warning('AGENT_ROUTER_NO_MORE_AGENTS', [
                 'conversation_id' => $conversation->id,
-                'agent_id' => $agent->id,
-                'agent_name' => $agent->name
+                'level' => $level
             ]);
 
-            return $agent;
+            return null;
+        }
+
+        $agentId = $priorityAgents[$index];
+
+        $agent = User::where('id', $agentId)
+            ->where('role','agent')
+            ->where('status','active')
+            ->first();
+
+        if (!$agent) {
+
+            Log::warning('AGENT_ROUTER_AGENT_NOT_AVAILABLE', [
+                'agent_id' => $agentId
+            ]);
+
+            return null;
         }
 
         /*
         |--------------------------------------------------------------------------
-        | No agent available
+        | Assign agent
         |--------------------------------------------------------------------------
         */
 
-        Log::warning('AGENT_ROUTER_NO_AGENT_AVAILABLE', [
-            'conversation_id' => $conversation->id
+        $conversation->update([
+            'agent_id' => $agent->id
         ]);
 
-        return null;
+        Log::info('AGENT_ROUTER_ASSIGNED', [
+            'conversation_id' => $conversation->id,
+            'agent_id' => $agent->id,
+            'agent_name' => $agent->name,
+            'level' => $level
+        ]);
+
+        return $agent;
+
     }
 
 }

@@ -53,6 +53,7 @@ $q->where('customer_name','like',"%$search%")
 }
 
 $conversations = $query
+->with(['agent'])
 ->withCount([
 'messages as unread_count'=>function($q){
 $q->where('direction','incoming')
@@ -65,11 +66,11 @@ $q->where('direction','incoming')
 $activeConversation = null;
 
 if ($conversationId) {
-
 $activeConversation = Conversation::with([
 'messages'=>function($q){
 $q->orderBy('created_at','asc');
-}
+},
+'agent'
 ])->find($conversationId);
 
 if ($activeConversation) {

@@ -4,36 +4,76 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use App\Models\Conversation;
 use Carbon\Carbon;
+use App\Models\Conversation;
+use App\Models\User;
+use App\Services\AgentNotifier;
 
 class MonitorAgents extends Command
 {
     protected $signature = 'agents:monitor';
-    protected $description = 'Return conversations to AI if agents do not respond';
+    protected $description = 'Escalate conversation between agents before returning to AI';
 
     public function handle()
     {
-
-        $timeout = config('chat.agent_timeout', 5);
+        $timeout = 2; // minutes
 
         $limit = Carbon::now()->subMinutes($timeout);
 
         $conversations = Conversation::where('status','human')
-            ->where('last_activity_at','<',$limit)
+            ->whereNotNull('escalation_started_at')
+            ->where('escalation_started_at','<',$limit)
             ->get();
 
         foreach ($conversations as $conversation) {
 
-            $conversation->update([
-                'status' => 'bot'
-            ]);
+            $level = $conversation->escalation_level;
 
-            Log::info('AUTO_RETURN_TO_BOT',[
-                'conversation_id' => $conversation->id
-            ]);
+            /*
+            |--------------------------------------------------------------------------
+            | NEXT AGENT
+            |--------------------------------------------------------------------------
+            */
+
+            $agent = User::where('role','agent')
+                ->where('status','active')
+                ->orderBy('id')
+                ->skip($level) // next agent
+                ->first();
+
+            if ($agent) {
+
+                app(AgentNotifier::class)
+                    ->notifyAgent($agent,$conversation);
+
+                $conversation->update([
+                    'escalation_level' => $level + 1,
+                    'escalation_started_at' => now()
+                ]);
+
+                Log::info('ESCALATION_NEXT_AGENT',[
+                    'conversation' => $conversation->id,
+                    'agent' => $agent->id,
+                    'level' => $level + 1
+                ]);
+
+            } else {
+
+                /*
+                |--------------------------------------------------------------------------
+                | NO AGENT LEFT → RETURN TO BOT
+                |--------------------------------------------------------------------------
+                */
+
+                $conversation->update([
+                    'status' => 'bot'
+                ]);
+
+                Log::info('ESCALATION_RETURN_TO_AI',[
+                    'conversation' => $conversation->id
+                ]);
+
+            }
         }
-
-        return 0;
     }
 }

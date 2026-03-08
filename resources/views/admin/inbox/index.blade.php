@@ -1,20 +1,22 @@
 <x-app-layout>
 
-<div class="h-screen bg-gray-100 flex overflow-hidden relative">
+<div class="h-screen flex bg-gray-100 overflow-hidden">
 
-{{-- MOBILE OVERLAY --}}
+{{-- ================= MOBILE OVERLAY ================= --}}
 <div id="overlay"
-class="fixed inset-0 bg-black/40 hidden md:hidden z-20"
-onclick="toggleSidebar()"></div>
+class="fixed inset-0 bg-black/40 hidden z-30 md:hidden"
+onclick="closeSidebar()"></div>
 
 
 {{-- ================= SIDEBAR ================= --}}
 <div id="sidebar"
-class="w-[320px] bg-white border-r flex flex-col
-fixed md:relative h-full
+class="fixed md:relative z-40
+w-[320px] md:w-[340px]
+bg-white border-r flex flex-col h-full
 transform -translate-x-full md:translate-x-0
-transition-transform duration-300 z-30">
+transition-transform duration-300">
 
+{{-- HEADER --}}
 <div class="p-4 border-b flex justify-between items-center">
 <h2 class="font-semibold text-gray-700">Inbox</h2>
 
@@ -25,6 +27,7 @@ Bulk Send
 </div>
 
 
+{{-- SEARCH --}}
 <div class="p-4 border-b">
 <input
 type="text"
@@ -35,6 +38,7 @@ class="w-full bg-gray-100 rounded-lg px-4 py-2 border-0 focus:ring-2 focus:ring-
 </div>
 
 
+{{-- FILTERS --}}
 <div class="px-4 py-3 flex gap-2 text-xs flex-wrap">
 
 @foreach(['all','unread','human','bot','closed'] as $f)
@@ -53,6 +57,7 @@ class="px-3 py-1 rounded-full font-medium
 </div>
 
 
+{{-- CONVERSATION LIST --}}
 <div class="flex-1 overflow-y-auto">
 
 @foreach($conversations as $conversation)
@@ -114,16 +119,16 @@ ESCALATED
 
 
 {{-- ================= CHAT AREA ================= --}}
-<div class="flex-1 flex flex-col h-full min-w-0">
+<div class="flex-1 flex flex-col min-w-0 h-full">
 
 @if($activeConversation)
 
 {{-- HEADER --}}
-<div class="bg-white border-b px-3 md:px-4 py-3 flex justify-between items-center sticky top-0 z-10">
+<div class="bg-white border-b px-3 md:px-4 py-3 flex justify-between items-center">
 
 <div class="flex items-center gap-3">
 
-<button onclick="toggleSidebar()" class="md:hidden text-gray-600 text-lg">
+<button onclick="openSidebar()" class="md:hidden text-gray-600 text-lg">
 ☰
 </button>
 
@@ -190,9 +195,9 @@ Delete
 
 
 
-{{-- ================= MESSAGE STREAM ================= --}}
+{{-- ================= MESSAGES ================= --}}
 <div id="chatBox"
-class="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-3 bg-gray-100">
+class="flex-1 overflow-y-auto px-3 md:px-6 py-4 space-y-3">
 
 @foreach($activeConversation->messages as $message)
 
@@ -222,17 +227,9 @@ class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
 
 @if($message->direction === 'outgoing')
 
-@if($message->status === 'sent')
-<span>✓</span>
-@endif
-
-@if($message->status === 'delivered')
-<span>✓✓</span>
-@endif
-
-@if($message->status === 'read')
-<span class="text-blue-500">✓✓</span>
-@endif
+@if($message->status === 'sent') ✓ @endif
+@if($message->status === 'delivered') ✓✓ @endif
+@if($message->status === 'read') <span class="text-blue-500">✓✓</span> @endif
 
 @endif
 
@@ -248,8 +245,8 @@ class="text-[11px] text-gray-400 mt-1 flex items-center gap-1
 
 
 
-{{-- ================= REPLY BOX ================= --}}
-<div class="bg-white border-t p-3 sticky bottom-0">
+{{-- ================= INPUT ================= --}}
+<div class="bg-white border-t p-3">
 
 <form
 method="POST"
@@ -258,7 +255,7 @@ enctype="multipart/form-data">
 
 @csrf
 
-<div class="flex flex-col md:flex-row gap-2">
+<div class="flex gap-2">
 
 <input
 type="text"
@@ -266,19 +263,12 @@ name="message"
 placeholder="Type a message..."
 class="flex-1 bg-gray-100 rounded-full px-4 py-3 border-0 focus:ring-2 focus:ring-blue-500">
 
-<div class="flex gap-2 items-center">
-
-<input
-type="file"
-name="attachment"
-class="text-xs md:text-sm">
+<input type="file" name="attachment" class="text-xs md:text-sm">
 
 <button
-class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 md:px-6 md:py-3 rounded-full font-semibold">
+class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-full">
 Send
 </button>
-
-</div>
 
 </div>
 
@@ -294,15 +284,17 @@ Send
 
 
 
-{{-- ================= UI SCRIPTS ================= --}}
+{{-- ================= JS ================= --}}
 <script>
 
-function toggleSidebar(){
-const sidebar = document.getElementById("sidebar");
-const overlay = document.getElementById("overlay");
+function openSidebar(){
+document.getElementById("sidebar").classList.remove("-translate-x-full");
+document.getElementById("overlay").classList.remove("hidden");
+}
 
-sidebar.classList.toggle("-translate-x-full");
-overlay.classList.toggle("hidden");
+function closeSidebar(){
+document.getElementById("sidebar").classList.add("-translate-x-full");
+document.getElementById("overlay").classList.add("hidden");
 }
 
 const chatBox = document.getElementById("chatBox");
@@ -313,14 +305,10 @@ return chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 100;
 }
 
 function scrollBottom(){
-if(chatBox){
-chatBox.scrollTop = chatBox.scrollHeight;
-}
+if(chatBox) chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-if(chatBox){
-scrollBottom();
-}
+if(chatBox) scrollBottom();
 
 </script>
 
@@ -341,20 +329,15 @@ fetch(`/admin/inbox/${conversationId}/messages`)
 .then(res => res.json())
 .then(data => {
 
-const messages = data.messages;
-const online = data.online;
+updateOnline(data.online);
 
-updateOnline(online);
-
-messages.forEach(msg => {
+data.messages.forEach(msg => {
 
 updateStatus(msg);
 
 if(msg.id > lastMessageId){
-
 appendMessage(msg);
 lastMessageId = msg.id;
-
 }
 
 });
@@ -368,11 +351,10 @@ if(shouldScroll) scrollBottom();
 function updateOnline(online){
 
 const dot = document.getElementById("onlineIndicator");
-
 if(!dot) return;
 
-dot.classList.remove("bg-green-500","bg-gray-300");
-dot.classList.add(online ? "bg-green-500" : "bg-gray-300");
+dot.classList.toggle("bg-green-500",online);
+dot.classList.toggle("bg-gray-300",!online);
 
 }
 
@@ -381,7 +363,6 @@ function updateStatus(msg){
 if(!msg.status) return;
 
 const el = document.getElementById("msg-status-"+msg.id);
-
 if(!el) return;
 
 let ticks = "";
@@ -396,24 +377,21 @@ el.innerHTML = msg.time+" "+ticks;
 
 function appendMessage(msg){
 
-let content = msg.content ? `<p>${msg.content}</p>` : "";
-
 const wrapper = document.createElement("div");
 
 wrapper.className =
-"flex " + (msg.direction === "outgoing" ? "justify-end" : "justify-start");
+"flex "+(msg.direction==="outgoing"?"justify-end":"justify-start");
 
 wrapper.innerHTML = `
 <div class="max-w-[85%] md:max-w-[65%]">
 <div class="px-3 py-2 text-sm rounded-lg shadow
-${msg.direction === 'outgoing'
+${msg.direction==="outgoing"
 ? 'bg-blue-600 text-white rounded-br-none'
 : 'bg-white text-gray-800 rounded-bl-none'}">
-${content}
+${msg.content ?? ""}
 </div>
 <div id="msg-status-${msg.id}" class="text-[11px] text-gray-400 mt-1">${msg.time}</div>
-</div>
-`;
+</div>`;
 
 chatBox.appendChild(wrapper);
 

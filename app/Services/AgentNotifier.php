@@ -82,7 +82,7 @@ class AgentNotifier
             |--------------------------------------------------------------------------
             */
 
-            $dashboardLink = config('app.url') . "/login/";
+            $dashboardLink = config('app.url') . "/admin/inbox?conversation=" . $conversation->id;
 
             Log::info('AGENT_NOTIFICATION_START', [
                 'agent_id' => $agent->id,

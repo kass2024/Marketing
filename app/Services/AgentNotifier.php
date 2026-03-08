@@ -9,16 +9,18 @@ use App\Models\User;
 
 class AgentNotifier
 {
+
     /**
      * Send WhatsApp template notification to agent
      */
     public function notifyAgent(User $agent, Conversation $conversation): bool
     {
+
         try {
 
             /*
             |--------------------------------------------------------------------------
-            | Validate configuration
+            | Load configuration
             |--------------------------------------------------------------------------
             */
 
@@ -35,6 +37,7 @@ class AgentNotifier
                 return false;
             }
 
+
             /*
             |--------------------------------------------------------------------------
             | Validate agent phone
@@ -44,11 +47,13 @@ class AgentNotifier
             if (empty($agent->whatsapp_number)) {
 
                 Log::warning('AGENT_NOTIFICATION_NO_PHONE', [
-                    'agent_id' => $agent->id
+                    'agent_id' => $agent->id,
+                    'agent_name' => $agent->name
                 ]);
 
                 return false;
             }
+
 
             /*
             |--------------------------------------------------------------------------
@@ -59,22 +64,25 @@ class AgentNotifier
             $agentPhone    = preg_replace('/[^0-9]/', '', $agent->whatsapp_number);
             $customerPhone = preg_replace('/[^0-9]/', '', $conversation->phone_number);
 
+
             /*
             |--------------------------------------------------------------------------
             | Customer information
             |--------------------------------------------------------------------------
             */
 
-            $customerName  = $conversation->full_name ?? 'Customer';
-            $customerEmail = $conversation->email ?? 'Not provided';
+            $customerName  = $conversation->customer_name ?: 'Customer';
+            $customerEmail = $conversation->customer_email ?: 'Not provided';
+
 
             /*
             |--------------------------------------------------------------------------
-            | Clickable phone link
+            | Clickable WhatsApp phone link
             |--------------------------------------------------------------------------
             */
 
             $phoneLink = "https://wa.me/{$customerPhone}";
+
 
             /*
             |--------------------------------------------------------------------------
@@ -84,17 +92,27 @@ class AgentNotifier
 
             $dashboardLink = config('app.url') . "/admin/inbox?conversation=" . $conversation->id;
 
-            Log::info('AGENT_NOTIFICATION_START', [
-                'agent_id' => $agent->id,
-                'agent_name' => $agent->name,
-                'agent_phone' => $agentPhone,
-                'customer_phone' => $customerPhone,
-                'conversation_id' => $conversation->id
-            ]);
 
             /*
             |--------------------------------------------------------------------------
-            | Send WhatsApp Template Message
+            | Logging start
+            |--------------------------------------------------------------------------
+            */
+
+            Log::info('AGENT_NOTIFICATION_START', [
+                'agent_id'        => $agent->id,
+                'agent_name'      => $agent->name,
+                'agent_phone'     => $agentPhone,
+                'customer_name'   => $customerName,
+                'customer_email'  => $customerEmail,
+                'customer_phone'  => $customerPhone,
+                'conversation_id' => $conversation->id
+            ]);
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Send WhatsApp Template
             |--------------------------------------------------------------------------
             */
 
@@ -104,40 +122,53 @@ class AgentNotifier
                 ->post(
                     "https://graph.facebook.com/v19.0/{$phoneNumberId}/messages",
                     [
+
                         "messaging_product" => "whatsapp",
+
                         "to" => $agentPhone,
+
                         "type" => "template",
+
                         "template" => [
+
                             "name" => "agent_support_alert",
+
                             "language" => [
                                 "code" => "en"
                             ],
+
                             "components" => [
                                 [
                                     "type" => "body",
                                     "parameters" => [
+
                                         [
                                             "type" => "text",
                                             "text" => $customerName
                                         ],
+
                                         [
                                             "type" => "text",
                                             "text" => $customerEmail
                                         ],
+
                                         [
                                             "type" => "text",
                                             "text" => $phoneLink
                                         ],
+
                                         [
                                             "type" => "text",
                                             "text" => $dashboardLink
                                         ]
+
                                     ]
                                 ]
                             ]
                         ]
                     ]
                 );
+
 
             /*
             |--------------------------------------------------------------------------
@@ -148,21 +179,26 @@ class AgentNotifier
             if ($response->failed()) {
 
                 Log::error('AGENT_NOTIFICATION_META_ERROR', [
+
                     'agent_id' => $agent->id,
                     'agent_phone' => $agentPhone,
                     'status' => $response->status(),
                     'response' => $response->body()
+
                 ]);
 
                 return false;
             }
 
+
             Log::info('AGENT_NOTIFICATION_SENT', [
-                'agent_id' => $agent->id,
-                'agent_name' => $agent->name,
-                'agent_phone' => $agentPhone,
+
+                'agent_id'        => $agent->id,
+                'agent_name'      => $agent->name,
+                'agent_phone'     => $agentPhone,
                 'conversation_id' => $conversation->id,
-                'meta_response' => $response->json()
+                'meta_response'   => $response->json()
+
             ]);
 
             return true;
@@ -170,9 +206,11 @@ class AgentNotifier
         } catch (\Throwable $e) {
 
             Log::error('AGENT_NOTIFICATION_EXCEPTION', [
-                'agent_id' => $agent->id ?? null,
+
+                'agent_id'        => $agent->id ?? null,
                 'conversation_id' => $conversation->id ?? null,
-                'error' => $e->getMessage()
+                'error'           => $e->getMessage()
+
             ]);
 
             return false;

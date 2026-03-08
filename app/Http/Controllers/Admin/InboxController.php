@@ -14,20 +14,20 @@ class InboxController extends Controller
 
     /*
     |--------------------------------------------------------------------------
-    | INBOX LIST
+    | INBOX
     |--------------------------------------------------------------------------
     */
 
     public function index(Request $request)
     {
-        $filter = $request->get('filter', 'all');
+        $filter = $request->get('filter','all');
         $search = $request->get('search');
         $conversationId = $request->get('conversation');
 
-        Log::info('Inbox page opened', [
-            'filter' => $filter,
-            'search' => $search,
-            'conversation_id' => $conversationId
+        Log::info('Inbox page opened',[
+            'filter'=>$filter,
+            'search'=>$search,
+            'conversation'=>$conversationId
         ]);
 
         $query = Conversation::query();
@@ -39,8 +39,8 @@ class InboxController extends Controller
             });
         }
 
-        if ($filter === 'human') $query->where('status','human');
-        if ($filter === 'bot') $query->where('status','bot');
+        if ($filter === 'human')  $query->where('status','human');
+        if ($filter === 'bot')    $query->where('status','bot');
         if ($filter === 'closed') $query->where('status','closed');
 
         if ($search) {
@@ -53,7 +53,7 @@ class InboxController extends Controller
 
         $conversations = $query
             ->withCount([
-                'messages as unread_count' => function ($q) {
+                'messages as unread_count'=>function($q){
                     $q->where('direction','incoming')
                       ->where('is_read',0);
                 }
@@ -61,35 +61,34 @@ class InboxController extends Controller
             ->orderByDesc('last_activity_at')
             ->paginate(20);
 
-
         $activeConversation = null;
 
         if ($conversationId) {
 
             $activeConversation = Conversation::with([
-                'messages' => function ($q) {
+                'messages'=>function($q){
                     $q->orderBy('created_at','asc');
                 }
             ])->find($conversationId);
 
             if ($activeConversation) {
 
-                Log::info('Conversation opened', [
-                    'conversation_id' => $activeConversation->id,
-                    'phone' => $activeConversation->phone_number
+                Log::info('Conversation opened',[
+                    'conversation_id'=>$activeConversation->id,
+                    'phone'=>$activeConversation->phone_number
                 ]);
 
                 Message::where('conversation_id',$activeConversation->id)
                     ->where('direction','incoming')
                     ->where('is_read',0)
                     ->update([
-                        'is_read' => 1,
-                        'read_at' => now()
+                        'is_read'=>1,
+                        'read_at'=>now()
                     ]);
             }
         }
 
-        return view('admin.inbox.index', compact(
+        return view('admin.inbox.index',compact(
             'conversations',
             'activeConversation',
             'filter',
@@ -97,109 +96,110 @@ class InboxController extends Controller
         ));
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | SEND REPLY (META WHATSAPP CLOUD API)
+    | ADMIN REPLY (WHATSAPP CLOUD API)
     |--------------------------------------------------------------------------
     */
 
     public function reply(Request $request, Conversation $conversation)
     {
         $request->validate([
-            'message' => 'required|string|max:5000'
+            'message'=>'required|string|max:5000'
         ]);
 
-        Log::info('Admin sending reply', [
-            'conversation_id' => $conversation->id,
-            'phone' => $conversation->phone_number,
-            'message' => $request->message
+        $text = $request->message;
+
+        Log::info('Admin sending message',[
+            'conversation'=>$conversation->id,
+            'phone'=>$conversation->phone_number,
+            'message'=>$text
         ]);
 
         /*
         |--------------------------------------------------------------------------
-        | SAVE MESSAGE LOCALLY
+        | STORE MESSAGE
         |--------------------------------------------------------------------------
         */
 
         $message = Message::create([
-            'conversation_id' => $conversation->id,
-            'direction' => 'outgoing',
-            'content' => $request->message,
-            'status' => 'sending',
-            'is_read' => 1
+            'conversation_id'=>$conversation->id,
+            'direction'=>'outgoing',
+            'content'=>$text,
+            'status'=>'sending',
+            'is_read'=>1
         ]);
-
 
         /*
         |--------------------------------------------------------------------------
-        | SEND TO META WHATSAPP CLOUD API
+        | WHATSAPP CONFIG
+        |--------------------------------------------------------------------------
+        */
+
+        $phoneNumberId = config('services.whatsapp.phone_number_id');
+        $token         = config('services.whatsapp.access_token');
+
+        $endpoint =
+            config('services.whatsapp.graph_url').'/'
+            .config('services.whatsapp.graph_version').'/'
+            .$phoneNumberId.'/messages';
+
+        Log::info('Sending WhatsApp request',[
+            'endpoint'=>$endpoint,
+            'phone_number_id'=>$phoneNumberId
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | SEND MESSAGE
         |--------------------------------------------------------------------------
         */
 
         try {
 
-            $endpoint =
-                config('services.whatsapp.graph_url') . '/' .
-                config('services.whatsapp.graph_version') . '/' .
-                $conversation->phone_number_id . '/messages';
-
-            Log::info('Sending WhatsApp message', [
-                'endpoint' => $endpoint
-            ]);
-
-            $response = Http::withToken(config('services.meta.token'))
+            $response = Http::withToken($token)
                 ->timeout(config('services.api.timeout'))
-                ->post($endpoint, [
-
-                    'messaging_product' => 'whatsapp',
-
-                    'to' => $conversation->phone_number,
-
-                    'type' => 'text',
-
-                    'text' => [
-                        'body' => $request->message
+                ->post($endpoint,[
+                    "messaging_product"=>"whatsapp",
+                    "to"=>$conversation->phone_number,
+                    "type"=>"text",
+                    "text"=>[
+                        "body"=>$text
                     ]
-
                 ]);
 
-            Log::info('Meta API response', [
-                'status' => $response->status(),
-                'body' => $response->json()
+            Log::info('WhatsApp API response',[
+                'status'=>$response->status(),
+                'body'=>$response->json()
             ]);
-
 
             if ($response->successful()) {
 
                 $message->update([
-                    'status' => 'sent'
+                    'status'=>'sent'
                 ]);
-
-                Log::info('Message delivered successfully');
 
             } else {
 
                 $message->update([
-                    'status' => 'failed'
+                    'status'=>'failed'
                 ]);
 
-                Log::error('WhatsApp message failed', [
-                    'response' => $response->body()
+                Log::error('WhatsApp send failed',[
+                    'body'=>$response->body()
                 ]);
             }
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
 
             $message->update([
-                'status' => 'failed'
+                'status'=>'failed'
             ]);
 
-            Log::error('WhatsApp API exception', [
-                'error' => $e->getMessage()
+            Log::error('WhatsApp exception',[
+                'error'=>$e->getMessage()
             ]);
         }
-
 
         /*
         |--------------------------------------------------------------------------
@@ -208,36 +208,36 @@ class InboxController extends Controller
         */
 
         $conversation->update([
-            'status' => 'human',
-            'last_activity_at' => now()
+            'status'=>'human',
+            'last_activity_at'=>now()
         ]);
 
         return back();
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | SWITCH BOT / HUMAN
+    | BOT / HUMAN SWITCH
     |--------------------------------------------------------------------------
     */
 
     public function toggle(Conversation $conversation)
     {
-        $newStatus = $conversation->status === 'bot' ? 'human' : 'bot';
+        $newStatus = $conversation->status === 'bot'
+            ? 'human'
+            : 'bot';
 
-        Log::info('Conversation mode changed', [
-            'conversation_id' => $conversation->id,
-            'new_status' => $newStatus
+        Log::info('Conversation mode switched',[
+            'conversation'=>$conversation->id,
+            'status'=>$newStatus
         ]);
 
         $conversation->update([
-            'status' => $newStatus
+            'status'=>$newStatus
         ]);
 
         return back();
     }
-
 
     /*
     |--------------------------------------------------------------------------
@@ -247,12 +247,12 @@ class InboxController extends Controller
 
     public function close(Conversation $conversation)
     {
-        Log::info('Conversation closed', [
-            'conversation_id' => $conversation->id
+        Log::info('Conversation closed',[
+            'conversation'=>$conversation->id
         ]);
 
         $conversation->update([
-            'status' => 'closed'
+            'status'=>'closed'
         ]);
 
         return back();

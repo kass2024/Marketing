@@ -248,7 +248,7 @@ public function reply(int $clientId, string $message, $conversation = null): arr
             'request_id' => $requestId
         ]);
 
-        return $this->fallback("Error: ".$e->getMessage());
+        return $this->fallback("Sorry, something went wrong.");
     }
 }
     /*

@@ -3,45 +3,48 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use App\Models\Conversation;
+use App\Models\User;
 
 class AgentNotifier
 {
+    public function notifyAgent(User $agent, Conversation $conversation)
+    {
+        try {
 
-public function notify($conversation,$agent)
-{
+            $customerPhone = $conversation->phone_number;
 
-$token = config('services.whatsapp.access_token');
+            $message =
+            "⚠️ New support request\n\n".
+            "Customer: ".$customerPhone."\n\n".
+            "Open chat:\n".
+            "https://wa.me/".$customerPhone;
 
-$endpoint =
-config('services.whatsapp.graph_url').'/'
-.config('services.whatsapp.graph_version').'/'
-.config('services.whatsapp.phone_number_id').'/messages';
+            Http::withToken(config('services.whatsapp.token'))
+                ->post(
+                    "https://graph.facebook.com/v19.0/".config('services.whatsapp.phone_number_id')."/messages",
+                    [
+                        "messaging_product" => "whatsapp",
+                        "to" => $agent->whatsapp_number,
+                        "type" => "text",
+                        "text" => [
+                            "body" => $message
+                        ]
+                    ]
+                );
 
-$waLink = "https://wa.me/".$conversation->phone_number;
+            Log::info('AGENT_NOTIFICATION_SENT', [
+                'agent' => $agent->name,
+                'phone' => $agent->whatsapp_number,
+                'conversation' => $conversation->id
+            ]);
 
-$message = "🚨 New support request
+        } catch (\Throwable $e) {
 
-Customer: ".$conversation->customer_name."
-
-Phone: ".$conversation->phone_number."
-
-Open chat:
-".$waLink;
-
-Http::withToken($token)->post($endpoint,[
-
-"messaging_product"=>"whatsapp",
-
-"to"=>$agent->whatsapp_number,
-
-"type"=>"text",
-
-"text"=>[
-"body"=>$message
-]
-
-]);
-
-}
-
+            Log::error('AGENT_NOTIFICATION_FAILED', [
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
 }

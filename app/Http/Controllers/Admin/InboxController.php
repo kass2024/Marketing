@@ -8,253 +8,384 @@ use App\Models\Message;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class InboxController extends Controller
 {
 
-    /*
-    |--------------------------------------------------------------------------
-    | INBOX
-    |--------------------------------------------------------------------------
-    */
+/*
+|--------------------------------------------------------------------------
+| INBOX
+|--------------------------------------------------------------------------
+*/
 
-    public function index(Request $request)
-    {
-        $filter = $request->get('filter','all');
-        $search = $request->get('search');
-        $conversationId = $request->get('conversation');
+public function index(Request $request)
+{
+$filter = $request->get('filter','all');
+$search = $request->get('search');
+$conversationId = $request->get('conversation');
 
-        Log::info('Inbox page opened',[
-            'filter'=>$filter,
-            'search'=>$search,
-            'conversation'=>$conversationId
-        ]);
+Log::info('Inbox page opened',[
+'filter'=>$filter,
+'search'=>$search,
+'conversation'=>$conversationId
+]);
 
-        $query = Conversation::query();
+$query = Conversation::query();
 
-        if ($filter === 'unread') {
-            $query->whereHas('messages', function ($q) {
-                $q->where('direction','incoming')
-                  ->where('is_read',0);
-            });
-        }
+if ($filter === 'unread') {
+$query->whereHas('messages', function ($q) {
+$q->where('direction','incoming')
+->where('is_read',0);
+});
+}
 
-        if ($filter === 'human')  $query->where('status','human');
-        if ($filter === 'bot')    $query->where('status','bot');
-        if ($filter === 'closed') $query->where('status','closed');
+if ($filter === 'human')  $query->where('status','human');
+if ($filter === 'bot')    $query->where('status','bot');
+if ($filter === 'closed') $query->where('status','closed');
 
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('customer_name','like',"%$search%")
-                  ->orWhere('customer_email','like',"%$search%")
-                  ->orWhere('phone_number','like',"%$search%");
-            });
-        }
+if ($search) {
+$query->where(function ($q) use ($search) {
+$q->where('customer_name','like',"%$search%")
+->orWhere('customer_email','like',"%$search%")
+->orWhere('phone_number','like',"%$search%");
+});
+}
 
-        $conversations = $query
-            ->withCount([
-                'messages as unread_count'=>function($q){
-                    $q->where('direction','incoming')
-                      ->where('is_read',0);
-                }
-            ])
-            ->orderByDesc('last_activity_at')
-            ->paginate(20);
+$conversations = $query
+->withCount([
+'messages as unread_count'=>function($q){
+$q->where('direction','incoming')
+->where('is_read',0);
+}
+])
+->orderByDesc('last_activity_at')
+->paginate(20);
 
-        $activeConversation = null;
+$activeConversation = null;
 
-        if ($conversationId) {
+if ($conversationId) {
 
-            $activeConversation = Conversation::with([
-                'messages'=>function($q){
-                    $q->orderBy('created_at','asc');
-                }
-            ])->find($conversationId);
+$activeConversation = Conversation::with([
+'messages'=>function($q){
+$q->orderBy('created_at','asc');
+}
+])->find($conversationId);
 
-            if ($activeConversation) {
+if ($activeConversation) {
 
-                Log::info('Conversation opened',[
-                    'conversation_id'=>$activeConversation->id,
-                    'phone'=>$activeConversation->phone_number
-                ]);
+Log::info('Conversation opened',[
+'conversation_id'=>$activeConversation->id,
+'phone'=>$activeConversation->phone_number
+]);
 
-                Message::where('conversation_id',$activeConversation->id)
-                    ->where('direction','incoming')
-                    ->where('is_read',0)
-                    ->update([
-                        'is_read'=>1,
-                        'read_at'=>now()
-                    ]);
-            }
-        }
+Message::where('conversation_id',$activeConversation->id)
+->where('direction','incoming')
+->where('is_read',0)
+->update([
+'is_read'=>1,
+'read_at'=>now()
+]);
 
-        return view('admin.inbox.index',compact(
-            'conversations',
-            'activeConversation',
-            'filter',
-            'search'
-        ));
-    }
+}
+}
 
-    /*
-    |--------------------------------------------------------------------------
-    | ADMIN REPLY (WHATSAPP CLOUD API)
-    |--------------------------------------------------------------------------
-    */
+return view('admin.inbox.index',compact(
+'conversations',
+'activeConversation',
+'filter',
+'search'
+));
+}
 
-    public function reply(Request $request, Conversation $conversation)
-    {
-        $request->validate([
-            'message'=>'required|string|max:5000'
-        ]);
 
-        $text = $request->message;
+/*
+|--------------------------------------------------------------------------
+| ADMIN REPLY (TEXT + ATTACHMENTS)
+|--------------------------------------------------------------------------
+*/
 
-        Log::info('Admin sending message',[
-            'conversation'=>$conversation->id,
-            'phone'=>$conversation->phone_number,
-            'message'=>$text
-        ]);
+public function reply(Request $request, Conversation $conversation)
+{
 
-        /*
-        |--------------------------------------------------------------------------
-        | STORE MESSAGE
-        |--------------------------------------------------------------------------
-        */
+$request->validate([
+'message'=>'nullable|string|max:5000',
+'attachment'=>'nullable|file|max:20000'
+]);
 
-        $message = Message::create([
-            'conversation_id'=>$conversation->id,
-            'direction'=>'outgoing',
-            'content'=>$text,
-            'status'=>'sending',
-            'is_read'=>1
-        ]);
+$text = $request->message;
 
-        /*
-        |--------------------------------------------------------------------------
-        | WHATSAPP CONFIG
-        |--------------------------------------------------------------------------
-        */
+Log::info('Admin sending message',[
+'conversation'=>$conversation->id,
+'phone'=>$conversation->phone_number,
+'message'=>$text
+]);
 
-        $phoneNumberId = config('services.whatsapp.phone_number_id');
-        $token         = config('services.whatsapp.access_token');
+/*
+|--------------------------------------------------------------------------
+| HANDLE FILE UPLOAD
+|--------------------------------------------------------------------------
+*/
 
-        $endpoint =
-            config('services.whatsapp.graph_url').'/'
-            .config('services.whatsapp.graph_version').'/'
-            .$phoneNumberId.'/messages';
+$mediaType = null;
+$fileUrl = null;
+$filename = null;
 
-        Log::info('Sending WhatsApp request',[
-            'endpoint'=>$endpoint,
-            'phone_number_id'=>$phoneNumberId
-        ]);
+if($request->hasFile('attachment')){
 
-        /*
-        |--------------------------------------------------------------------------
-        | SEND MESSAGE
-        |--------------------------------------------------------------------------
-        */
+$file = $request->file('attachment');
 
-        try {
+$path = $file->store('whatsapp','public');
 
-            $response = Http::withToken($token)
-                ->timeout(config('services.api.timeout'))
-                ->post($endpoint,[
-                    "messaging_product"=>"whatsapp",
-                    "to"=>$conversation->phone_number,
-                    "type"=>"text",
-                    "text"=>[
-                        "body"=>$text
-                    ]
-                ]);
+$fileUrl = asset('storage/'.$path);
 
-            Log::info('WhatsApp API response',[
-                'status'=>$response->status(),
-                'body'=>$response->json()
-            ]);
+$filename = $file->getClientOriginalName();
 
-            if ($response->successful()) {
+$mime = $file->getMimeType();
 
-                $message->update([
-                    'status'=>'sent'
-                ]);
+if(str_contains($mime,'image')){
+$mediaType='image';
+}else{
+$mediaType='document';
+}
 
-            } else {
+}
 
-                $message->update([
-                    'status'=>'failed'
-                ]);
 
-                Log::error('WhatsApp send failed',[
-                    'body'=>$response->body()
-                ]);
-            }
+/*
+|--------------------------------------------------------------------------
+| STORE MESSAGE
+|--------------------------------------------------------------------------
+*/
 
-        } catch (\Throwable $e) {
+$message = Message::create([
+'conversation_id'=>$conversation->id,
+'direction'=>'outgoing',
+'content'=>$text,
+'media_type'=>$mediaType,
+'media_url'=>$fileUrl,
+'filename'=>$filename,
+'status'=>'sending',
+'is_read'=>1
+]);
 
-            $message->update([
-                'status'=>'failed'
-            ]);
 
-            Log::error('WhatsApp exception',[
-                'error'=>$e->getMessage()
-            ]);
-        }
+/*
+|--------------------------------------------------------------------------
+| WHATSAPP CONFIG
+|--------------------------------------------------------------------------
+*/
 
-        /*
-        |--------------------------------------------------------------------------
-        | UPDATE CONVERSATION
-        |--------------------------------------------------------------------------
-        */
+$phoneNumberId = config('services.whatsapp.phone_number_id');
+$token         = config('services.whatsapp.access_token');
 
-        $conversation->update([
-            'status'=>'human',
-            'last_activity_at'=>now()
-        ]);
+$endpoint =
+config('services.whatsapp.graph_url').'/'
+.config('services.whatsapp.graph_version').'/'
+.$phoneNumberId.'/messages';
 
-        return back();
-    }
 
-    /*
-    |--------------------------------------------------------------------------
-    | BOT / HUMAN SWITCH
-    |--------------------------------------------------------------------------
-    */
+Log::info('Sending WhatsApp request',[
+'endpoint'=>$endpoint,
+'phone_number_id'=>$phoneNumberId
+]);
 
-    public function toggle(Conversation $conversation)
-    {
-        $newStatus = $conversation->status === 'bot'
-            ? 'human'
-            : 'bot';
 
-        Log::info('Conversation mode switched',[
-            'conversation'=>$conversation->id,
-            'status'=>$newStatus
-        ]);
+/*
+|--------------------------------------------------------------------------
+| SEND MESSAGE
+|--------------------------------------------------------------------------
+*/
 
-        $conversation->update([
-            'status'=>$newStatus
-        ]);
+try {
 
-        return back();
-    }
+if(!$mediaType){
 
-    /*
-    |--------------------------------------------------------------------------
-    | CLOSE CONVERSATION
-    |--------------------------------------------------------------------------
-    */
+$response = Http::withToken($token)
+->timeout(config('services.api.timeout'))
+->post($endpoint,[
 
-    public function close(Conversation $conversation)
-    {
-        Log::info('Conversation closed',[
-            'conversation'=>$conversation->id
-        ]);
+"messaging_product"=>"whatsapp",
+"to"=>$conversation->phone_number,
+"type"=>"text",
+"text"=>[
+"body"=>$text
+]
 
-        $conversation->update([
-            'status'=>'closed'
-        ]);
+]);
 
-        return back();
-    }
+}
+
+elseif($mediaType=='image'){
+
+$response = Http::withToken($token)
+->timeout(config('services.api.timeout'))
+->post($endpoint,[
+
+"messaging_product"=>"whatsapp",
+"to"=>$conversation->phone_number,
+"type"=>"image",
+"image"=>[
+"link"=>$fileUrl
+]
+
+]);
+
+}
+
+elseif($mediaType=='document'){
+
+$response = Http::withToken($token)
+->timeout(config('services.api.timeout'))
+->post($endpoint,[
+
+"messaging_product"=>"whatsapp",
+"to"=>$conversation->phone_number,
+"type"=>"document",
+"document"=>[
+"link"=>$fileUrl,
+"filename"=>$filename
+]
+
+]);
+
+}
+
+
+Log::info('WhatsApp API response',[
+'status'=>$response->status(),
+'body'=>$response->json()
+]);
+
+
+if ($response->successful()) {
+
+$wamid=$response->json()['messages'][0]['id'] ?? null;
+
+$message->update([
+'status'=>'sent',
+'external_id'=>$wamid
+]);
+
+} else {
+
+$message->update([
+'status'=>'failed'
+]);
+
+Log::error('WhatsApp send failed',[
+'body'=>$response->body()
+]);
+
+}
+
+} catch (\Throwable $e) {
+
+$message->update([
+'status'=>'failed'
+]);
+
+Log::error('WhatsApp exception',[
+'error'=>$e->getMessage()
+]);
+
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| UPDATE CONVERSATION
+|--------------------------------------------------------------------------
+*/
+
+$conversation->update([
+'status'=>'human',
+'last_activity_at'=>now()
+]);
+
+return back();
+
+}
+
+
+
+/*
+|--------------------------------------------------------------------------
+| BOT / HUMAN SWITCH
+|--------------------------------------------------------------------------
+*/
+
+public function toggle(Conversation $conversation)
+{
+
+$newStatus = $conversation->status === 'bot'
+? 'human'
+: 'bot';
+
+Log::info('Conversation mode switched',[
+'conversation'=>$conversation->id,
+'status'=>$newStatus
+]);
+
+$conversation->update([
+'status'=>$newStatus
+]);
+
+return back();
+
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| LIVE CHAT FETCH
+|--------------------------------------------------------------------------
+*/
+
+public function fetchMessages(Conversation $conversation)
+{
+
+$messages = $conversation->messages()
+->orderBy('created_at','asc')
+->get()
+->map(function($m){
+
+return [
+'id'=>$m->id,
+'content'=>$m->content,
+'direction'=>$m->direction,
+'time'=>$m->created_at->format('H:i'),
+'media_type'=>$m->media_type,
+'media_url'=>$m->media_url,
+'filename'=>$m->filename
+];
+
+});
+
+return response()->json($messages);
+
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| CLOSE CONVERSATION
+|--------------------------------------------------------------------------
+*/
+
+public function close(Conversation $conversation)
+{
+
+Log::info('Conversation closed',[
+'conversation'=>$conversation->id
+]);
+
+$conversation->update([
+'status'=>'closed'
+]);
+
+return back();
+
+}
+
 }

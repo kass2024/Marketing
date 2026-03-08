@@ -517,5 +517,11 @@ Route::get('/admin/meta/interests', [\App\Http\Controllers\Admin\MetaTargetingCo
 Route::get('/ads/{creative}/preview', [AdController::class, 'preview'])
     ->name('admin.ads.preview');
 
-
+Route::get(
+    '/admin/creatives/{creative}/preview',
+    [CreativeController::class, 'preview']
+)->name('admin.creatives.preview');
+Route::get('/admin/inbox/{conversation}/messages', 
+    [App\Http\Controllers\Admin\InboxController::class, 'fetchMessages']
+)->name('admin.inbox.fetch');
 require __DIR__.'/auth.php';

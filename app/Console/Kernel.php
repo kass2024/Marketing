@@ -18,8 +18,8 @@ class Kernel extends ConsoleKernel
         |--------------------------------------------------------------------------
         | Messaging Automation
         |--------------------------------------------------------------------------
-        | WhatsApp / Messenger unread message reporting.
-        | Runs every 5 minutes.
+        | WhatsApp / Messenger unread message reporting
+        | Runs every 5 minutes
         */
 
         $schedule->command('report:unread-messages')
@@ -35,7 +35,7 @@ class Kernel extends ConsoleKernel
         |--------------------------------------------------------------------------
         | META MARKETING SYNC ENGINE
         |--------------------------------------------------------------------------
-        | Unified Meta Ads synchronization engine.
+        | Unified Meta Ads synchronization engine
         */
 
         $schedule->command('meta:sync')
@@ -51,11 +51,9 @@ class Kernel extends ConsoleKernel
         |--------------------------------------------------------------------------
         | AGENT ESCALATION MONITOR
         |--------------------------------------------------------------------------
-        | Ensures human escalations are handled quickly.
+        | Ensures human escalations are handled quickly
         | If an assigned agent does not respond within the configured timeout,
-        | the conversation is automatically reassigned to the next available agent.
-        |
-        | Default timeout recommended: 60 seconds
+        | the conversation is automatically reassigned
         */
 
         $schedule->command('agents:monitor')
@@ -69,17 +67,33 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
+        | WhatsApp Chatbot Queue Worker
+        |--------------------------------------------------------------------------
+        | Ensures fast processing of chatbot messages
+        | Equivalent to:
+        | php artisan queue:work --tries=3 --timeout=90
+        */
+
+        $schedule->command('queue:work --tries=3 --timeout=90')
+            ->everyMinute()
+            ->runInBackground()
+            ->withoutOverlapping()
+            ->name('chatbot-queue-worker')
+            ->appendOutputTo(storage_path('logs/queue-worker.log'));
+
+
+        /*
+        |--------------------------------------------------------------------------
         | System Health Monitoring
         |--------------------------------------------------------------------------
-        | Scheduler heartbeat to confirm cron is alive.
+        | Scheduler heartbeat to confirm cron is alive
         */
-       $schedule->command('agents:monitor')
-    ->everyMinute();
+
         $schedule->call(function () {
 
             Log::info('SYSTEM_SCHEDULER_HEARTBEAT', [
                 'timestamp' => now()->toDateTimeString(),
-                'environment' => app()->environment()
+                'environment' => app()->environment(),
             ]);
 
         })

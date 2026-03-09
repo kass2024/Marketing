@@ -13,8 +13,8 @@ class AIEngine
     protected string $model;
 
     // Tunable thresholds
-    protected float $faqThreshold = 0.60;      // direct FAQ match
-    protected float $groundThreshold = 0.45;   // grounded AI
+   protected float $faqThreshold = 0.75;
+protected float $groundThreshold = 0.60;
     protected int $candidateLimit = 5;
     protected int $timeout = 30;
 
@@ -215,14 +215,9 @@ public function reply(int $clientId, string $message, $conversation = null): arr
         |--------------------------------------------------------------------------
         */
 
-        $this->log('PURE_AI_MODE', [], $requestId);
+      $this->log('NO_KNOWLEDGE_MATCH_ESCALATION', [], $requestId);
 
-        $response = $this->handlePureAI(
-            $clientId,
-            $hash,
-            $normalized,
-            $requestId
-        );
+return $this->handoverToHuman($conversation, $requestId);
 
         /*
         |--------------------------------------------------------------------------
@@ -342,14 +337,25 @@ public function reply(int $clientId, string $message, $conversation = null): arr
             ->pluck('knowledge.answer')
             ->implode("\n\n");
 
-        $prompt = "You are a professional visa assistant.
-Use the following context when relevant.
+$prompt = "
+You are a professional visa and immigration assistant for a visa consultancy.
 
-Context:
+IMPORTANT RULES:
+1. You MUST answer ONLY using the information provided in the CONTEXT section.
+2. Do NOT invent, assume, or guess information.
+3. If the answer is NOT clearly present in the context, respond exactly with:
+   \"I will connect you with a human agent for further assistance.\"
+4. Do not provide unrelated information.
+5. Keep answers short, clear, and professional.
+
+CONTEXT:
 $context
 
-Question:
-$message";
+USER QUESTION:
+$message
+
+Answer using ONLY the context above.
+";
 
         $answer = $this->callOpenAI($prompt, $requestId);
 

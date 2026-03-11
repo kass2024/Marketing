@@ -42,7 +42,7 @@ class AdSet extends Model
         'campaign_id',
 
         // Meta identifiers
-        'meta_adset_id',
+        'meta_id',
 
         // basic info
         'name',

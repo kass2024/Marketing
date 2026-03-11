@@ -377,43 +377,115 @@ return $response;
     |--------------------------------------------------------------------------
     */
 
-    public function createAd(string $accountId,array $data):array
-    {
-        $accountId = $this->formatAccount($accountId);
-
-        $payload = [
-
-            'name'=>$data['name'],
-
-            'adset_id'=>$data['adset_id'],
-
-            'status'=>$data['status'] ?? 'PAUSED'
-        ];
-
-        if(isset($data['creative'])){
-            $payload['creative'] = json_encode($data['creative']);
-        }
-
-        Log::info('META_AD_CREATE_PAYLOAD',$payload);
-
-        return $this->post("{$accountId}/ads",$payload);
-    }
-
-    public function updateAd(string $adId,array $data):array
-    {
-        return $this->post($adId,$data);
-    }
-
-    public function deleteAd(string $adId):array
-    {
-        return $this->delete($adId);
-    }
-    /*
+   /*
 |--------------------------------------------------------------------------
-| GET CAMPAIGNS
+| CREATE AD
 |--------------------------------------------------------------------------
 */
 
+public function createAd(string $accountId, array $data): array
+{
+    $accountId = $this->formatAccount($accountId);
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDATION
+    |--------------------------------------------------------------------------
+    */
+
+    if (empty($data['name'])) {
+        throw new Exception('Ad name is required');
+    }
+
+    if (empty($data['adset_id'])) {
+        throw new Exception('adset_id is required');
+    }
+
+    if (empty($data['creative']['creative_id'])) {
+        throw new Exception('creative_id is required');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | BUILD PAYLOAD
+    |--------------------------------------------------------------------------
+    */
+
+    $payload = [
+
+        'name' => $data['name'],
+
+        'adset_id' => $data['adset_id'],
+
+        'status' => $data['status'] ?? 'PAUSED',
+
+        /*
+        |--------------------------------------------------------------------------
+        | IMPORTANT: Meta requires creative as JSON string
+        |--------------------------------------------------------------------------
+        */
+
+        'creative' => json_encode([
+            'creative_id' => $data['creative']['creative_id']
+        ])
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | DEBUG LOG
+    |--------------------------------------------------------------------------
+    */
+
+    Log::info('META_AD_CREATE_PAYLOAD', [
+        'endpoint' => "{$accountId}/ads",
+        'payload' => $payload
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | SEND REQUEST
+    |--------------------------------------------------------------------------
+    */
+
+    $response = $this->post("{$accountId}/ads", $payload);
+
+    Log::info('META_AD_CREATE_RESPONSE', $response);
+
+    return $response;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| UPDATE AD
+|--------------------------------------------------------------------------
+*/
+
+public function updateAd(string $adId, array $data): array
+{
+    Log::info('META_AD_UPDATE_PAYLOAD', [
+        'ad_id' => $adId,
+        'payload' => $data
+    ]);
+
+    return $this->post($adId, $data);
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| DELETE AD
+|--------------------------------------------------------------------------
+*/
+
+public function deleteAd(string $adId): array
+{
+    Log::info('META_AD_DELETE', [
+        'ad_id' => $adId
+    ]);
+
+    return $this->delete($adId);
+}
 public function getCampaigns(string $accountId): array
 {
     $accountId = $this->formatAccount($accountId);

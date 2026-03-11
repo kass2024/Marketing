@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 class Creative extends Model
@@ -14,7 +15,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Table
+    | TABLE
     |--------------------------------------------------------------------------
     */
 
@@ -23,7 +24,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Status
+    | STATUS
     |--------------------------------------------------------------------------
     */
 
@@ -34,7 +35,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Call To Action
+    | CALL TO ACTION TYPES
     |--------------------------------------------------------------------------
     */
 
@@ -48,23 +49,27 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Mass Assignment
+    | MASS ASSIGNMENT
     |--------------------------------------------------------------------------
     */
 
     protected $fillable = [
 
+        // relationships
+        'campaign_id',
+        'adset_id',
+
         // Meta reference
         'meta_id',
 
-        // Basic info
+        // basic info
         'name',
 
-        // Ad content
+        // content
         'headline',
         'body',
 
-        // Media
+        // media
         'image_url',
         'video_url',
         'image_hash',
@@ -72,10 +77,10 @@ class Creative extends Model
         // CTA
         'call_to_action',
 
-        // Landing page
+        // destination
         'destination_url',
 
-        // Raw Meta payload
+        // raw meta payload
         'json_payload',
 
         // lifecycle
@@ -85,7 +90,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Defaults
+    | DEFAULTS
     |--------------------------------------------------------------------------
     */
 
@@ -96,20 +101,32 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Casts
+    | CASTS
     |--------------------------------------------------------------------------
     */
 
     protected $casts = [
+
         'json_payload' => 'array'
+
     ];
 
 
     /*
     |--------------------------------------------------------------------------
-    | Relationships
+    | RELATIONSHIPS
     |--------------------------------------------------------------------------
     */
+
+    public function campaign(): BelongsTo
+    {
+        return $this->belongsTo(Campaign::class);
+    }
+
+    public function adset(): BelongsTo
+    {
+        return $this->belongsTo(AdSet::class);
+    }
 
     public function ads(): HasMany
     {
@@ -119,7 +136,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Query Scopes
+    | SCOPES
     |--------------------------------------------------------------------------
     */
 
@@ -141,7 +158,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Media Helpers
+    | MEDIA HELPERS
     |--------------------------------------------------------------------------
     */
 
@@ -176,7 +193,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Storage URL Helper
+    | STORAGE URL
     |--------------------------------------------------------------------------
     */
 
@@ -196,7 +213,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Preview Data
+    | PREVIEW DATA
     |--------------------------------------------------------------------------
     */
 
@@ -215,13 +232,14 @@ class Creative extends Model
             'destination_url' => $this->destination_url,
 
             'status' => $this->status
+
         ];
     }
 
 
     /*
     |--------------------------------------------------------------------------
-    | Meta Payload Helpers
+    | META PAYLOAD
     |--------------------------------------------------------------------------
     */
 
@@ -239,7 +257,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Status Helpers
+    | STATUS HELPERS
     |--------------------------------------------------------------------------
     */
 
@@ -261,7 +279,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | CTA Options
+    | CTA OPTIONS
     |--------------------------------------------------------------------------
     */
 

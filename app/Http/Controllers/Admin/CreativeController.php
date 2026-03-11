@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Creative;
+use App\Models\AdSet;
+use App\Models\Campaign;
 use App\Models\AdAccount;
 use App\Services\MetaAdsService;
 
@@ -32,7 +34,9 @@ class CreativeController extends Controller
 
     public function index()
     {
-        $creatives = Creative::latest()->paginate(20);
+        $creatives = Creative::with(['campaign','adset'])
+            ->latest()
+            ->paginate(20);
 
         return view('admin.creatives.index', compact('creatives'));
     }
@@ -45,7 +49,17 @@ class CreativeController extends Controller
 
     public function create()
     {
-        return view('admin.creatives.create');
+        $campaigns = Campaign::latest()->get();
+
+        $adsets = AdSet::latest()->get();
+
+        $pages = $this->meta->getPages();
+
+        return view('admin.creatives.create', compact(
+            'campaigns',
+            'adsets',
+            'pages'
+        ));
     }
 
     /*
@@ -59,23 +73,52 @@ class CreativeController extends Controller
         Log::info('CREATIVE_STORE_REQUEST', $request->all());
 
         $data = $request->validate([
+
+            'campaign_id' => 'required|exists:campaigns,id',
+
+            'adset_id' => 'required|exists:ad_sets,id',
+
+            'page_id' => 'required|string',
+
             'name' => 'required|string|max:255',
+
             'headline' => 'nullable|string|max:255',
+
             'body' => 'nullable|string',
+
             'destination_url' => 'nullable|url',
+
             'call_to_action' => 'nullable|string|max:50',
-            'image' => 'nullable|image|max:4096',
-            'sync_meta' => 'nullable|boolean'
+
+            'image' => 'required|image|max:4096',
+
+            'sync_meta' => 'nullable|boolean',
+
+            'status' => 'nullable|string'
+
         ]);
+
 
         DB::beginTransaction();
 
         try {
 
-            $imagePath = null;
-            $imageHash = null;
-            $metaCreativeId = null;
-            $payload = [];
+            $campaign = Campaign::findOrFail($data['campaign_id']);
+
+            $adset = AdSet::findOrFail($data['adset_id']);
+
+            $account = AdAccount::whereNotNull('meta_id')->first();
+
+            if (!$account) {
+                throw new Exception('Meta Ad Account not connected.');
+            }
+
+            $accountId = $account->meta_id;
+
+            if (!str_starts_with($accountId, 'act_')) {
+                $accountId = 'act_' . $accountId;
+            }
+
 
             /*
             |--------------------------------------------------------------------------
@@ -83,121 +126,110 @@ class CreativeController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store(
+                'creatives',
+                'public'
+            );
 
-                $imagePath = $request->file('image')->store(
-                    'creatives',
-                    'public'
-                );
-            }
+            $imageFullPath = storage_path('app/public/'.$imagePath);
+
 
             /*
             |--------------------------------------------------------------------------
-            | META SYNC
+            | META IMAGE UPLOAD
             |--------------------------------------------------------------------------
             */
 
+            $imageHash = null;
+
             if ($request->boolean('sync_meta')) {
 
-                $account = AdAccount::whereNotNull('meta_id')->first();
+                $imageResponse = $this->meta->uploadImage(
+                    $accountId,
+                    $imageFullPath
+                );
 
-                if (!$account) {
-                    throw new Exception('Meta Ad Account not connected.');
+                Log::info('META_IMAGE_UPLOAD', $imageResponse);
+
+                if (!isset($imageResponse['images'])) {
+                    throw new Exception('Meta image upload failed.');
                 }
 
-                $accountId = $account->meta_id;
+                $image = current($imageResponse['images']);
 
-                if (!str_starts_with($accountId, 'act_')) {
-                    $accountId = 'act_' . $accountId;
+                $imageHash = $image['hash'] ?? null;
+
+                if (!$imageHash) {
+                    throw new Exception('Meta image hash missing.');
                 }
+            }
 
-                /*
-                |--------------------------------------------------------------------------
-                | UPLOAD IMAGE TO META
-                |--------------------------------------------------------------------------
-                */
 
-                if ($imagePath) {
+            /*
+            |--------------------------------------------------------------------------
+            | BUILD LINK DATA
+            |--------------------------------------------------------------------------
+            */
 
-                    $imageFullPath = storage_path('app/public/' . $imagePath);
+            $linkData = [
 
-                    $imageResponse = $this->meta->uploadImage(
-                        $accountId,
-                        $imageFullPath
-                    );
+                'link' => $data['destination_url'] ?? config('app.url'),
 
-                    if (!isset($imageResponse['images'])) {
-                        throw new Exception('Meta image upload failed.');
-                    }
+                'message' => $data['body'] ?? '',
 
-                    // FIXED: extract actual hash
-                    $image = current($imageResponse['images']);
+                'name' => $data['headline'] ?? $data['name'],
 
-                    if (!isset($image['hash'])) {
-                        throw new Exception('Meta did not return image hash.');
-                    }
+                'image_hash' => $imageHash
 
-                    $imageHash = $image['hash'];
-                }
+            ];
 
-                /*
-                |--------------------------------------------------------------------------
-                | BUILD LINK DATA
-                |--------------------------------------------------------------------------
-                */
 
-                $linkData = [];
+            if (!empty($data['call_to_action'])) {
 
-                if (!empty($data['headline'])) {
-                    $linkData['name'] = $data['headline'];
-                }
+                $linkData['call_to_action'] = [
 
-                if (!empty($data['body'])) {
-                    $linkData['message'] = $data['body'];
-                }
+                    'type' => $data['call_to_action'],
 
-                if (!empty($data['destination_url'])) {
-                    $linkData['link'] = $data['destination_url'];
-                }
-
-                if ($imageHash) {
-                    $linkData['image_hash'] = $imageHash;
-                }
-
-                if (!empty($data['call_to_action'])) {
-
-                    $cta = [
-                        'type' => $data['call_to_action']
-                    ];
-
-                    if (!empty($data['destination_url'])) {
-                        $cta['value'] = [
-                            'link' => $data['destination_url']
-                        ];
-                    }
-
-                    $linkData['call_to_action'] = $cta;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | BUILD PAYLOAD
-                |--------------------------------------------------------------------------
-                */
-
-                $payload = [
-
-                    'name' => $data['name'],
-
-                    'object_story_spec' => [
-
-                        'page_id' => config('services.meta.page_id'),
-
-                        'link_data' => $linkData
+                    'value' => [
+                        'link' => $data['destination_url']
                     ]
-                ];
 
-                Log::info('META_CREATIVE_PAYLOAD', $payload);
+                ];
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | CREATIVE PAYLOAD
+            |--------------------------------------------------------------------------
+            */
+
+            $payload = [
+
+                'name' => $data['name'],
+
+                'object_story_spec' => [
+
+                    'page_id' => $data['page_id'],
+
+                    'link_data' => $linkData
+
+                ]
+
+            ];
+
+            Log::info('META_CREATIVE_PAYLOAD', $payload);
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | CREATE META CREATIVE
+            |--------------------------------------------------------------------------
+            */
+
+            $metaCreativeId = null;
+
+            if ($request->boolean('sync_meta')) {
 
                 $response = $this->meta->createCreative(
                     $accountId,
@@ -217,13 +249,18 @@ class CreativeController extends Controller
                 $metaCreativeId = $response['id'];
             }
 
+
             /*
             |--------------------------------------------------------------------------
-            | SAVE LOCAL
+            | SAVE LOCAL CREATIVE
             |--------------------------------------------------------------------------
             */
 
             $creative = Creative::create([
+
+                'campaign_id' => $campaign->id,
+
+                'adset_id' => $adset->id,
 
                 'name' => $data['name'],
 
@@ -243,26 +280,35 @@ class CreativeController extends Controller
 
                 'json_payload' => $payload,
 
-                'status' => Creative::STATUS_DRAFT
+                'status' => $data['status'] ?? Creative::STATUS_DRAFT
+
             ]);
+
 
             DB::commit();
 
+
             Log::info('CREATIVE_CREATED', [
+
                 'creative_id' => $creative->id,
+
                 'meta_id' => $metaCreativeId
+
             ]);
+
 
             return redirect()
                 ->route('admin.creatives.index')
-                ->with('success', 'Creative created successfully.');
+                ->with('success', 'Creative created and synced.');
 
         } catch (Throwable $e) {
 
             DB::rollBack();
 
             Log::error('CREATIVE_STORE_FAILED', [
+
                 'error' => $e->getMessage()
+
             ]);
 
             return back()
@@ -272,6 +318,7 @@ class CreativeController extends Controller
                 ]);
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -284,6 +331,7 @@ class CreativeController extends Controller
         return view('admin.creatives.edit', compact('creative'));
     }
 
+
     /*
     |--------------------------------------------------------------------------
     | UPDATE
@@ -293,12 +341,19 @@ class CreativeController extends Controller
     public function update(Request $request, Creative $creative)
     {
         $data = $request->validate([
+
             'name' => 'required|string|max:255',
+
             'headline' => 'nullable|string|max:255',
+
             'body' => 'nullable|string',
+
             'destination_url' => 'nullable|url',
+
             'call_to_action' => 'nullable|string|max:50',
+
             'image' => 'nullable|image|max:4096'
+
         ]);
 
         try {
@@ -310,19 +365,21 @@ class CreativeController extends Controller
                 }
 
                 $creative->image_url = $request->file('image')
-                    ->store('creatives', 'public');
+                    ->store('creatives','public');
             }
 
             $creative->update($data);
 
             return redirect()
                 ->route('admin.creatives.index')
-                ->with('success', 'Creative updated successfully.');
+                ->with('success','Creative updated.');
 
         } catch (Throwable $e) {
 
             Log::error('CREATIVE_UPDATE_FAILED', [
+
                 'error' => $e->getMessage()
+
             ]);
 
             return back()->withErrors([
@@ -330,6 +387,7 @@ class CreativeController extends Controller
             ]);
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -347,12 +405,14 @@ class CreativeController extends Controller
 
             $creative->delete();
 
-            return back()->with('success', 'Creative deleted.');
+            return back()->with('success','Creative deleted.');
 
         } catch (Throwable $e) {
 
             Log::error('CREATIVE_DELETE_FAILED', [
+
                 'error' => $e->getMessage()
+
             ]);
 
             return back()->withErrors([
@@ -360,6 +420,7 @@ class CreativeController extends Controller
             ]);
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------

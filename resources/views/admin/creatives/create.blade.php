@@ -2,7 +2,8 @@
 
 @section('content')
 
-<div class="max-w-6xl mx-auto py-10 grid grid-cols-1 lg:grid-cols-2 gap-10">
+<div class="max-w-7xl mx-auto py-10 grid grid-cols-1 lg:grid-cols-2 gap-10">
+
 
 {{-- ================= FORM ================= --}}
 <div>
@@ -26,13 +27,100 @@ Create Ad Creative
 
 
 <form method="POST"
-      action="{{ route('admin.creatives.store') }}"
-      enctype="multipart/form-data">
+action="{{ route('admin.creatives.store') }}"
+enctype="multipart/form-data"
+id="creativeForm">
 
 @csrf
 
 
-{{-- Creative Name --}}
+{{-- CAMPAIGN --}}
+<div class="mb-6">
+
+<label class="block font-semibold mb-2">
+Campaign
+</label>
+
+<select
+name="campaign_id"
+id="campaign-select"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+<option value="">Select Campaign</option>
+
+@foreach($campaigns as $campaign)
+
+<option value="{{ $campaign->id }}">
+{{ $campaign->name }}
+</option>
+
+@endforeach
+
+</select>
+
+</div>
+
+
+
+{{-- ADSET --}}
+<div class="mb-6">
+
+<label class="block font-semibold mb-2">
+Ad Set
+</label>
+
+<select
+name="adset_id"
+id="adset-select"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+<option value="">Select AdSet</option>
+
+@foreach($adsets as $adset)
+
+<option value="{{ $adset->id }}">
+{{ $adset->name }}
+</option>
+
+@endforeach
+
+</select>
+
+</div>
+
+
+
+{{-- PAGE --}}
+<div class="mb-6">
+
+<label class="block font-semibold mb-2">
+Facebook Page
+</label>
+
+<select
+name="page_id"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+<option value="">Select Page</option>
+
+@foreach($pages as $page)
+
+<option value="{{ $page['id'] }}">
+{{ $page['name'] }}
+</option>
+
+@endforeach
+
+</select>
+
+</div>
+
+
+
+{{-- CREATIVE NAME --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -49,7 +137,8 @@ required>
 </div>
 
 
-{{-- Headline --}}
+
+{{-- HEADLINE --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -59,13 +148,15 @@ Headline
 <input
 type="text"
 name="headline"
-value="{{ old('headline') }}"
-class="w-full border rounded-xl px-4 py-3">
+id="headline"
+class="w-full border rounded-xl px-4 py-3"
+oninput="updatePreview()">
 
 </div>
 
 
-{{-- Primary Text --}}
+
+{{-- PRIMARY TEXT --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -74,13 +165,16 @@ Primary Text
 
 <textarea
 name="body"
+id="body"
 rows="4"
-class="w-full border rounded-xl px-4 py-3">{{ old('body') }}</textarea>
+class="w-full border rounded-xl px-4 py-3"
+oninput="updatePreview()"></textarea>
 
 </div>
 
 
-{{-- Destination URL --}}
+
+{{-- DESTINATION URL --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -90,11 +184,11 @@ Destination URL
 <input
 type="url"
 name="destination_url"
-value="{{ old('destination_url') }}"
 class="w-full border rounded-xl px-4 py-3"
-placeholder="https://visaconsultantcanada.com">
+placeholder="https://yourwebsite.com">
 
 </div>
+
 
 
 {{-- CTA --}}
@@ -106,7 +200,9 @@ Call To Action
 
 <select
 name="call_to_action"
-class="w-full border rounded-xl px-4 py-3">
+id="cta"
+class="w-full border rounded-xl px-4 py-3"
+onchange="updatePreview()">
 
 <option value="">None</option>
 <option value="LEARN_MORE">Learn More</option>
@@ -120,7 +216,8 @@ class="w-full border rounded-xl px-4 py-3">
 </div>
 
 
-{{-- Image Upload --}}
+
+{{-- IMAGE --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -132,12 +229,14 @@ type="file"
 name="image"
 accept="image/*"
 class="w-full border rounded-xl px-4 py-3"
-onchange="previewImage(event)">
+onchange="previewImage(event)"
+required>
 
 </div>
 
 
-{{-- Meta Sync --}}
+
+{{-- META SYNC --}}
 <div class="mb-6">
 
 <label class="flex items-center gap-3">
@@ -146,6 +245,7 @@ onchange="previewImage(event)">
 type="checkbox"
 name="sync_meta"
 value="1"
+checked
 class="w-5 h-5">
 
 <span class="font-medium">
@@ -155,10 +255,11 @@ Sync with Meta Ads
 </label>
 
 <p class="text-sm text-gray-500 mt-1">
-Upload creative directly to Facebook Ads Manager.
+Creative will be uploaded to Facebook Ads Manager.
 </p>
 
 </div>
+
 
 
 {{-- STATUS --}}
@@ -180,7 +281,8 @@ class="w-full border rounded-xl px-4 py-3">
 </div>
 
 
-<div class="flex justify-between items-center">
+
+<div class="flex justify-between">
 
 <a
 href="{{ route('admin.creatives.index') }}"
@@ -209,26 +311,29 @@ Create Creative
 
 
 
-{{-- ================= LIVE PREVIEW ================= --}}
+{{-- ================= PREVIEW ================= --}}
 <div>
 
 <div class="bg-white shadow rounded-2xl p-6">
 
-<h3 class="font-bold mb-4">
-Creative Preview
+<h3 class="font-bold mb-6">
+Facebook Feed Preview
 </h3>
 
 
-<div class="border rounded-xl overflow-hidden max-w-sm mx-auto">
+<div class="border rounded-xl overflow-hidden max-w-md mx-auto bg-white">
 
-<div class="p-4 text-sm text-gray-700">
+<div class="p-4 text-sm">
 
-<div class="font-semibold mb-1">
-Page Name
+<div class="font-semibold">
+Facebook Page
 </div>
 
-<div id="preview-text" class="text-gray-600">
-Your ad text will appear here.
+<div id="preview-text"
+class="text-gray-700 mt-2">
+
+Ad text preview
+
 </div>
 
 </div>
@@ -236,26 +341,25 @@ Your ad text will appear here.
 
 <img
 id="preview-image"
-class="w-full hidden"
->
+class="w-full hidden">
 
 
 <div class="p-4">
 
-<div id="preview-headline"
+<div
+id="preview-headline"
 class="font-semibold text-sm">
+
 Headline preview
-</div>
 
-<div id="preview-description"
-class="text-xs text-gray-500 mt-1">
-Description
 </div>
-
 
 <button
+id="preview-cta"
 class="mt-3 bg-blue-600 text-white text-sm px-4 py-2 rounded">
+
 Call To Action
+
 </button>
 
 </div>
@@ -266,23 +370,45 @@ Call To Action
 
 </div>
 
+
 </div>
 
 
 
 <script>
 
-function previewImage(event)
-{
+function previewImage(event){
+
 let reader = new FileReader();
 
 reader.onload = function(){
+
 let img = document.getElementById('preview-image');
 img.src = reader.result;
 img.classList.remove('hidden');
+
 };
 
 reader.readAsDataURL(event.target.files[0]);
+
+}
+
+
+function updatePreview(){
+
+document.getElementById('preview-text').innerText =
+document.getElementById('body').value;
+
+document.getElementById('preview-headline').innerText =
+document.getElementById('headline').value;
+
+let cta = document.getElementById('cta').value;
+
+if(cta){
+document.getElementById('preview-cta').innerText =
+cta.replace('_',' ');
+}
+
 }
 
 </script>

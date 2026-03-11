@@ -13,8 +13,8 @@ class AIEngine
     protected string $model;
 
     // Tunable thresholds
-   protected float $faqThreshold = 0.65;
-protected float $groundThreshold = 0.50;
+protected float $faqThreshold = 0.60;
+protected float $groundThreshold = 0.40;
     protected int $candidateLimit = 5;
     protected int $timeout = 30;
 
@@ -277,19 +277,80 @@ $response = $this->handlePureAI(
 
         $results = [];
 
-        foreach ($items as $item) {
+      foreach ($items as $item) {
 
-            if (!is_array($item->embedding)) {
-                continue;
-            }
+    if (!is_array($item->embedding)) {
+        continue;
+    }
 
-            $score = $this->cosine($queryVector, $item->embedding);
+    // Base cosine similarity
+    $score = $this->cosine($queryVector, $item->embedding);
 
-            $results[] = [
-                'knowledge' => $item,
-                'score'     => $score
-            ];
+    /*
+    |--------------------------------------------------------------------------
+    | KEYWORD BOOST
+    |--------------------------------------------------------------------------
+    */
+
+    $questionText = Str::lower($item->question);
+    $messageText  = Str::lower($message);
+
+    $boost = 0;
+
+    $stopwords = [
+        'the','and','for','with','from','this','that',
+        'what','how','can','you','your','have','has',
+        'visa','help','need'
+    ];
+
+    $words = explode(' ', $messageText);
+
+    foreach ($words as $word) {
+
+        $word = trim($word);
+
+        if (strlen($word) < 4) {
+            continue;
         }
+
+        if (in_array($word, $stopwords)) {
+            continue;
+        }
+
+        if (str_contains($questionText, $word)) {
+            $boost += 0.05;
+        }
+    }
+
+    // Cap boost to avoid overpowering embeddings
+    $boost = min($boost, 0.20);
+
+    $score += $boost;
+
+    /*
+    |--------------------------------------------------------------------------
+    | DEBUG LOG
+    |--------------------------------------------------------------------------
+    */
+
+    $this->log('SEMANTIC_SCORE', [
+        'question' => $item->question,
+        'base_score' => round($score - $boost, 4),
+        'boost' => $boost,
+        'final_score' => round($score, 4)
+    ], $requestId);
+
+    /*
+    |--------------------------------------------------------------------------
+    | STORE RESULT
+    |--------------------------------------------------------------------------
+    */
+
+    $results[] = [
+        'knowledge' => $item,
+        'score'     => $score
+    ];
+}
 
         usort($results, fn($a, $b) => $b['score'] <=> $a['score']);
 

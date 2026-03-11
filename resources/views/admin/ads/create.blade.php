@@ -4,7 +4,6 @@
 
 <div class="max-w-5xl mx-auto space-y-8">
 
-{{-- HEADER --}}
 <div class="flex items-center justify-between">
 
 <div>
@@ -13,7 +12,7 @@ Create Ad
 </h1>
 
 <p class="text-sm text-gray-500 mt-1">
-Attach a creative and publish the ad under an AdSet.
+Attach a creative and publish under an AdSet.
 </p>
 </div>
 
@@ -25,23 +24,19 @@ class="text-gray-600 hover:text-gray-900">
 </div>
 
 
-
-{{-- VALIDATION ERRORS --}}
 @if($errors->any())
 <div class="bg-red-50 border-l-4 border-red-400 p-4 rounded">
-
 <ul class="text-sm text-red-700 space-y-1">
 @foreach($errors->all() as $error)
 <li>{{ $error }}</li>
 @endforeach
 </ul>
-
 </div>
 @endif
 
 
-
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
 
 {{-- FORM --}}
 <div class="bg-white rounded-xl shadow border p-6">
@@ -61,12 +56,10 @@ Ad Name
 type="text"
 name="name"
 value="{{ old('name') }}"
-class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-blue-200"
-required
->
+class="w-full border rounded-lg px-4 py-2"
+required>
 
 </div>
-
 
 
 {{-- ADSET --}}
@@ -79,25 +72,15 @@ Ad Set
 <select
 name="adset_id"
 class="w-full border rounded-lg px-4 py-2"
-required
->
+required>
 
 @foreach($adsets as $adset)
 
-<option value="{{ $adset->id }}"
-
-@if(old('adset_id') == $adset->id)
-selected
-@endif
-
->
-
+<option value="{{ $adset->id }}">
 {{ $adset->name }}
-
 @if($adset->campaign)
 — {{ $adset->campaign->name }}
 @endif
-
 </option>
 
 @endforeach
@@ -105,7 +88,6 @@ selected
 </select>
 
 </div>
-
 
 
 {{-- CREATIVE --}}
@@ -118,16 +100,20 @@ Creative
 <select
 name="creative_id"
 id="creativeSelect"
-class="w-full border rounded-lg px-4 py-2">
+class="w-full border rounded-lg px-4 py-2"
+required>
 
 <option value="">Select Creative</option>
 
 @foreach($creatives as $creative)
 
-<option value="{{ $creative->id }}"
-data-title="{{ $creative->title }}"
+<option
+value="{{ $creative->id }}"
+data-headline="{{ $creative->headline }}"
 data-body="{{ $creative->body }}"
-data-image="{{ $creative->image_url }}">
+data-image="{{ $creative->image_url }}"
+data-meta="{{ $creative->meta_id }}"
+>
 
 {{ $creative->name }}
 
@@ -140,7 +126,6 @@ data-image="{{ $creative->image_url }}">
 </div>
 
 
-
 {{-- STATUS --}}
 <div class="mb-6">
 
@@ -148,8 +133,7 @@ data-image="{{ $creative->image_url }}">
 Status
 </label>
 
-<select name="status"
-class="w-full border rounded-lg px-4 py-2">
+<select name="status" class="w-full border rounded-lg px-4 py-2">
 
 <option value="PAUSED">Paused</option>
 <option value="ACTIVE">Active</option>
@@ -159,12 +143,9 @@ class="w-full border rounded-lg px-4 py-2">
 </div>
 
 
-
-{{-- BUTTONS --}}
 <div class="flex justify-between items-center">
 
-<a
-href="{{ route('admin.ads.index') }}"
+<a href="{{ route('admin.ads.index') }}"
 class="text-gray-500 hover:text-gray-800">
 Cancel
 </a>
@@ -179,79 +160,57 @@ Create Ad
 
 </div>
 
-
 </form>
 
 </div>
 
 
 
-{{-- CREATIVE PREVIEW --}}
+{{-- PREVIEW --}}
 <div class="bg-white rounded-xl shadow border p-6">
 
 <h3 class="font-semibold mb-4">
 Creative Preview
 </h3>
 
-
-<div id="creativePreview" class="space-y-4">
-
-<div class="text-sm text-gray-400">
-Select a creative to preview.
+<div id="creativePreview" class="space-y-4 text-gray-400 text-sm">
+Select a creative to preview
 </div>
 
 </div>
 
 </div>
 
-
-</div>
-
-
 </div>
 
 
 
-{{-- PREVIEW SCRIPT --}}
 <script>
 
-document.getElementById('creativeSelect')
-.addEventListener('change', function(){
+document.getElementById('creativeSelect').addEventListener('change', function(){
 
 let option = this.options[this.selectedIndex];
 
-let title = option.dataset.title;
+let headline = option.dataset.headline;
 let body = option.dataset.body;
 let image = option.dataset.image;
 
 let container = document.getElementById('creativePreview');
 
-if(!title){
+if(!headline){
 
-container.innerHTML = `
-<div class="text-gray-400 text-sm">
-No creative selected
-</div>
-`;
-
+container.innerHTML = 'No creative selected';
 return;
 
 }
-
 
 let img = '';
 
 if(image){
 
-img = `
-<img
-src="/storage/${image}"
-class="rounded-lg w-full mb-3"
->
-`;
+img = `<img src="${image}" class="rounded-lg w-full mb-3">`;
 
 }
-
 
 container.innerHTML = `
 
@@ -261,13 +220,9 @@ ${img}
 
 <div class="p-4">
 
-<h4 class="font-semibold mb-2">
-${title}
-</h4>
+<h4 class="font-semibold mb-2">${headline}</h4>
 
-<p class="text-sm text-gray-600">
-${body ?? ''}
-</p>
+<p class="text-sm text-gray-600">${body ?? ''}</p>
 
 </div>
 

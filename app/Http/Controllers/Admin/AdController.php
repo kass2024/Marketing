@@ -77,7 +77,9 @@ class AdController extends Controller
 
             'adset_id' => 'required|exists:ad_sets,id',
 
-            'creative_id' => 'required|exists:creatives,id'
+            'creative_id' => 'required|exists:creatives,id',
+
+            'status' => 'required|in:ACTIVE,PAUSED'
 
         ]);
 
@@ -97,7 +99,9 @@ class AdController extends Controller
             $creative = Creative::findOrFail($data['creative_id']);
 
             $campaign = $adset->campaign;
+
             $adAccount = $campaign->adAccount ?? null;
+
 
             /*
             |--------------------------------------------------------------------------
@@ -117,23 +121,25 @@ class AdController extends Controller
                 throw new Exception('Meta Ad Account not connected.');
             }
 
+
             /*
             |--------------------------------------------------------------------------
             | PREVENT DUPLICATE ADS
             |--------------------------------------------------------------------------
             */
 
-            $existing = Ad::where('adset_id',$adset->id)
+            $exists = Ad::where('adset_id',$adset->id)
                 ->where('creative_id',$creative->id)
                 ->first();
 
-            if ($existing) {
-                throw new Exception('Ad already exists for this AdSet and Creative.');
+            if ($exists) {
+                throw new Exception('Ad already exists for this AdSet + Creative.');
             }
+
 
             /*
             |--------------------------------------------------------------------------
-            | FORMAT ACCOUNT
+            | FORMAT ACCOUNT ID
             |--------------------------------------------------------------------------
             */
 
@@ -142,6 +148,7 @@ class AdController extends Controller
             if (!str_starts_with($accountId,'act_')) {
                 $accountId = 'act_'.$accountId;
             }
+
 
             /*
             |--------------------------------------------------------------------------
@@ -159,14 +166,19 @@ class AdController extends Controller
                     'creative_id' => $creative->meta_id
                 ],
 
-                'status' => 'PAUSED'
+                'status' => $data['status']
 
             ];
 
+
             Log::info('META_AD_CREATE_REQUEST', [
+
                 'account' => $accountId,
+
                 'payload' => $payload
+
             ]);
+
 
             /*
             |--------------------------------------------------------------------------
@@ -179,7 +191,9 @@ class AdController extends Controller
                 $payload
             );
 
+
             Log::info('META_AD_CREATE_RESPONSE', $response);
+
 
             if (!isset($response['id'])) {
 
@@ -188,6 +202,7 @@ class AdController extends Controller
 
                 throw new Exception($error);
             }
+
 
             /*
             |--------------------------------------------------------------------------
@@ -205,11 +220,13 @@ class AdController extends Controller
 
                 'name' => $data['name'],
 
-                'status' => 'PAUSED'
+                'status' => $data['status']
 
             ]);
 
+
             DB::commit();
+
 
             Log::info('META_AD_CREATED', [
 
@@ -219,9 +236,10 @@ class AdController extends Controller
 
             ]);
 
+
             return redirect()
                 ->route('admin.ads.index')
-                ->with('success','Ad created successfully.');
+                ->with('success','Ad created and synced to Meta.');
 
         }
 
@@ -242,6 +260,7 @@ class AdController extends Controller
                 ]);
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -265,6 +284,7 @@ class AdController extends Controller
         return response()->json($ads);
     }
 
+
     /*
     |--------------------------------------------------------------------------
     | PREVIEW CREATIVE
@@ -277,7 +297,7 @@ class AdController extends Controller
 
         return response()->json([
 
-            'image_url' => $creative->image ?? null,
+            'image_url' => $creative->image_url ?? null,
 
             'video_url' => $creative->video_url ?? null,
 
@@ -289,6 +309,7 @@ class AdController extends Controller
 
         ]);
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -332,6 +353,7 @@ class AdController extends Controller
         }
     }
 
+
     /*
     |--------------------------------------------------------------------------
     | DELETE AD
@@ -350,7 +372,7 @@ class AdController extends Controller
 
             $ad->delete();
 
-            return back()->with('success','Ad deleted');
+            return back()->with('success','Ad deleted.');
 
         }
 

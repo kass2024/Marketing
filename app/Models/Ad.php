@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 
 class Ad extends Model
 {
@@ -44,51 +43,53 @@ class Ad extends Model
         'adset_id',
         'creative_id',
 
-        // Meta identifiers
+        // Meta
         'meta_ad_id',
 
-        // basic info
+        // basic
         'name',
         'status',
 
         // metrics
         'impressions',
         'clicks',
-        'spend',
-
-        // raw payloads
-        'tracking_data',
-        'json_payload'
+        'spend'
     ];
 
 
     /*
     |--------------------------------------------------------------------------
-    | Default Attributes
+    | Default Values
     |--------------------------------------------------------------------------
     */
 
     protected $attributes = [
-        'status' => self::STATUS_DRAFT,
+
+        'status' => self::STATUS_PAUSED,
+
         'impressions' => 0,
+
         'clicks' => 0,
+
         'spend' => 0
+
     ];
 
 
     /*
     |--------------------------------------------------------------------------
-    | Casting
+    | Casts
     |--------------------------------------------------------------------------
     */
 
     protected $casts = [
-        'tracking_data' => 'array',
-        'json_payload'  => 'array',
 
         'impressions' => 'integer',
-        'clicks'      => 'integer',
-        'spend'       => 'float'
+
+        'clicks' => 'integer',
+
+        'spend' => 'float'
+
     ];
 
 
@@ -108,7 +109,7 @@ class Ad extends Model
 
 
     /**
-     * Ad belongs to a Creative
+     * Ad belongs to Creative
      */
     public function creative(): BelongsTo
     {
@@ -117,18 +118,11 @@ class Ad extends Model
 
 
     /**
-     * Ad belongs to Campaign through AdSet
+     * Access campaign via adset
      */
-    public function campaign(): HasOneThrough
+    public function campaign()
     {
-        return $this->hasOneThrough(
-            Campaign::class,
-            AdSet::class,
-            'id',        // Foreign key on adsets
-            'id',        // Foreign key on campaigns
-            'adset_id',  // Local key on ads
-            'campaign_id'
-        );
+        return $this->adSet?->campaign();
     }
 
 
@@ -156,7 +150,7 @@ class Ad extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Performance Metrics
+    | Metrics Calculations
     |--------------------------------------------------------------------------
     */
 
@@ -169,6 +163,7 @@ class Ad extends Model
         return round(($this->clicks / $this->impressions) * 100, 2);
     }
 
+
     public function getCpcAttribute(): float
     {
         if ($this->clicks == 0) {
@@ -177,6 +172,7 @@ class Ad extends Model
 
         return round($this->spend / $this->clicks, 2);
     }
+
 
     public function getCpmAttribute(): float
     {
@@ -190,7 +186,7 @@ class Ad extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Metrics Update Helpers
+    | Metrics Updaters
     |--------------------------------------------------------------------------
     */
 
@@ -234,18 +230,22 @@ class Ad extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Meta Payload Helpers
+    | Meta Helpers
     |--------------------------------------------------------------------------
     */
 
-    public function getMetaPayload(): array
+    public function isSynced(): bool
     {
-        return $this->json_payload ?? [];
+        return !empty($this->meta_ad_id);
     }
 
-    public function setMetaPayload(array $payload): void
+
+    public function getMetaUrlAttribute(): ?string
     {
-        $this->json_payload = $payload;
-        $this->save();
+        if (!$this->meta_ad_id) {
+            return null;
+        }
+
+        return "https://www.facebook.com/adsmanager/manage/ads?act=&selected_ad_ids={$this->meta_ad_id}";
     }
 }

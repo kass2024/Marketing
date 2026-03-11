@@ -13,8 +13,8 @@ class AIEngine
     protected string $model;
 
     // Tunable thresholds
-   protected float $faqThreshold = 0.75;
-protected float $groundThreshold = 0.60;
+   protected float $faqThreshold = 0.65;
+protected float $groundThreshold = 0.50;
     protected int $candidateLimit = 5;
     protected int $timeout = 30;
 
@@ -215,9 +215,17 @@ public function reply(int $clientId, string $message, $conversation = null): arr
         |--------------------------------------------------------------------------
         */
 
-      $this->log('NO_KNOWLEDGE_MATCH_ESCALATION', [], $requestId);
+//       $this->log('NO_KNOWLEDGE_MATCH_ESCALATION', [], $requestId);
 
-return $this->handoverToHuman($conversation, $requestId);
+// return $this->handoverToHuman($conversation, $requestId);
+$this->log('PURE_AI_MODE', [], $requestId);
+
+$response = $this->handlePureAI(
+    $clientId,
+    $hash,
+    $normalized,
+    $requestId
+);
 
         /*
         |--------------------------------------------------------------------------
@@ -333,20 +341,27 @@ return $this->handoverToHuman($conversation, $requestId);
         string $requestId
     ): array {
 
-        $context = collect($candidates)
-            ->pluck('knowledge.answer')
-            ->implode("\n\n");
+       $context = collect($candidates)
+    ->map(fn($c) => 
+        "Question: {$c['knowledge']->question}\nAnswer: {$c['knowledge']->answer}"
+    )
+    ->implode("\n\n");
 
 $prompt = "
-You are a professional visa and immigration assistant for a visa consultancy.
+You are a professional visa and immigration assistant working for a visa consultancy.
 
-IMPORTANT RULES:
-1. You MUST answer ONLY using the information provided in the CONTEXT section.
-2. Do NOT invent, assume, or guess information.
-3. If the answer is NOT clearly present in the context, respond exactly with:
+Your role is to help users by answering questions using the provided knowledge base context.
+
+GUIDELINES:
+1. Use the CONTEXT as the primary source of truth.
+2. If the user's question is similar to information in the context, provide the closest relevant answer.
+3. You may paraphrase or summarize the context to make the answer clearer.
+4. Do NOT invent facts that are completely unrelated to the context.
+5. If the question is partially related, provide the most helpful information available.
+6. If the question is completely unrelated to the context, respond politely with:
    \"I will connect you with a human agent for further assistance.\"
-4. Do not provide unrelated information.
-5. Keep answers short, clear, and professional.
+7. Keep answers short, clear, and professional.
+8. Do not mention the word 'context' or explain how you generated the answer.
 
 CONTEXT:
 $context
@@ -354,7 +369,7 @@ $context
 USER QUESTION:
 $message
 
-Answer using ONLY the context above.
+Provide the best possible helpful answer using the information above.
 ";
 
         $answer = $this->callOpenAI($prompt, $requestId);

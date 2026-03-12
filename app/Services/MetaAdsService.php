@@ -282,17 +282,17 @@ protected function buildTargeting(array $targeting): array
 
             'status'=>$data['status'] ?? 'PAUSED',
 
-            'start_time'=>$data['start_time']
-                ?? now()->addMinutes(5)->toIso8601String(),
+           'start_time'=>$data['start_time']
+    ?? now()->addMinutes(5)->timestamp,
 
-           'targeting'=>$data['targeting']
+           'targeting'=>json_encode(
+    $this->buildTargeting($data['targeting'])
+)
         ];
 
       // Add promoted object if provided
 if (isset($data['promoted_object'])) {
-    $payload['promoted_object'] = is_array($data['promoted_object'])
-        ? json_encode($data['promoted_object'])
-        : $data['promoted_object'];
+    $payload['promoted_object'] = json_encode($data['promoted_object']);
 }
 
 // Log final payload before sending

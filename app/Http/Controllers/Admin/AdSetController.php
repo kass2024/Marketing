@@ -143,27 +143,27 @@ class AdSetController extends Controller
 
             $objective = strtoupper($campaign->objective);
 
-            $optimizationMap = [
+           $optimizationMap = [
 
-                'TRAFFIC' => 'LINK_CLICKS',
+    'TRAFFIC' => 'LANDING_PAGE_VIEWS',
 
-                'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
+    'OUTCOME_TRAFFIC' => 'LANDING_PAGE_VIEWS',
 
-                'LEADS' => 'LEAD_GENERATION',
+    'LEADS' => 'LEAD_GENERATION',
 
-                'OUTCOME_LEADS' => 'LEAD_GENERATION',
+    'OUTCOME_LEADS' => 'LEAD_GENERATION',
 
-                'SALES' => 'OFFSITE_CONVERSIONS',
+    'SALES' => 'OFFSITE_CONVERSIONS',
 
-                'OUTCOME_SALES' => 'OFFSITE_CONVERSIONS',
+    'OUTCOME_SALES' => 'OFFSITE_CONVERSIONS',
 
-                'AWARENESS' => 'REACH',
+    'AWARENESS' => 'REACH',
 
-                'ENGAGEMENT' => 'POST_ENGAGEMENT'
-            ];
+    'ENGAGEMENT' => 'POST_ENGAGEMENT'
+];
 
             $optimizationGoal =
-                $optimizationMap[$objective] ?? 'LINK_CLICKS';
+    $optimizationMap[$objective] ?? 'LANDING_PAGE_VIEWS';
 
             $billingEvent = 'IMPRESSIONS';
 

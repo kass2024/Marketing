@@ -16,7 +16,7 @@ use Exception;
 
 class AdSetController extends Controller
 {
-    protected MetaAdsService $meta;
+    protected $meta;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -98,6 +98,7 @@ class AdSetController extends Controller
             'placement_type' => 'required|in:automatic,manual',
 
             'publisher_platforms' => 'nullable|array'
+
         ]);
 
         if ($data['age_min'] >= $data['age_max']) {
@@ -110,12 +111,6 @@ class AdSetController extends Controller
 
         try {
 
-            /*
-            |--------------------------------------------------------------------------
-            | CAMPAIGN
-            |--------------------------------------------------------------------------
-            */
-
             $campaign = Campaign::with('adAccount')
                 ->findOrFail($data['campaign_id']);
 
@@ -124,7 +119,7 @@ class AdSetController extends Controller
             }
 
             if (!$campaign->adAccount || !$campaign->adAccount->meta_id) {
-                throw new Exception('Ad account not connected');
+                throw new Exception('Ad Account not connected');
             }
 
             $accountId = $campaign->adAccount->meta_id;
@@ -135,7 +130,7 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | OBJECTIVE SETTINGS
+            | OPTIMIZATION SETTINGS
             |--------------------------------------------------------------------------
             */
 
@@ -153,10 +148,12 @@ class AdSetController extends Controller
                 'OUTCOME_SALES' => 'OFFSITE_CONVERSIONS',
 
                 'AWARENESS' => 'REACH',
+
                 'ENGAGEMENT' => 'POST_ENGAGEMENT'
             ];
 
-            $optimizationGoal = $optimizationMap[$objective] ?? 'LANDING_PAGE_VIEWS';
+            $optimizationGoal =
+                $optimizationMap[$objective] ?? 'LANDING_PAGE_VIEWS';
 
             $billingEvent = 'IMPRESSIONS';
 
@@ -178,7 +175,9 @@ class AdSetController extends Controller
             ];
 
             if (!empty($data['genders'])) {
-                $targeting['genders'] = array_map('intval', $data['genders']);
+
+                $targeting['genders'] =
+                    array_map('intval', $data['genders']);
             }
 
             /*
@@ -191,10 +190,10 @@ class AdSetController extends Controller
 
                 $interestList = [];
 
-                foreach ($data['interests'] as $interest) {
+                foreach ($data['interests'] as $interestId) {
 
                     $interestList[] = [
-                        'id' => (string)$interest
+                        'id' => (string)$interestId
                     ];
                 }
 
@@ -207,13 +206,15 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | ADVANTAGE AUDIENCE
+            | LANGUAGES
             |--------------------------------------------------------------------------
             */
 
-            $targeting['targeting_automation'] = [
-                'advantage_audience' => 0
-            ];
+            if (!empty($data['languages'])) {
+
+                $targeting['locales'] =
+                    array_map('intval', $data['languages']);
+            }
 
             /*
             |--------------------------------------------------------------------------
@@ -227,12 +228,13 @@ class AdSetController extends Controller
                     throw new Exception('Select at least one placement');
                 }
 
-                $targeting['publisher_platforms'] = $data['publisher_platforms'];
+                $targeting['publisher_platforms'] =
+                    $data['publisher_platforms'];
             }
 
             /*
             |--------------------------------------------------------------------------
-            | META PAYLOAD
+            | PAYLOAD
             |--------------------------------------------------------------------------
             */
 
@@ -252,15 +254,15 @@ class AdSetController extends Controller
 
                 'status' => 'PAUSED',
 
+                // IMPORTANT: must be timestamp
                 'start_time' => now()->addMinutes(5)->timestamp,
 
-                // CRITICAL FIX (MATCHES CURL)
-
-                'promoted_object' => json_encode([
+                'promoted_object' => [
                     'page_id' => $data['page_id']
-                ]),
+                ],
 
-                'targeting' => json_encode($targeting)
+                // DO NOT JSON encode here
+                'targeting' => $targeting
             ];
 
             Log::info('META_ADSET_PAYLOAD', $payload);
@@ -271,7 +273,10 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $response = $this->meta->createAdSet($accountId, $payload);
+            $response = $this->meta->createAdSet(
+                $accountId,
+                $payload
+            );
 
             Log::info('META_ADSET_RESPONSE', $response);
 
@@ -310,18 +315,13 @@ class AdSetController extends Controller
 
             DB::commit();
 
-            Log::info('META_ADSET_CREATED', [
-
-                'meta_id' => $response['id'],
-
-                'local_id' => $adset->id
-            ]);
-
             return redirect()
                 ->route('admin.campaigns.index')
                 ->with('success', 'Ad Set created successfully');
 
-        } catch (Throwable $e) {
+        }
+
+        catch (Throwable $e) {
 
             DB::rollBack();
 
@@ -355,7 +355,10 @@ class AdSetController extends Controller
 
             $adset->delete();
 
-            return back()->with('success', 'AdSet deleted');
+            return back()->with(
+                'success',
+                'AdSet deleted successfully'
+            );
 
         } catch (Throwable $e) {
 

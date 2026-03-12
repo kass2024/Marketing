@@ -34,6 +34,23 @@ class Ad extends Model
 
     /*
     |--------------------------------------------------------------------------
+    | Available Statuses
+    |--------------------------------------------------------------------------
+    */
+
+    public static function statuses(): array
+    {
+        return [
+            self::STATUS_ACTIVE,
+            self::STATUS_PAUSED,
+            self::STATUS_DRAFT,
+            self::STATUS_ARCHIVED
+        ];
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
     | Mass Assignment
     |--------------------------------------------------------------------------
     */
@@ -46,11 +63,11 @@ class Ad extends Model
         // Meta
         'meta_ad_id',
 
-        // basic
+        // Basic
         'name',
         'status',
 
-        // metrics
+        // Metrics
         'impressions',
         'clicks',
         'spend'
@@ -66,13 +83,9 @@ class Ad extends Model
     protected $attributes = [
 
         'status' => self::STATUS_PAUSED,
-
         'impressions' => 0,
-
         'clicks' => 0,
-
         'spend' => 0
-
     ];
 
 
@@ -85,11 +98,8 @@ class Ad extends Model
     protected $casts = [
 
         'impressions' => 'integer',
-
         'clicks' => 'integer',
-
         'spend' => 'float'
-
     ];
 
 
@@ -100,7 +110,7 @@ class Ad extends Model
     */
 
     /**
-     * Ad belongs to an AdSet
+     * Ad belongs to AdSet
      */
     public function adSet(): BelongsTo
     {
@@ -118,11 +128,11 @@ class Ad extends Model
 
 
     /**
-     * Access campaign via adset
+     * Access Campaign through AdSet
      */
     public function campaign()
     {
-        return $this->adSet?->campaign();
+        return $this->adSet ? $this->adSet->campaign : null;
     }
 
 
@@ -156,7 +166,7 @@ class Ad extends Model
 
     public function getCtrAttribute(): float
     {
-        if ($this->impressions == 0) {
+        if ($this->impressions <= 0) {
             return 0;
         }
 
@@ -166,7 +176,7 @@ class Ad extends Model
 
     public function getCpcAttribute(): float
     {
-        if ($this->clicks == 0) {
+        if ($this->clicks <= 0) {
             return 0;
         }
 
@@ -176,7 +186,7 @@ class Ad extends Model
 
     public function getCpmAttribute(): float
     {
-        if ($this->impressions == 0) {
+        if ($this->impressions <= 0) {
             return 0;
         }
 
@@ -240,12 +250,15 @@ class Ad extends Model
     }
 
 
+    /**
+     * Link to Meta Ads Manager
+     */
     public function getMetaUrlAttribute(): ?string
     {
         if (!$this->meta_ad_id) {
             return null;
         }
 
-        return "https://www.facebook.com/adsmanager/manage/ads?act=&selected_ad_ids={$this->meta_ad_id}";
+        return "https://www.facebook.com/adsmanager/manage/ads?selected_ad_ids={$this->meta_ad_id}";
     }
 }

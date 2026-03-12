@@ -248,70 +248,137 @@ protected function buildTargeting(array $targeting): array
     return $targeting;
 }
 
+   /*
+|--------------------------------------------------------------------------
+| ADSET
+|--------------------------------------------------------------------------
+*/
+
+public function createAdSet(string $accountId, array $data): array
+{
+    $accountId = $this->formatAccount($accountId);
+
     /*
     |--------------------------------------------------------------------------
-    | ADSET
+    | VALIDATION
     |--------------------------------------------------------------------------
     */
 
-    public function createAdSet(string $accountId,array $data):array
-    {
-        $accountId = $this->formatAccount($accountId);
-
-        if(!isset($data['campaign_id'])){
-            throw new Exception('campaign_id required');
-        }
-
-        if(!isset($data['targeting'])){
-            throw new Exception('targeting required');
-        }
-
-        $payload = [
-
-            'name'=>$data['name'],
-
-            'campaign_id'=>$data['campaign_id'],
-
-            'daily_budget'=>$data['daily_budget'],
-
-            'billing_event'=>$data['billing_event'] ?? 'IMPRESSIONS',
-
-            'optimization_goal'=>$data['optimization_goal'] ?? 'LINK_CLICKS',
-
-            'bid_strategy'=>$data['bid_strategy'] ?? 'LOWEST_COST_WITHOUT_CAP',
-
-            'status'=>$data['status'] ?? 'PAUSED',
-
-           'start_time'=>$data['start_time']
-    ?? now()->addMinutes(5)->timestamp,
-
-           'targeting'=>json_encode(
-    $this->buildTargeting($data['targeting'])
-)
-        ];
-
-      // Add promoted object if provided
-if (isset($data['promoted_object'])) {
-    $payload['promoted_object'] = json_encode($data['promoted_object']);
-}
-
-// Log final payload before sending
-Log::info('META_ADSET_PAYSET_PAYLOAD', [
-    'endpoint' => "{$accountId}/adsets",
-    'payload' => $payload
-]);
-
-// Send request to Meta Graph API
-$response = $this->post("{$accountId}/adsets", $payload);
-
-// Log Meta response
-Log::info('META_ADSET_CREATED', [
-    'response' => $response
-]);
-
-return $response;
+    if (empty($data['campaign_id'])) {
+        throw new Exception('campaign_id required');
     }
 
+    if (empty($data['name'])) {
+        throw new Exception('AdSet name required');
+    }
+
+    if (empty($data['targeting'])) {
+        throw new Exception('targeting required');
+    }
+
+    if (empty($data['daily_budget'])) {
+        throw new Exception('daily_budget required');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | TARGETING SAFETY
+    |--------------------------------------------------------------------------
+    | Targeting may arrive as array OR JSON string
+    */
+
+    $targeting = $data['targeting'];
+
+    if (is_string($targeting)) {
+
+        $decoded = json_decode($targeting, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception('Invalid targeting JSON');
+        }
+
+        $targeting = $decoded;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | BUILD TARGETING
+    |--------------------------------------------------------------------------
+    */
+
+    $targeting = $this->buildTargeting($targeting);
+
+    /*
+    |--------------------------------------------------------------------------
+    | PAYLOAD
+    |--------------------------------------------------------------------------
+    */
+
+    $payload = [
+
+        'name' => $data['name'],
+
+        'campaign_id' => $data['campaign_id'],
+
+        'daily_budget' => (int) $data['daily_budget'],
+
+        'billing_event' => $data['billing_event'] ?? 'IMPRESSIONS',
+
+        'optimization_goal' => $data['optimization_goal'] ?? 'LINK_CLICKS',
+
+        'bid_strategy' => $data['bid_strategy'] ?? 'LOWEST_COST_WITHOUT_CAP',
+
+        'status' => $data['status'] ?? 'PAUSED',
+
+        'start_time' => $data['start_time'] ?? now()->addMinutes(5)->timestamp,
+
+        'targeting' => json_encode($targeting)
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | PROMOTED OBJECT
+    |--------------------------------------------------------------------------
+    */
+
+    if (!empty($data['promoted_object'])) {
+
+        $payload['promoted_object'] = is_array($data['promoted_object'])
+            ? json_encode($data['promoted_object'])
+            : $data['promoted_object'];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | DEBUG LOG
+    |--------------------------------------------------------------------------
+    */
+
+    Log::info('META_ADSET_PAYLOAD', [
+        'endpoint' => "{$accountId}/adsets",
+        'payload' => $payload
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | API REQUEST
+    |--------------------------------------------------------------------------
+    */
+
+    $response = $this->post("{$accountId}/adsets", $payload);
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE LOG
+    |--------------------------------------------------------------------------
+    */
+
+    Log::info('META_ADSET_CREATED', [
+        'response' => $response
+    ]);
+
+    return $response;
+}
     public function deleteAdSet(string $adsetId):array
     {
         return $this->delete($adsetId);

@@ -192,35 +192,39 @@ class AdSetController extends Controller
             }
 
 
-            /*
-            |--------------------------------------------------------------------------
-            | INTERESTS
-            |--------------------------------------------------------------------------
-            */
+          /*
+|--------------------------------------------------------------------------
+| INTERESTS
+|--------------------------------------------------------------------------
+*/
 
-            if (!empty($data['interests'])) {
+if (!empty($data['interests'])) {
 
-                $interestList = [];
+    $interestList = [];
 
-                foreach ($data['interests'] as $interestId) {
+    foreach ($data['interests'] as $interestId) {
 
-                    $interestList[] = [
-                        'id' => (string) $interestId
-                    ];
-                }
+        $interestList[] = [
+            'id' => (string) $interestId
+        ];
+    }
 
-                $targeting['flexible_spec'] = [
-                    [
-                        'interests' => $interestList
-                    ]
-                ];
+    $targeting['flexible_spec'] = [
+        [
+            'interests' => $interestList
+        ]
+    ];
+}
+Log::info('META_TARGETING_FINAL', $targeting);
+/*
+|--------------------------------------------------------------------------
+| REQUIRED BY META (ADVANTAGE AUDIENCE)
+|--------------------------------------------------------------------------
+*/
 
-                $targeting['targeting_automation'] = [
-                    'advantage_audience' => 0
-                ];
-            }
-
-
+$targeting['targeting_automation'] = [
+    'advantage_audience' => 0
+];
             /*
             |--------------------------------------------------------------------------
             | LANGUAGES

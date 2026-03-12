@@ -4,19 +4,18 @@
 
 <div class="max-w-7xl mx-auto space-y-8">
 
-{{-- ================= HEADER ================= --}}
+
+{{-- HEADER --}}
 <div class="flex items-center justify-between flex-wrap gap-4">
 
 <div>
-
 <h1 class="text-2xl font-bold text-gray-900">
 Ads Manager
 </h1>
 
 <p class="text-sm text-gray-500 mt-1">
-Manage ads, creatives and performance metrics.
+Manage ads, creatives and delivery performance.
 </p>
-
 </div>
 
 <a
@@ -32,65 +31,33 @@ class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-l
 
 
 
-{{-- ================= METRICS ================= --}}
+{{-- METRICS --}}
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
 <div class="bg-white p-5 rounded-xl shadow border">
-
-<p class="text-sm text-gray-500">
-Total Ads
-</p>
-
-<p class="text-xl font-bold">
-{{ $ads->total() ?? 0 }}
-</p>
-
+<p class="text-sm text-gray-500">Total Ads</p>
+<p class="text-xl font-bold">{{ $ads->total() ?? 0 }}</p>
 </div>
 
-
-
 <div class="bg-white p-5 rounded-xl shadow border">
-
-<p class="text-sm text-gray-500">
-Active Ads
-</p>
-
+<p class="text-sm text-gray-500">Active Ads</p>
 <p class="text-xl font-bold text-green-600">
 {{ $ads->where('status','ACTIVE')->count() }}
 </p>
-
 </div>
 
-
-
 <div class="bg-white p-5 rounded-xl shadow border">
-
-<p class="text-sm text-gray-500">
-Total Spend
-</p>
-
+<p class="text-sm text-gray-500">Total Spend</p>
 <p class="text-xl font-bold text-blue-600">
-
 ${{ number_format($ads->sum('spend'),2) }}
-
 </p>
-
 </div>
 
-
-
 <div class="bg-white p-5 rounded-xl shadow border">
-
-<p class="text-sm text-gray-500">
-Total Clicks
-</p>
-
+<p class="text-sm text-gray-500">Total Clicks</p>
 <p class="text-xl font-bold text-purple-600">
-
-{{ $ads->sum('clicks') }}
-
+{{ number_format($ads->sum('clicks')) }}
 </p>
-
 </div>
 
 </div>
@@ -100,19 +67,15 @@ Total Clicks
 {{-- SUCCESS MESSAGE --}}
 @if(session('success'))
 
-<div class="bg-green-50 border-l-4 border-green-400 p-4 rounded">
-
-<p class="text-green-700 text-sm">
+<div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
 {{ session('success') }}
-</p>
-
 </div>
 
 @endif
 
 
 
-{{-- ================= TABLE ================= --}}
+{{-- TABLE --}}
 <div class="bg-white rounded-xl shadow overflow-hidden">
 
 <table class="min-w-full text-sm">
@@ -121,41 +84,15 @@ Total Clicks
 
 <tr>
 
-<th class="px-6 py-3 text-left">
-Ad
-</th>
-
-<th class="px-6 py-3 text-left">
-Creative
-</th>
-
-<th class="px-6 py-3 text-left">
-AdSet
-</th>
-
-<th class="px-6 py-3 text-left">
-Status
-</th>
-
-<th class="px-6 py-3 text-left">
-Impressions
-</th>
-
-<th class="px-6 py-3 text-left">
-Clicks
-</th>
-
-<th class="px-6 py-3 text-left">
-CTR
-</th>
-
-<th class="px-6 py-3 text-left">
-Spend
-</th>
-
-<th class="px-6 py-3 text-right">
-Actions
-</th>
+<th class="px-6 py-3 text-left">Ad</th>
+<th class="px-6 py-3 text-left">Creative</th>
+<th class="px-6 py-3 text-left">AdSet</th>
+<th class="px-6 py-3 text-left">Status</th>
+<th class="px-6 py-3 text-left">Impressions</th>
+<th class="px-6 py-3 text-left">Clicks</th>
+<th class="px-6 py-3 text-left">CTR</th>
+<th class="px-6 py-3 text-left">Spend</th>
+<th class="px-6 py-3 text-right">Actions</th>
 
 </tr>
 
@@ -169,21 +106,18 @@ Actions
 
 <tr class="hover:bg-gray-50 transition">
 
+
 {{-- AD NAME --}}
 <td class="px-6 py-4">
 
 <div class="font-medium text-gray-900">
-
 {{ $ad->name }}
-
 </div>
 
 @if($ad->meta_ad_id)
-
 <div class="text-xs text-gray-400 mt-1">
 Meta ID: {{ $ad->meta_ad_id }}
 </div>
-
 @endif
 
 </td>
@@ -205,12 +139,10 @@ class="w-10 h-10 rounded object-cover">
 
 @endif
 
-<div class="text-sm">
+<div>
 
-<div class="font-medium">
-
-{{ $ad->creative->name ?? '-' }}
-
+<div class="font-medium text-gray-800 text-sm">
+{{ $ad->creative->name }}
 </div>
 
 </div>
@@ -219,9 +151,7 @@ class="w-10 h-10 rounded object-cover">
 
 @else
 
-<span class="text-gray-400">
-No Creative
-</span>
+<span class="text-gray-400">No Creative</span>
 
 @endif
 
@@ -241,25 +171,44 @@ No Creative
 {{-- STATUS --}}
 <td class="px-6 py-4">
 
-@if($ad->status == 'ACTIVE')
+@switch($ad->status)
 
+@case('ACTIVE')
 <span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
 Active
 </span>
+@break
 
-@elseif($ad->status == 'PAUSED')
-
+@case('PAUSED')
 <span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
 Paused
 </span>
+@break
 
-@else
+@case('PENDING_REVIEW')
+<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">
+In Review
+</span>
+@break
 
+@case('DISAPPROVED')
+<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">
+Disapproved
+</span>
+@break
+
+@case('ARCHIVED')
+<span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">
+Archived
+</span>
+@break
+
+@default
 <span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
-{{ $ad->status }}
+Draft
 </span>
 
-@endif
+@endswitch
 
 </td>
 
@@ -267,42 +216,35 @@ Paused
 
 {{-- IMPRESSIONS --}}
 <td class="px-6 py-4">
-
 {{ number_format($ad->impressions) }}
-
 </td>
 
 
 
 {{-- CLICKS --}}
 <td class="px-6 py-4">
-
 {{ number_format($ad->clicks) }}
-
 </td>
 
 
 
 {{-- CTR --}}
 <td class="px-6 py-4">
-
 {{ $ad->ctr }}%
-
 </td>
 
 
 
 {{-- SPEND --}}
 <td class="px-6 py-4">
-
 ${{ number_format($ad->spend,2) }}
-
 </td>
 
 
 
 {{-- ACTIONS --}}
-<td class="px-6 py-4 text-right space-x-3">
+<td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+
 
 <a
 href="{{ route('admin.ads.preview',$ad) }}"
@@ -310,14 +252,82 @@ class="text-indigo-600 hover:text-indigo-800">
 Preview
 </a>
 
+
 <a
 href="{{ route('admin.ads.edit',$ad) }}"
 class="text-blue-600 hover:text-blue-800">
 Edit
 </a>
 
-<form
-method="POST"
+
+
+@if($ad->status == 'DRAFT')
+
+<form method="POST"
+action="{{ route('admin.ads.activate',$ad) }}"
+class="inline">
+
+@csrf
+@method('PATCH')
+
+<button class="text-green-600 hover:text-green-800">
+Publish
+</button>
+
+</form>
+
+@endif
+
+
+
+@if($ad->status == 'ACTIVE')
+
+<form method="POST"
+action="{{ route('admin.ads.pause',$ad) }}"
+class="inline">
+
+@csrf
+@method('PATCH')
+
+<button class="text-yellow-600 hover:text-yellow-800">
+Pause
+</button>
+
+</form>
+
+@endif
+
+
+
+<form method="POST"
+action="{{ route('admin.ads.duplicate',$ad) }}"
+class="inline">
+
+@csrf
+
+<button class="text-purple-600 hover:text-purple-800">
+Duplicate
+</button>
+
+</form>
+
+
+
+<form method="POST"
+action="{{ route('admin.ads.sync',$ad) }}"
+class="inline">
+
+@csrf
+
+<button class="text-gray-600 hover:text-gray-800">
+Sync
+</button>
+
+</form>
+
+
+
+<form method="POST"
 action="{{ route('admin.ads.destroy',$ad) }}"
 class="inline">
 
@@ -333,6 +343,7 @@ Delete
 </button>
 
 </form>
+
 
 </td>
 
@@ -371,15 +382,13 @@ Create First Ad
 @if($ads->hasPages())
 
 <div class="p-4 border-t">
-
 {{ $ads->links() }}
-
 </div>
 
 @endif
 
-</div>
 
+</div>
 
 </div>
 

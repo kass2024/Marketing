@@ -312,9 +312,8 @@ Route::middleware(['auth','verified','role:admin'])
             
             Route::get('{adset}/insights', [AdSetController::class, 'insights'])
                 ->name('insights');
-            
-            Route::post('{adset}/sync', [AdSetController::class, 'syncToMeta'])
-                ->name('sync');
+           Route::post('{adset}/sync', [AdSetController::class, 'sync'])
+    ->name('sync');
         });
 
         // Campaign-specific Ad Set creation (THIS IS THE KEY ROUTE YOU NEED)
@@ -353,7 +352,8 @@ Route::middleware(['auth','verified','role:admin'])
         Route::get('adsets/{adset}/ads/create', 
             [AdController::class, 'createFromAdSet'])
             ->name('adsets.ads.create');
-
+Route::post('{ad}/sync', [AdController::class, 'sync'])
+    ->name('sync');
 
         /*
 |--------------------------------------------------------------------------

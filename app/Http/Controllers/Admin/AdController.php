@@ -387,4 +387,131 @@ class AdController extends Controller
             ]);
         }
     }
+    public function edit(Ad $ad): View
+{
+    $adsets = AdSet::with('campaign')->latest()->get();
+    $creatives = Creative::latest()->get();
+
+    return view('admin.ads.edit', [
+        'ad' => $ad,
+        'adsets' => $adsets,
+        'creatives' => $creatives
+    ]);
+}
+public function update(Request $request, Ad $ad): RedirectResponse
+{
+    $data = $request->validate([
+        'name' => 'required|string|max:255',
+        'adset_id' => 'required|exists:ad_sets,id',
+        'creative_id' => 'required|exists:creatives,id',
+        'status' => 'required|in:ACTIVE,PAUSED'
+    ]);
+
+    try {
+
+        if ($ad->meta_ad_id) {
+
+            $this->meta->updateAd(
+                $ad->meta_ad_id,
+                ['name' => $data['name']]
+            );
+
+        }
+
+        $ad->update($data);
+
+        return redirect()
+            ->route('admin.ads.index')
+            ->with('success','Ad updated successfully.');
+
+    }
+
+    catch(Throwable $e){
+
+        Log::error('AD_UPDATE_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'update'=>'Failed to update Ad'
+        ]);
+    }
+}
+public function activate(Ad $ad): RedirectResponse
+{
+    return $this->updateStatus(
+        new Request(['status'=>'ACTIVE']),
+        $ad
+    );
+}
+public function pause(Ad $ad): RedirectResponse
+{
+    return $this->updateStatus(
+        new Request(['status'=>'PAUSED']),
+        $ad
+    );
+}
+public function duplicate(Ad $ad): RedirectResponse
+{
+    $copy = $ad->replicate();
+
+    $copy->name = $ad->name.' Copy';
+
+    $copy->meta_ad_id = null;
+
+    $copy->status = 'PAUSED';
+
+    $copy->save();
+
+    return back()->with('success','Ad duplicated.');
+}
+public function sync(Ad $ad): RedirectResponse
+{
+    if (!$ad->meta_ad_id) {
+        return back()->withErrors([
+            'sync'=>'Ad not synced with Meta'
+        ]);
+    }
+
+    try {
+
+        $meta = $this->meta->getAd($ad->meta_ad_id);
+
+        $ad->update([
+            'status' => $meta['status'] ?? $ad->status
+        ]);
+
+        return back()->with('success','Ad synced with Meta.');
+
+    }
+
+    catch(Throwable $e){
+
+        return back()->withErrors([
+            'sync'=>$e->getMessage()
+        ]);
+    }
+}
+public function createFromAdSet(AdSet $adset): View
+{
+    $creatives = Creative::latest()->get();
+
+    return view('admin.ads.create', [
+        'adsets' => collect([$adset]),
+        'creatives' => $creatives,
+        'selectedAdSet' => $adset->id
+    ]);
+}
+public function bulkStatusUpdate(Request $request): RedirectResponse
+{
+    $data = $request->validate([
+        'ids' => 'required|array',
+        'status' => 'required|in:ACTIVE,PAUSED'
+    ]);
+
+    Ad::whereIn('id',$data['ids'])
+        ->update(['status'=>$data['status']]);
+
+    return back()->with('success','Ads updated.');
+}
 }

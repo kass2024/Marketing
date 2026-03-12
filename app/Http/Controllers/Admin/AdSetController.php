@@ -401,4 +401,144 @@ class AdSetController extends Controller
             ]);
         }
     }
+
+    public function edit(AdSet $adset)
+{
+    $campaigns = Campaign::latest()->get();
+
+    return view('admin.adsets.edit', [
+        'adset' => $adset,
+        'campaigns' => $campaigns
+    ]);
+}
+public function update(Request $request, AdSet $adset)
+{
+    $data = $request->validate([
+        'name' => 'required|string|max:255',
+        'daily_budget' => 'nullable|numeric|min:1',
+        'status' => 'required|in:DRAFT,ACTIVE,PAUSED'
+    ]);
+
+    DB::beginTransaction();
+
+    try {
+
+        if ($data['daily_budget']) {
+            $data['daily_budget'] = (int)($data['daily_budget'] * 100);
+        }
+
+        $adset->update($data);
+
+        DB::commit();
+
+        return redirect()
+            ->route('admin.adsets.index')
+            ->with('success', 'AdSet updated successfully');
+
+    } catch (Throwable $e) {
+
+        DB::rollBack();
+
+        return back()->withErrors([
+            'update' => $e->getMessage()
+        ]);
+    }
+}
+public function activate(AdSet $adset)
+{
+    try {
+
+        if ($adset->meta_id) {
+
+            $this->meta->updateAdSetStatus(
+                $adset->meta_id,
+                'ACTIVE'
+            );
+        }
+
+        $adset->update([
+            'status' => 'ACTIVE'
+        ]);
+
+        return back()->with('success','AdSet activated');
+
+    } catch (Throwable $e) {
+
+        return back()->withErrors([
+            'activate' => $e->getMessage()
+        ]);
+    }
+}
+public function pause(AdSet $adset)
+{
+    try {
+
+        if ($adset->meta_id) {
+
+            $this->meta->updateAdSetStatus(
+                $adset->meta_id,
+                'PAUSED'
+            );
+        }
+
+        $adset->update([
+            'status' => 'PAUSED'
+        ]);
+
+        return back()->with('success','AdSet paused');
+
+    } catch (Throwable $e) {
+
+        return back()->withErrors([
+            'pause' => $e->getMessage()
+        ]);
+    }
+}
+public function duplicate(AdSet $adset)
+{
+    $copy = $adset->replicate();
+
+    $copy->name = $adset->name . ' Copy';
+
+    $copy->meta_id = null;
+
+    $copy->status = 'DRAFT';
+
+    $copy->save();
+
+    return back()->with('success','AdSet duplicated');
+}
+public function sync(AdSet $adset)
+{
+    if (!$adset->meta_id) {
+        return back()->withErrors([
+            'sync' => 'AdSet not synced with Meta'
+        ]);
+    }
+
+    try {
+
+        $meta = $this->meta->getAdSet($adset->meta_id);
+
+        $adset->update([
+            'status' => $meta['status'] ?? $adset->status
+        ]);
+
+        return back()->with('success','AdSet synced');
+
+    } catch (Throwable $e) {
+
+        return back()->withErrors([
+            'sync' => $e->getMessage()
+        ]);
+    }
+}
+public function indexByCampaign(Campaign $campaign)
+{
+    $adsets = AdSet::where('campaign_id', $campaign->id)
+        ->latest()
+        ->paginate(20);
+
+    return view('admin.adsets.index', compact('adsets','campaign'));
+}
 }

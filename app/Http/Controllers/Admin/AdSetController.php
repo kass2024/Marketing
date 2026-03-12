@@ -273,9 +273,9 @@ class AdSetController extends Controller
 
                 'status' => 'PAUSED',
 
-                'start_time' => now()
-                    ->addMinutes(5)
-                    ->toIso8601String(),
+              'start_time' => now()
+    ->addMinutes(5)
+    ->timestamp,
 
                 'promoted_object' => [
                     'page_id' => $data['page_id']

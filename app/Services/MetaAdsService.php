@@ -285,12 +285,14 @@ protected function buildTargeting(array $targeting): array
             'start_time'=>$data['start_time']
                 ?? now()->addMinutes(5)->toIso8601String(),
 
-            'targeting'=>$this->buildTargeting($data['targeting'])
+           'targeting'=>$data['targeting']
         ];
 
       // Add promoted object if provided
-if (isset($data['promoted_object']) && is_array($data['promoted_object'])) {
-    $payload['promoted_object'] = $data['promoted_object'];
+if (isset($data['promoted_object'])) {
+    $payload['promoted_object'] = is_array($data['promoted_object'])
+        ? json_encode($data['promoted_object'])
+        : $data['promoted_object'];
 }
 
 // Log final payload before sending

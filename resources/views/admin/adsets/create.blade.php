@@ -2,81 +2,70 @@
 
 @section('content')
 
-<link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
-
-<div class="max-w-6xl mx-auto space-y-8">
+<div class="max-w-5xl mx-auto py-10 px-6 space-y-8">
 
 {{-- HEADER --}}
-<div class="flex justify-between items-center">
+
+<div class="flex items-center justify-between">
 
 <div>
-<h1 class="text-3xl font-bold text-gray-900">
+<h1 class="text-2xl font-bold text-gray-900">
 Create Ad Set
 </h1>
 
-<p class="text-sm text-gray-500">
-Meta validated audience configuration
+<p class="text-gray-500 text-sm mt-1">
+Configure targeting and budget for your campaign.
 </p>
 </div>
 
 <a href="{{ route('admin.campaigns.index') }}"
-class="bg-gray-600 text-white px-4 py-3 rounded-xl hover:bg-gray-700">
-Back
+class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">
+← Back to Dashboard
 </a>
 
 </div>
 
 
+{{-- ERROR --}}
 
-{{-- ERRORS --}}
-@if($errors->any())
-
-<div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
-
-<ul class="list-disc ml-6">
-
+@if ($errors->any())
+<div class="bg-red-100 border border-red-200 text-red-700 p-4 rounded-lg">
+<ul class="list-disc ml-6 text-sm">
 @foreach ($errors->all() as $error)
-
 <li>{{ $error }}</li>
-
 @endforeach
-
 </ul>
-
 </div>
-
 @endif
 
 
+{{-- FORM --}}
 
-<div class="bg-white shadow border rounded-2xl p-8">
-
-<form method="POST"
-action="{{ route('admin.adsets.store') }}"
-id="adsetForm">
+<form method="POST" action="{{ route('admin.adsets.store') }}"
+class="bg-white shadow rounded-xl p-8 space-y-8">
 
 @csrf
 
 
 {{-- CAMPAIGN --}}
-<div class="mb-6">
 
-<label class="font-semibold block mb-2">Campaign</label>
+<div>
+
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Campaign
+</label>
 
 <select name="campaign_id"
-id="campaign-select"
-class="w-full border rounded-xl px-4 py-3"
-required>
+class="w-full border rounded-lg px-3 py-2">
 
-<option value="">Select campaign</option>
+<option value="">Select Campaign</option>
 
 @foreach($campaigns as $campaign)
 
-<option
-value="{{ $campaign->id }}"
-data-objective="{{ $campaign->objective }}">
+<option value="{{ $campaign->id }}"
+@if(old('campaign_id',$selectedCampaign)==$campaign->id) selected @endif>
 
-{{ $campaign->name }} ({{ $campaign->objective }})
+{{ $campaign->name }}
 
 </option>
 
@@ -84,112 +73,52 @@ data-objective="{{ $campaign->objective }}">
 
 </select>
 
-<p id="objective-info"
-class="text-xs text-blue-600 mt-2 hidden"></p>
-
 </div>
 
 
+{{-- NAME --}}
 
-{{-- ADSET NAME --}}
-<div class="mb-6">
+<div>
 
-<label class="font-semibold block mb-2">Ad Set Name</label>
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Ad Set Name
+</label>
 
-<input
-type="text"
+<input type="text"
 name="name"
-class="w-full border rounded-xl px-4 py-3"
-required>
+value="{{ old('name') }}"
+class="w-full border rounded-lg px-3 py-2"
+placeholder="Example: UK Study – Rwanda Students">
 
 </div>
 
 
+{{-- DAILY BUDGET --}}
 
-{{-- BUDGET --}}
-<div class="mb-6">
+<div>
 
-<label class="font-semibold block mb-2">Daily Budget ($)</label>
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Daily Budget ($)
+</label>
 
-<input
-type="number"
+<input type="number"
 name="daily_budget"
-value="10"
-min="5"
-class="w-full border rounded-xl px-4 py-3"
-required>
-
-<p class="text-xs text-gray-500 mt-1">
-Minimum recommended: $5/day
-</p>
+value="{{ old('daily_budget',20) }}"
+class="w-full border rounded-lg px-3 py-2">
 
 </div>
 
 
+{{-- PAGE --}}
 
-{{-- OPTIMIZATION --}}
-<div class="mb-6">
+<div>
 
-<label class="font-semibold block mb-2">
-Optimization Goal
-</label>
-
-<select
-name="optimization_goal"
-id="optimization-goal"
-class="w-full border rounded-xl px-4 py-3"
-required>
-
-<option value="LINK_CLICKS">Link Clicks</option>
-<option value="REACH">Reach</option>
-<option value="IMPRESSIONS">Impressions</option>
-<option value="LEAD_GENERATION">Lead Generation</option>
-<option value="OFFSITE_CONVERSIONS">Conversions</option>
-
-</select>
-
-</div>
-
-
-
-{{-- BID STRATEGY --}}
-<div class="mb-6">
-
-<label class="font-semibold block mb-2">
-Bid Strategy
-</label>
-
-<select
-name="bid_strategy"
-class="w-full border rounded-xl px-4 py-3">
-
-<option value="LOWEST_COST_WITHOUT_CAP">
-Lowest Cost
-</option>
-
-<option value="LOWEST_COST_WITH_BID_CAP">
-Bid Cap
-</option>
-
-</select>
-
-</div>
-
-
-
-{{-- FACEBOOK PAGE --}}
-<div class="mb-6">
-
-<label class="font-semibold block mb-2">
+<label class="block text-sm font-semibold text-gray-700 mb-2">
 Facebook Page
 </label>
 
-<select
-name="page_id"
-class="w-full border rounded-xl px-4 py-3"
-required>
-
-<option value="">Select Page</option>
+<select name="page_id"
+class="w-full border rounded-lg px-3 py-2">
 
 @foreach($pages as $page)
 
@@ -204,197 +133,198 @@ required>
 </div>
 
 
-
 {{-- AGE --}}
-<div class="grid grid-cols-2 gap-4 mb-6">
+
+<div class="grid grid-cols-2 gap-6">
 
 <div>
 
-<label class="font-semibold block mb-2">
-Min Age
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Minimum Age
 </label>
 
-<input
-type="number"
+<input type="number"
 name="age_min"
-value="18"
-min="18"
-max="65"
-class="w-full border rounded-xl px-4 py-3">
+value="{{ old('age_min',18) }}"
+class="w-full border rounded-lg px-3 py-2">
 
 </div>
 
 <div>
 
-<label class="font-semibold block mb-2">
-Max Age
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Maximum Age
 </label>
 
-<input
-type="number"
+<input type="number"
 name="age_max"
-value="65"
-min="18"
-max="65"
-class="w-full border rounded-xl px-4 py-3">
+value="{{ old('age_max',35) }}"
+class="w-full border rounded-lg px-3 py-2">
 
 </div>
 
 </div>
-
-
-
-{{-- GENDER --}}
-<div class="mb-6">
-
-<label class="font-semibold block mb-2">
-Gender
-</label>
-
-<select
-name="genders[]"
-multiple
-id="gender-select"
-class="w-full border rounded-xl px-4 py-3">
-
-<option value="1">Male</option>
-<option value="2">Female</option>
-
-</select>
-
-</div>
-
 
 
 {{-- COUNTRIES --}}
-<div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Countries
+<div>
+
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Target Countries
 </label>
 
-<select
-name="countries[]"
-multiple
-id="country-select"
-class="w-full border rounded-xl px-4 py-3"
-required>
+<select name="countries[]" multiple
+class="w-full border rounded-lg px-3 py-2 h-36">
 
-@foreach($countries as $code => $country)
+@foreach($countries as $code=>$name)
 
-<option value="{{ $code }}">
-{{ $country }}
+<option value="{{ $code }}"
+@if(in_array($code,old('countries',[]))) selected @endif>
+
+{{ $name }}
+
 </option>
 
 @endforeach
 
 </select>
 
+<p class="text-xs text-gray-500 mt-1">
+Hold CTRL or CMD to select multiple countries
+</p>
+
 </div>
 
 
+{{-- GENDERS --}}
 
-{{-- LANGUAGES --}}
-<div class="mb-6">
+<div>
 
-<label class="font-semibold block mb-2">
-Languages
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Gender
 </label>
 
-<select
-name="languages[]"
-multiple
-id="language-select"
-class="w-full border rounded-xl px-4 py-3">
+<div class="flex gap-6">
 
-@foreach($languages as $id => $language)
+<label class="flex items-center gap-2">
 
-<option value="{{ $id }}">
-{{ $language }}
-</option>
+<input type="checkbox" name="genders[]" value="1">
+Male
 
-@endforeach
+</label>
 
-</select>
+<label class="flex items-center gap-2">
+
+<input type="checkbox" name="genders[]" value="2">
+Female
+
+</label>
 
 </div>
 
+</div>
 
 
 {{-- INTERESTS --}}
-<div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Interest Targeting
+<div>
+
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Interest IDs
 </label>
 
-<select
-name="interests[]"
-id="interest-select"
-multiple
-class="w-full border rounded-xl px-4 py-3"></select>
+<textarea name="interests[]"
+class="w-full border rounded-lg px-3 py-2"
+placeholder="Example: 6003246559157"></textarea>
+
+<p class="text-xs text-gray-500 mt-1">
+Enter interest IDs separated by comma
+</p>
 
 </div>
 
 
+{{-- PLACEMENTS --}}
 
-{{-- PLACEMENT STRATEGY --}}
-<div class="mb-6">
+<div>
 
-<label class="font-semibold block mb-2">
-Placement Strategy
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Placements
 </label>
 
-<select
-name="placement_type"
-id="placement-type"
-class="w-full border rounded-xl px-4 py-3"
-required>
+<select name="placement_type"
+class="w-full border rounded-lg px-3 py-2">
 
-<option value="automatic">
-Automatic (Recommended)
-</option>
+<option value="automatic">Automatic Placements</option>
 
-<option value="manual">
-Manual Placements
-</option>
+<option value="manual">Manual Placements</option>
 
 </select>
 
 </div>
 
 
+{{-- MANUAL PLACEMENTS --}}
 
-{{-- PLATFORMS --}}
-<div class="mb-6 hidden"
-id="platform-section">
+<div>
 
-<label class="font-semibold block mb-2">
+<label class="block text-sm font-semibold text-gray-700 mb-2">
 Publisher Platforms
 </label>
 
-<select
-name="publisher_platforms[]"
-multiple
-id="platform-select"
-class="w-full border rounded-xl px-4 py-3">
+<div class="grid grid-cols-3 gap-4 text-sm">
 
-<option value="facebook">Facebook</option>
-<option value="instagram">Instagram</option>
-<option value="messenger">Messenger</option>
-<option value="audience_network">Audience Network</option>
+<label><input type="checkbox" name="publisher_platforms[]" value="facebook"> Facebook</label>
+
+<label><input type="checkbox" name="publisher_platforms[]" value="instagram"> Instagram</label>
+
+<label><input type="checkbox" name="publisher_platforms[]" value="audience_network"> Audience Network</label>
+
+<label><input type="checkbox" name="publisher_platforms[]" value="messenger"> Messenger</label>
+
+</div>
+
+</div>
+
+
+{{-- BID STRATEGY --}}
+
+<div>
+
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+Bid Strategy
+</label>
+
+<select name="bid_strategy"
+class="w-full border rounded-lg px-3 py-2">
+
+<option value="LOWEST_COST_WITHOUT_CAP">
+Lowest Cost
+</option>
+
+<option value="COST_CAP">
+Cost Cap
+</option>
 
 </select>
 
 </div>
 
 
+{{-- SUBMIT --}}
 
-<div class="flex justify-end">
+<div class="flex justify-end gap-4 pt-6 border-t">
 
-<button
-type="submit"
-class="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700">
+<a href="{{ route('admin.campaigns.index') }}"
+class="px-5 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700">
+
+Cancel
+
+</a>
+
+<button type="submit"
+class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold">
 
 Create Ad Set
 
@@ -402,108 +332,9 @@ Create Ad Set
 
 </div>
 
+
 </form>
 
 </div>
-
-</div>
-
-
-
-<script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
-
-<script>
-
-new TomSelect("#country-select",{plugins:['remove_button']});
-new TomSelect("#gender-select",{plugins:['remove_button']});
-new TomSelect("#language-select",{plugins:['remove_button']});
-new TomSelect("#platform-select",{plugins:['remove_button']});
-
-
-
-let interestSelect = new TomSelect("#interest-select",{
-
-plugins:['remove_button'],
-valueField:'id',
-labelField:'name',
-searchField:'name',
-
-load:function(query,callback){
-
-if(query.length < 2) return callback();
-
-fetch("/admin/meta/interests?q="+query)
-.then(res=>res.json())
-.then(data=>callback(data.data ?? []))
-.catch(()=>callback());
-
-}
-
-});
-
-
-
-const rules = {
-
-TRAFFIC: "LINK_CLICKS",
-AWARENESS: "REACH",
-ENGAGEMENT: "IMPRESSIONS",
-LEADS: "LEAD_GENERATION",
-SALES: "OFFSITE_CONVERSIONS"
-
-};
-
-
-
-document.getElementById("campaign-select")
-.addEventListener("change",function(){
-
-let obj = this.selectedOptions[0].dataset.objective;
-
-let goal = rules[obj] ?? "LINK_CLICKS";
-
-document.getElementById("optimization-goal").value = goal;
-
-document.getElementById("objective-info").classList.remove("hidden");
-
-document.getElementById("objective-info").innerText =
-"Optimization automatically configured for "+obj;
-
-});
-
-
-
-document.getElementById("placement-type")
-.addEventListener("change",function(){
-
-let section=document.getElementById("platform-section");
-
-if(this.value==="manual"){
-section.classList.remove("hidden");
-}else{
-section.classList.add("hidden");
-}
-
-});
-
-
-
-document.getElementById("adsetForm")
-.addEventListener("submit",function(e){
-
-let min=parseInt(document.querySelector("[name='age_min']").value);
-let max=parseInt(document.querySelector("[name='age_max']").value);
-
-if(min > max){
-
-e.preventDefault();
-
-alert("Minimum age cannot be greater than maximum age");
-
-}
-
-});
-
-</script>
 
 @endsection

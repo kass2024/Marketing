@@ -16,7 +16,7 @@ use Exception;
 
 class AdSetController extends Controller
 {
-    protected $meta;
+    protected MetaAdsService $meta;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -98,9 +98,7 @@ class AdSetController extends Controller
             'placement_type' => 'required|in:automatic,manual',
 
             'publisher_platforms' => 'nullable|array'
-
         ]);
-
 
         if ($data['age_min'] >= $data['age_max']) {
             return back()->withErrors([
@@ -126,7 +124,7 @@ class AdSetController extends Controller
             }
 
             if (!$campaign->adAccount || !$campaign->adAccount->meta_id) {
-                throw new Exception('Ad Account not connected');
+                throw new Exception('Ad account not connected');
             }
 
             $accountId = $campaign->adAccount->meta_id;
@@ -137,36 +135,30 @@ class AdSetController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | OBJECTIVE SAFE SETTINGS
+            | OBJECTIVE SETTINGS
             |--------------------------------------------------------------------------
             */
 
             $objective = strtoupper($campaign->objective);
 
-           $optimizationMap = [
+            $optimizationMap = [
 
-    'TRAFFIC' => 'LANDING_PAGE_VIEWS',
+                'TRAFFIC' => 'LANDING_PAGE_VIEWS',
+                'OUTCOME_TRAFFIC' => 'LANDING_PAGE_VIEWS',
 
-    'OUTCOME_TRAFFIC' => 'LANDING_PAGE_VIEWS',
+                'LEADS' => 'LEAD_GENERATION',
+                'OUTCOME_LEADS' => 'LEAD_GENERATION',
 
-    'LEADS' => 'LEAD_GENERATION',
+                'SALES' => 'OFFSITE_CONVERSIONS',
+                'OUTCOME_SALES' => 'OFFSITE_CONVERSIONS',
 
-    'OUTCOME_LEADS' => 'LEAD_GENERATION',
+                'AWARENESS' => 'REACH',
+                'ENGAGEMENT' => 'POST_ENGAGEMENT'
+            ];
 
-    'SALES' => 'OFFSITE_CONVERSIONS',
-
-    'OUTCOME_SALES' => 'OFFSITE_CONVERSIONS',
-
-    'AWARENESS' => 'REACH',
-
-    'ENGAGEMENT' => 'POST_ENGAGEMENT'
-];
-
-            $optimizationGoal =
-    $optimizationMap[$objective] ?? 'LANDING_PAGE_VIEWS';
+            $optimizationGoal = $optimizationMap[$objective] ?? 'LANDING_PAGE_VIEWS';
 
             $billingEvent = 'IMPRESSIONS';
-
 
             /*
             |--------------------------------------------------------------------------
@@ -180,63 +172,48 @@ class AdSetController extends Controller
                     'countries' => array_values($data['countries'])
                 ],
 
-                'age_min' => (int) $data['age_min'],
+                'age_min' => (int)$data['age_min'],
 
-                'age_max' => (int) $data['age_max']
+                'age_max' => (int)$data['age_max']
             ];
 
             if (!empty($data['genders'])) {
-
-                $targeting['genders'] =
-                    array_map('intval', $data['genders']);
+                $targeting['genders'] = array_map('intval', $data['genders']);
             }
 
-
-          /*
-|--------------------------------------------------------------------------
-| INTERESTS
-|--------------------------------------------------------------------------
-*/
-
-if (!empty($data['interests'])) {
-
-    $interestList = [];
-
-    foreach ($data['interests'] as $interestId) {
-
-        $interestList[] = [
-            'id' => (string) $interestId
-        ];
-    }
-
-    $targeting['flexible_spec'] = [
-        [
-            'interests' => $interestList
-        ]
-    ];
-}
-Log::info('META_TARGETING_FINAL', $targeting);
-/*
-|--------------------------------------------------------------------------
-| REQUIRED BY META (ADVANTAGE AUDIENCE)
-|--------------------------------------------------------------------------
-*/
-
-$targeting['targeting_automation'] = [
-    'advantage_audience' => 0
-];
             /*
             |--------------------------------------------------------------------------
-            | LANGUAGES
+            | INTERESTS
             |--------------------------------------------------------------------------
             */
 
-            if (!empty($data['languages'])) {
+            if (!empty($data['interests'])) {
 
-                $targeting['locales'] =
-                    array_map('intval', $data['languages']);
+                $interestList = [];
+
+                foreach ($data['interests'] as $interest) {
+
+                    $interestList[] = [
+                        'id' => (string)$interest
+                    ];
+                }
+
+                $targeting['flexible_spec'] = [
+                    [
+                        'interests' => $interestList
+                    ]
+                ];
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | ADVANTAGE AUDIENCE
+            |--------------------------------------------------------------------------
+            */
+
+            $targeting['targeting_automation'] = [
+                'advantage_audience' => 0
+            ];
 
             /*
             |--------------------------------------------------------------------------
@@ -250,14 +227,12 @@ $targeting['targeting_automation'] = [
                     throw new Exception('Select at least one placement');
                 }
 
-                $targeting['publisher_platforms'] =
-                    $data['publisher_platforms'];
+                $targeting['publisher_platforms'] = $data['publisher_platforms'];
             }
-
 
             /*
             |--------------------------------------------------------------------------
-            | PAYLOAD
+            | META PAYLOAD
             |--------------------------------------------------------------------------
             */
 
@@ -277,35 +252,28 @@ $targeting['targeting_automation'] = [
 
                 'status' => 'PAUSED',
 
-              'start_time' => now()
-    ->addMinutes(5)
-    ->timestamp,
+                'start_time' => now()->addMinutes(5)->timestamp,
 
-                'promoted_object' => [
+                // CRITICAL FIX (MATCHES CURL)
+
+                'promoted_object' => json_encode([
                     'page_id' => $data['page_id']
-                ],
+                ]),
 
-                'targeting' => $targeting
+                'targeting' => json_encode($targeting)
             ];
-
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 
-
             /*
             |--------------------------------------------------------------------------
-            | CREATE META
+            | CREATE META ADSET
             |--------------------------------------------------------------------------
             */
 
-            $response = $this->meta->createAdSet(
-                $accountId,
-                $payload
-            );
-
+            $response = $this->meta->createAdSet($accountId, $payload);
 
             Log::info('META_ADSET_RESPONSE', $response);
-
 
             if (!isset($response['id'])) {
 
@@ -315,10 +283,9 @@ $targeting['targeting_automation'] = [
                 );
             }
 
-
             /*
             |--------------------------------------------------------------------------
-            | SAVE
+            | SAVE LOCAL
             |--------------------------------------------------------------------------
             */
 
@@ -341,20 +308,20 @@ $targeting['targeting_automation'] = [
                 'status' => 'PAUSED'
             ]);
 
-
             DB::commit();
 
             Log::info('META_ADSET_CREATED', [
+
                 'meta_id' => $response['id'],
+
                 'local_id' => $adset->id
             ]);
 
             return redirect()
                 ->route('admin.campaigns.index')
                 ->with('success', 'Ad Set created successfully');
-        }
 
-        catch (Throwable $e) {
+        } catch (Throwable $e) {
 
             DB::rollBack();
 
@@ -388,10 +355,7 @@ $targeting['targeting_automation'] = [
 
             $adset->delete();
 
-            return back()->with(
-                'success',
-                'AdSet deleted successfully'
-            );
+            return back()->with('success', 'AdSet deleted');
 
         } catch (Throwable $e) {
 
@@ -405,144 +369,4 @@ $targeting['targeting_automation'] = [
             ]);
         }
     }
-
-    public function edit(AdSet $adset)
-{
-    $campaigns = Campaign::latest()->get();
-
-    return view('admin.adsets.edit', [
-        'adset' => $adset,
-        'campaigns' => $campaigns
-    ]);
-}
-public function update(Request $request, AdSet $adset)
-{
-    $data = $request->validate([
-        'name' => 'required|string|max:255',
-        'daily_budget' => 'nullable|numeric|min:1',
-        'status' => 'required|in:DRAFT,ACTIVE,PAUSED'
-    ]);
-
-    DB::beginTransaction();
-
-    try {
-
-        if ($data['daily_budget']) {
-            $data['daily_budget'] = (int)($data['daily_budget'] * 100);
-        }
-
-        $adset->update($data);
-
-        DB::commit();
-
-        return redirect()
-            ->route('admin.adsets.index')
-            ->with('success', 'AdSet updated successfully');
-
-    } catch (Throwable $e) {
-
-        DB::rollBack();
-
-        return back()->withErrors([
-            'update' => $e->getMessage()
-        ]);
-    }
-}
-public function activate(AdSet $adset)
-{
-    try {
-
-        if ($adset->meta_id) {
-
-            $this->meta->updateAdSetStatus(
-                $adset->meta_id,
-                'ACTIVE'
-            );
-        }
-
-        $adset->update([
-            'status' => 'ACTIVE'
-        ]);
-
-        return back()->with('success','AdSet activated');
-
-    } catch (Throwable $e) {
-
-        return back()->withErrors([
-            'activate' => $e->getMessage()
-        ]);
-    }
-}
-public function pause(AdSet $adset)
-{
-    try {
-
-        if ($adset->meta_id) {
-
-            $this->meta->updateAdSetStatus(
-                $adset->meta_id,
-                'PAUSED'
-            );
-        }
-
-        $adset->update([
-            'status' => 'PAUSED'
-        ]);
-
-        return back()->with('success','AdSet paused');
-
-    } catch (Throwable $e) {
-
-        return back()->withErrors([
-            'pause' => $e->getMessage()
-        ]);
-    }
-}
-public function duplicate(AdSet $adset)
-{
-    $copy = $adset->replicate();
-
-    $copy->name = $adset->name . ' Copy';
-
-    $copy->meta_id = null;
-
-    $copy->status = 'DRAFT';
-
-    $copy->save();
-
-    return back()->with('success','AdSet duplicated');
-}
-public function sync(AdSet $adset)
-{
-    if (!$adset->meta_id) {
-        return back()->withErrors([
-            'sync' => 'AdSet not synced with Meta'
-        ]);
-    }
-
-    try {
-
-        $meta = $this->meta->getAdSet($adset->meta_id);
-
-        $adset->update([
-            'status' => $meta['status'] ?? $adset->status
-        ]);
-
-        return back()->with('success','AdSet synced');
-
-    } catch (Throwable $e) {
-
-        return back()->withErrors([
-            'sync' => $e->getMessage()
-        ]);
-    }
-}
-public function indexByCampaign(Campaign $campaign)
-{
-    $adsets = AdSet::where('campaign_id', $campaign->id)
-        ->latest()
-        ->paginate(20);
-
-    return view('admin.adsets.index', compact('adsets','campaign'));
-}
 }

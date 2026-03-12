@@ -4,7 +4,6 @@
 
 <div class="max-w-7xl mx-auto space-y-8">
 
-
 {{-- HEADER --}}
 <div class="flex items-center justify-between flex-wrap gap-4">
 
@@ -36,27 +35,27 @@ class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-l
 
 <div class="bg-white p-5 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Ads</p>
-<p class="text-xl font-bold">{{ $ads->total() ?? 0 }}</p>
+<p class="text-xl font-bold">{{ $ads->total() }}</p>
 </div>
 
 <div class="bg-white p-5 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Active Ads</p>
 <p class="text-xl font-bold text-green-600">
-{{ $ads->where('status','ACTIVE')->count() }}
+{{ $ads->getCollection()->where('status','ACTIVE')->count() }}
 </p>
 </div>
 
 <div class="bg-white p-5 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Spend</p>
 <p class="text-xl font-bold text-blue-600">
-${{ number_format($ads->sum('spend'),2) }}
+${{ number_format($ads->getCollection()->sum('spend'),2) }}
 </p>
 </div>
 
 <div class="bg-white p-5 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Clicks</p>
 <p class="text-xl font-bold text-purple-600">
-{{ number_format($ads->sum('clicks')) }}
+{{ number_format($ads->getCollection()->sum('clicks')) }}
 </p>
 </div>
 
@@ -106,7 +105,6 @@ ${{ number_format($ads->sum('spend'),2) }}
 
 <tr class="hover:bg-gray-50 transition">
 
-
 {{-- AD NAME --}}
 <td class="px-6 py-4">
 
@@ -135,7 +133,13 @@ Meta ID: {{ $ad->meta_ad_id }}
 
 <img
 src="{{ asset('storage/'.$ad->creative->image_url) }}"
-class="w-10 h-10 rounded object-cover">
+class="w-10 h-10 rounded object-cover border">
+
+@else
+
+<div class="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-400">
+No Img
+</div>
 
 @endif
 
@@ -162,7 +166,7 @@ class="w-10 h-10 rounded object-cover">
 {{-- ADSET --}}
 <td class="px-6 py-4">
 
-{{ $ad->adSet->name ?? '-' }}
+{{ $ad->adSet?->name ?? '-' }}
 
 </td>
 
@@ -230,28 +234,28 @@ Draft
 
 {{-- CTR --}}
 <td class="px-6 py-4">
-{{ $ad->ctr }}%
+{{ number_format($ad->ctr,2) }}%
 </td>
 
 
 
 {{-- SPEND --}}
-<td class="px-6 py-4">
+<td class="px-6 py-4 font-medium text-gray-800">
 ${{ number_format($ad->spend,2) }}
 </td>
 
 
 
 {{-- ACTIONS --}}
-<td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+<td class="px-6 py-4 text-right whitespace-nowrap">
 
+<div class="flex justify-end gap-3 text-sm">
 
 <a
 href="{{ route('admin.ads.preview',$ad) }}"
 class="text-indigo-600 hover:text-indigo-800">
 Preview
 </a>
-
 
 <a
 href="{{ route('admin.ads.edit',$ad) }}"
@@ -260,12 +264,10 @@ Edit
 </a>
 
 
-
-@if($ad->status == 'DRAFT')
+@if($ad->status === 'DRAFT')
 
 <form method="POST"
-action="{{ route('admin.ads.activate',$ad) }}"
-class="inline">
+action="{{ route('admin.ads.activate',$ad) }}">
 
 @csrf
 @method('PATCH')
@@ -279,12 +281,10 @@ Publish
 @endif
 
 
-
-@if($ad->status == 'ACTIVE')
+@if($ad->status === 'ACTIVE')
 
 <form method="POST"
-action="{{ route('admin.ads.pause',$ad) }}"
-class="inline">
+action="{{ route('admin.ads.pause',$ad) }}">
 
 @csrf
 @method('PATCH')
@@ -298,10 +298,8 @@ Pause
 @endif
 
 
-
 <form method="POST"
-action="{{ route('admin.ads.duplicate',$ad) }}"
-class="inline">
+action="{{ route('admin.ads.duplicate',$ad) }}">
 
 @csrf
 
@@ -312,10 +310,8 @@ Duplicate
 </form>
 
 
-
 <form method="POST"
-action="{{ route('admin.ads.sync',$ad) }}"
-class="inline">
+action="{{ route('admin.ads.sync',$ad) }}">
 
 @csrf
 
@@ -326,10 +322,8 @@ Sync
 </form>
 
 
-
 <form method="POST"
-action="{{ route('admin.ads.destroy',$ad) }}"
-class="inline">
+action="{{ route('admin.ads.destroy',$ad) }}">
 
 @csrf
 @method('DELETE')
@@ -344,6 +338,7 @@ Delete
 
 </form>
 
+</div>
 
 </td>
 

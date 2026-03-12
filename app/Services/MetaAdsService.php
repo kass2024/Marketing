@@ -540,4 +540,23 @@ public function getInsights(string $objectId): array
         'fields' => 'impressions,clicks,spend'
     ]);
 }
+/*
+|--------------------------------------------------------------------------
+| PULISH CREATIVE
+|--------------------------------------------------------------------------
+*/
+public function getCreative($creativeId)
+{
+    $token = $this->getAccessToken();
+
+    $response = Http::get(
+        "https://graph.facebook.com/v19.0/{$creativeId}",
+        [
+            'fields' => 'id,name,status,effective_status,review_feedback',
+            'access_token' => $token
+        ]
+    );
+
+    return $response->json();
+}
 }

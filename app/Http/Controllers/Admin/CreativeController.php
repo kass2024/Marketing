@@ -420,7 +420,25 @@ class CreativeController extends Controller
             ]);
         }
     }
+public function sync($id)
+{
+    $creative = Creative::findOrFail($id);
 
+    if(!$creative->meta_id){
+        return back()->with('error','Creative not synced with Meta');
+    }
+
+    $meta = app(MetaAdsService::class)->getCreative($creative->meta_id);
+
+    $creative->update([
+        'status' => $meta['status'] ?? $creative->status,
+        'effective_status' => $meta['effective_status'] ?? null,
+        'review_status' => $meta['review_feedback']['approval_status'] ?? null,
+        'last_synced_at' => now()
+    ]);
+
+    return back()->with('success','Creative synced with Meta');
+}
 
     /*
     |--------------------------------------------------------------------------

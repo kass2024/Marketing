@@ -326,10 +326,6 @@ Route::middleware(['auth','verified','role:admin'])
         Route::get('campaigns/{campaign}/adsets', 
             [AdSetController::class, 'indexByCampaign'])
             ->name('campaigns.adsets.index');
-
-Route::get('campaigns/{campaign}/adsets',
-    [AdSetController::class, 'indexByCampaign'])
-    ->name('campaigns.adsets.index');
         /*
         |--------------------------------------------------------------------------
         | ADS
@@ -360,22 +356,26 @@ Route::get('campaigns/{campaign}/adsets',
 
 
         /*
-        |--------------------------------------------------------------------------
-        | CREATIVES
-        |--------------------------------------------------------------------------
-        */
+|--------------------------------------------------------------------------
+| CREATIVES
+|--------------------------------------------------------------------------
+*/
 
-        Route::resource('creatives', CreativeController::class)->names('creatives');
+Route::resource('creatives', CreativeController::class)->names('creatives');
 
-        // Additional Creative routes
-        Route::prefix('creatives')->name('creatives.')->group(function () {
-            Route::post('{creative}/duplicate', [CreativeController::class, 'duplicate'])
-                ->name('duplicate');
-            
-            Route::get('{creative}/preview', [CreativeController::class, 'preview'])
-                ->name('preview');
-        });
+Route::prefix('creatives')->name('creatives.')->group(function () {
 
+    Route::post('{creative}/duplicate', [CreativeController::class, 'duplicate'])
+        ->name('duplicate');
+
+    Route::get('{creative}/preview', [CreativeController::class, 'preview'])
+        ->name('preview');
+
+    // NEW ROUTE (Meta sync)
+    Route::post('{creative}/sync', [CreativeController::class, 'sync'])
+        ->name('sync');
+
+});
 
         /*
         |--------------------------------------------------------------------------

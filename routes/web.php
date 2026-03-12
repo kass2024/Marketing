@@ -334,19 +334,23 @@ Route::middleware(['auth','verified','role:admin'])
         Route::resource('ads', AdController::class)->names('ads');
 
         // Additional Ad routes
-        Route::prefix('ads')->name('ads.')->group(function () {
-            Route::post('bulk-status-update', [AdController::class, 'bulkStatusUpdate'])
-                ->name('bulk-status-update');
-            
-            Route::patch('{ad}/activate', [AdController::class, 'activate'])
-                ->name('activate');
-            
-            Route::patch('{ad}/pause', [AdController::class, 'pause'])
-                ->name('pause');
-            
-            Route::post('{ad}/duplicate', [AdController::class, 'duplicate'])
-                ->name('duplicate');
-        });
+    Route::prefix('ads')->name('ads.')->group(function () {
+
+    Route::post('bulk-status-update', [AdController::class, 'bulkStatusUpdate'])
+        ->name('bulk-status-update');
+
+    Route::patch('{ad}/activate', [AdController::class, 'activate'])
+        ->name('activate');
+
+    Route::patch('{ad}/pause', [AdController::class, 'pause'])
+        ->name('pause');
+
+    Route::post('{ad}/duplicate', [AdController::class, 'duplicate'])
+        ->name('duplicate');
+
+    Route::post('{ad}/sync', [AdController::class, 'sync'])
+        ->name('sync');   // ← ADD THIS LINE
+});
 
         // Ad Set-specific Ad creation
         Route::get('adsets/{adset}/ads/create', 

@@ -526,9 +526,9 @@ public function createAd(string $accountId, array $data): array
         'status' => $data['status'] ?? 'PAUSED',
 
         // Meta requires creative as JSON string
-        'creative' => json_encode([
-            'id' => $data['creative']['id']
-        ])
+        'creative' => [
+    'id' => $data['creative']['id']
+]
 
     ];
 

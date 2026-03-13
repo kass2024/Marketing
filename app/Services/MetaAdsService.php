@@ -536,9 +536,9 @@ public function createAd(string $accountId, array $data): array
         |--------------------------------------------------------------------------
         */
 
-        'creative' => json_encode([
-            'creative_id' => $data['creative']['creative_id']
-        ])
+       'creative' => [
+    'creative_id' => $data['creative']['creative_id']
+]
     ];
 
     /*

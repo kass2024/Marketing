@@ -631,8 +631,10 @@ public function getAdSets(string $accountId): array
 
 public function getAds(string $accountId): array
 {
+    $accountId = $this->formatAccount($accountId);
+
     return $this->get("{$accountId}/ads", [
-        'fields' => 'id,name,adset_id,status,effective_status'
+        'fields' => 'id,name,adset_id,status'
     ]);
 }
 
@@ -658,7 +660,7 @@ public function getInsights(string $objectId): array
 {
     return $this->get("{$objectId}/insights", [
         'fields' => 'impressions,clicks,spend,reach,ctr,cpm',
-        'date_preset' => 'lifetime'
+        'date_preset' => 'maximum'
     ]);
 }
 /*

@@ -684,7 +684,7 @@ public function getInsights(string $objectId): array
 
         ]),
 
-        'date_preset' => 'lifetime'
+        'date_preset' => 'maximum'
     ]);
 }
 /*
@@ -700,6 +700,12 @@ public function getInsights(string $objectId): array
 |--------------------------------------------------------------------------
 | Fetch a single Meta Ad Creative
 */
+/*
+|--------------------------------------------------------------------------
+| GET CREATIVE
+|--------------------------------------------------------------------------
+| Fetch minimal Creative info from Meta
+*/
 
 public function getCreative(string $creativeId): array
 {
@@ -709,22 +715,7 @@ public function getCreative(string $creativeId): array
 
             'id',
             'name',
-
-            /*
-            |--------------------------------------------------------------
-            | Creative Status
-            |--------------------------------------------------------------
-            */
-
-            'status',
-
-            /*
-            |--------------------------------------------------------------
-            | Review Feedback (if returned)
-            |--------------------------------------------------------------
-            */
-
-            'ad_review_feedback'
+            'status'
 
         ])
     ]);
@@ -774,7 +765,7 @@ public function getCreativeInsights(string $creativeId): array
 {
     return $this->get("{$creativeId}/insights", [
         'fields' => 'impressions,clicks,spend,ctr',
-        'date_preset' => 'lifetime'
+        'date_preset' => 'maximum'
     ]);
 }
 }

@@ -179,7 +179,7 @@ Meta ID: {{ $creative->meta_id }}
 </div>
 
 {{-- Sync detection --}}
-@if(empty($creative->review_status))
+@if(empty($creative->review_status) && $creative->effective_status !== 'ACTIVE')
 <div class="text-xs text-yellow-600 mt-1">
 ⚠ Waiting for Meta review
 </div>
@@ -204,27 +204,30 @@ Meta ID: {{ $creative->meta_id }}
 
 </td>
 
-
-
 {{-- ================= REVIEW STATUS ================= --}}
 <td class="px-6 py-4">
 
-@if($creative->review_status === 'APPROVED')
+@php
+    $review = strtoupper($creative->review_status ?? '');
+    $delivery = strtoupper($creative->effective_status ?? '');
+@endphp
+
+@if($review === 'DISAPPROVED')
+
+<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
+Rejected
+</span>
+
+@elseif($review === 'APPROVED' || $delivery === 'ACTIVE')
 
 <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Approved
 </span>
 
-@elseif($creative->review_status === 'PENDING_REVIEW')
+@elseif($review === 'PENDING_REVIEW' || empty($review))
 
 <span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Pending
-</span>
-
-@elseif($creative->review_status === 'DISAPPROVED')
-
-<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
-Rejected
 </span>
 
 @else
@@ -236,7 +239,7 @@ Draft
 @endif
 
 
-{{-- Meta rejection feedback --}}
+{{-- ================= META REJECTION FEEDBACK ================= --}}
 @if(!empty($creative->review_feedback))
 
 <div class="text-xs text-red-600 mt-2 max-w-xs">
@@ -246,8 +249,6 @@ Draft
 @endif
 
 </td>
-
-
 
 {{-- ================= DELIVERY STATUS ================= --}}
 <td class="px-6 py-4">

@@ -136,17 +136,13 @@ public function index(): View
 
     public function store(Request $request): RedirectResponse
     {
-        $data = $request->validate([
-
-            'name' => 'required|string|max:255',
-
-            'adset_id' => 'required|exists:ad_sets,id',
-
-           'creative_id' => 'required|exists:creatives,meta_id',
-
-            'status' => 'required|in:ACTIVE,PAUSED'
-
-        ]);
+    $data = $request->validate([
+'name' => 'required|string|max:255',
+'adset_id' => 'required|exists:ad_sets,id',
+'creative_id' => 'required|exists:creatives,id',
+'daily_budget' => 'required|numeric|min:0.10',
+'status' => 'required|in:ACTIVE,PAUSED'
+]);
 
         DB::beginTransaction();
 
@@ -389,8 +385,7 @@ $ad = Ad::create([
         ]);
     }
 
-
-   /*
+/*
 |--------------------------------------------------------------------------
 | UPDATE STATUS
 |--------------------------------------------------------------------------
@@ -404,9 +399,8 @@ public function updateStatus(Request $request, Ad $ad): RedirectResponse
 
     try {
 
-        // Sync status to Meta if ad exists there
+        // Sync status with Meta if ad exists there
         if ($ad->meta_ad_id) {
-
             $this->meta->updateAd(
                 $ad->meta_ad_id,
                 [
@@ -422,15 +416,18 @@ public function updateStatus(Request $request, Ad $ad): RedirectResponse
             $pauseReason = 'manual';
         }
 
-        // Update local record
-        $ad->update([
-            'status' => $data['status'],
-            'pause_reason' => $pauseReason
-        ]);
+        // Update local database
+       $ad->update([
+'name' => $data['name'],
+'adset_id' => $data['adset_id'],
+'creative_id' => $data['creative_id'],
+'daily_budget' => $data['daily_budget'],
+'status' => $data['status']
+]);
 
         return back()->with('success', 'Ad status updated.');
 
-    } catch (Throwable $e) {
+    } catch (\Throwable $e) {
 
         Log::error('AD_STATUS_UPDATE_FAILED', [
             'ad_id' => $ad->id,

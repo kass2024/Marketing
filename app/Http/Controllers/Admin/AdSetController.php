@@ -238,32 +238,36 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $payload = [
+        $payload = [
 
-                'name' => $data['name'],
+    // AdSet name
+    'name' => $data['name'],
 
-                'campaign_id' => $campaign->meta_id,
+    // Meta Campaign ID
+    'campaign_id' => $campaign->meta_id,
 
-                'daily_budget' => (int)$data['daily_budget'] * 100,
+    // Meta requires budget in cents
+    'daily_budget' => (int) ($data['daily_budget'] * 100),
 
-                'billing_event' => $billingEvent,
+    // Optimization / billing
+    'billing_event' => $billingEvent,
+    'optimization_goal' => $optimizationGoal,
+    'bid_strategy' => $data['bid_strategy'],
 
-                'optimization_goal' => $optimizationGoal,
+    // Always create paused for safety
+    'status' => 'PAUSED',
 
-                'bid_strategy' => $data['bid_strategy'],
+    // Meta requires UNIX timestamp
+    'start_time' => now()->addMinutes(5)->timestamp,
 
-                'status' => 'PAUSED',
+    // Required for conversion / page ads
+    'promoted_object' => [
+        'page_id' => $data['page_id']
+    ],
 
-                // IMPORTANT: must be timestamp
-                'start_time' => now()->addMinutes(5)->timestamp,
-
-                'promoted_object' => [
-                    'page_id' => $data['page_id']
-                ],
-
-                // DO NOT JSON encode here
-                'targeting' => $targeting
-            ];
+    // Targeting array (do NOT json_encode)
+    'targeting' => $targeting
+];
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 

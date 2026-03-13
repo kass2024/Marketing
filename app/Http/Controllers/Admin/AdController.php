@@ -136,7 +136,7 @@ public function index(): View
 
             'adset_id' => 'required|exists:ad_sets,id',
 
-            'creative_id' => 'required|exists:creatives,id',
+           'creative_id' => 'required|exists:creatives,meta_id',
 
             'status' => 'required|in:ACTIVE,PAUSED'
 
@@ -155,7 +155,7 @@ public function index(): View
             $adset = AdSet::with('campaign.adAccount')
                 ->findOrFail($data['adset_id']);
 
-            $creative = Creative::findOrFail($data['creative_id']);
+           $creative = Creative::where('meta_id',$data['creative_id'])->firstOrFail();
 
             $campaign = $adset->campaign;
 

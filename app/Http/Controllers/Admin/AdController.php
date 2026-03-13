@@ -209,36 +209,54 @@ public function index(): View
             }
 
 
-            /*
-            |--------------------------------------------------------------------------
-            | META PAYLOAD
-            |--------------------------------------------------------------------------
-            */
+          /*
+|--------------------------------------------------------------------------
+| META PAYLOAD
+|--------------------------------------------------------------------------
+|
+| Build the payload for Meta Ads API. The creative must be attached
+| using "id" (NOT creative_id) according to Meta Graph API specs.
+|
+*/
 
-            $payload = [
+$payload = [
 
-                'name' => $data['name'],
+    'name' => $data['name'],
 
-                'adset_id' => $adset->meta_id,
+    // Meta AdSet ID
+    'adset_id' => $adset->meta_id,
 
-                'creative' => [
-                    'creative_id' => $creative->meta_id
-                ],
+    // Attach existing creative
+    'creative' => [
+        'id' => $creative->meta_id
+    ],
 
-                'status' => $data['status']
+    // Delivery status
+    'status' => $data['status'] ?? 'PAUSED'
 
-            ];
-
-
-            Log::info('META_AD_CREATE_REQUEST', [
-
-                'account' => $accountId,
-
-                'payload' => $payload
-
-            ]);
+];
 
 
+/*
+|--------------------------------------------------------------------------
+| LOG META REQUEST
+|--------------------------------------------------------------------------
+|
+| Useful for debugging API calls and verifying payload correctness.
+|
+*/
+
+Log::info('META_AD_CREATE_REQUEST', [
+
+    'account_id' => $accountId,
+
+    'adset_meta_id' => $adset->meta_id,
+
+    'creative_meta_id' => $creative->meta_id,
+
+    'payload' => $payload
+
+]);
             /*
             |--------------------------------------------------------------------------
             | CREATE AD ON META

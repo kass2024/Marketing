@@ -4,6 +4,7 @@
 
 <div class="max-w-5xl mx-auto space-y-8">
 
+{{-- HEADER --}}
 <div class="flex items-center justify-between">
 
 <div>
@@ -24,6 +25,8 @@ class="text-gray-600 hover:text-gray-900">
 </div>
 
 
+
+{{-- ERRORS --}}
 @if($errors->any())
 <div class="bg-red-50 border-l-4 border-red-400 p-4 rounded">
 <ul class="text-sm text-red-700 space-y-1">
@@ -35,10 +38,10 @@ class="text-gray-600 hover:text-gray-900">
 @endif
 
 
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-
-{{-- FORM --}}
+{{-- ================= FORM ================= --}}
 <div class="bg-white rounded-xl shadow border p-6">
 
 <form method="POST" action="{{ route('admin.ads.store') }}">
@@ -56,10 +59,11 @@ Ad Name
 type="text"
 name="name"
 value="{{ old('name') }}"
-class="w-full border rounded-lg px-4 py-2"
+class="w-full border rounded-lg px-4 py-2 focus:ring focus:ring-blue-200"
 required>
 
 </div>
+
 
 
 {{-- ADSET --}}
@@ -76,11 +80,16 @@ required>
 
 @foreach($adsets as $adset)
 
-<option value="{{ $adset->id }}">
+<option
+value="{{ $adset->id }}"
+{{ old('adset_id') == $adset->id ? 'selected' : '' }}
+>
+
 {{ $adset->name }}
 @if($adset->campaign)
 — {{ $adset->campaign->name }}
 @endif
+
 </option>
 
 @endforeach
@@ -88,6 +97,7 @@ required>
 </select>
 
 </div>
+
 
 
 {{-- CREATIVE --}}
@@ -108,11 +118,11 @@ required>
 @foreach($creatives as $creative)
 
 <option
-value="{{ $creative->id }}"
+value="{{ $creative->meta_id }}"
 data-headline="{{ $creative->headline }}"
 data-body="{{ $creative->body }}"
 data-image="{{ $creative->image_url }}"
-data-meta="{{ $creative->meta_id }}"
+{{ old('creative_id') == $creative->meta_id ? 'selected' : '' }}
 >
 
 {{ $creative->name }}
@@ -126,6 +136,7 @@ data-meta="{{ $creative->meta_id }}"
 </div>
 
 
+
 {{-- STATUS --}}
 <div class="mb-6">
 
@@ -135,14 +146,21 @@ Status
 
 <select name="status" class="w-full border rounded-lg px-4 py-2">
 
-<option value="PAUSED">Paused</option>
-<option value="ACTIVE">Active</option>
+<option value="PAUSED" {{ old('status') == 'PAUSED' ? 'selected' : '' }}>
+Paused
+</option>
+
+<option value="ACTIVE" {{ old('status') == 'ACTIVE' ? 'selected' : '' }}>
+Active
+</option>
 
 </select>
 
 </div>
 
 
+
+{{-- ACTIONS --}}
 <div class="flex justify-between items-center">
 
 <a href="{{ route('admin.ads.index') }}"
@@ -152,7 +170,7 @@ Cancel
 
 <button
 type="submit"
-class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">
+class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition">
 
 Create Ad
 
@@ -160,49 +178,57 @@ Create Ad
 
 </div>
 
+
 </form>
 
 </div>
 
 
 
-{{-- PREVIEW --}}
+{{-- ================= PREVIEW ================= --}}
 <div class="bg-white rounded-xl shadow border p-6">
 
 <h3 class="font-semibold mb-4">
 Creative Preview
 </h3>
 
-<div id="creativePreview" class="space-y-4 text-gray-400 text-sm">
+<div id="creativePreview"
+class="text-gray-400 text-sm">
+
 Select a creative to preview
-</div>
 
 </div>
 
 </div>
 
+
+
+</div>
+
 </div>
 
 
 
+{{-- ================= PREVIEW SCRIPT ================= --}}
 <script>
 
-document.getElementById('creativeSelect').addEventListener('change', function(){
+const select = document.getElementById('creativeSelect');
+const preview = document.getElementById('creativePreview');
 
-let option = this.options[this.selectedIndex];
+function updatePreview(){
 
-let headline = option.dataset.headline;
-let body = option.dataset.body;
-let image = option.dataset.image;
+let option = select.options[select.selectedIndex];
 
-let container = document.getElementById('creativePreview');
+if(!option || !option.dataset.headline){
 
-if(!headline){
-
-container.innerHTML = 'No creative selected';
+preview.innerHTML = 'Select a creative to preview';
 return;
 
 }
+
+let headline = option.dataset.headline ?? '';
+let body = option.dataset.body ?? '';
+let image = option.dataset.image ?? '';
 
 let img = '';
 
@@ -212,7 +238,7 @@ img = `<img src="${image}" class="rounded-lg w-full mb-3">`;
 
 }
 
-container.innerHTML = `
+preview.innerHTML = `
 
 <div class="border rounded-xl overflow-hidden">
 
@@ -222,7 +248,7 @@ ${img}
 
 <h4 class="font-semibold mb-2">${headline}</h4>
 
-<p class="text-sm text-gray-600">${body ?? ''}</p>
+<p class="text-sm text-gray-600">${body}</p>
 
 </div>
 
@@ -230,7 +256,13 @@ ${img}
 
 `;
 
-});
+}
+
+select.addEventListener('change', updatePreview);
+
+
+// Load preview if old value exists
+window.addEventListener('load', updatePreview);
 
 </script>
 

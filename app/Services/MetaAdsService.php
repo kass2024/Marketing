@@ -482,18 +482,13 @@ public function createAdSet(string $accountId, array $data): array
         return $this->post("{$accountId}/adcreatives",$payload);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | ADS
-    |--------------------------------------------------------------------------
-    */
+  
 
    /*
 |--------------------------------------------------------------------------
 | CREATE AD
 |--------------------------------------------------------------------------
 */
-
 public function createAd(string $accountId, array $data): array
 {
     $accountId = $this->formatAccount($accountId);
@@ -512,8 +507,8 @@ public function createAd(string $accountId, array $data): array
         throw new Exception('adset_id is required');
     }
 
-    if (empty($data['creative']['creative_id'])) {
-        throw new Exception('creative_id is required');
+    if (empty($data['creative']['id'])) {
+        throw new Exception('creative id is required');
     }
 
     /*
@@ -530,15 +525,11 @@ public function createAd(string $accountId, array $data): array
 
         'status' => $data['status'] ?? 'PAUSED',
 
-        /*
-        |--------------------------------------------------------------------------
-        | IMPORTANT: Meta requires creative as JSON string
-        |--------------------------------------------------------------------------
-        */
+        // Meta requires creative as JSON string
+        'creative' => json_encode([
+            'id' => $data['creative']['id']
+        ])
 
-       'creative' => [
-    'creative_id' => $data['creative']['creative_id']
-]
     ];
 
     /*

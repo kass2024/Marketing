@@ -34,7 +34,7 @@ class Ad extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | Available Statuses
+    | Status List
     |--------------------------------------------------------------------------
     */
 
@@ -60,17 +60,15 @@ class Ad extends Model
         'adset_id',
         'creative_id',
 
-        // Meta
         'meta_ad_id',
 
-        // Basic
         'name',
         'status',
 
-        // Metrics
         'impressions',
         'clicks',
-        'spend'
+        'spend',
+        'ctr'
     ];
 
 
@@ -85,7 +83,8 @@ class Ad extends Model
         'status' => self::STATUS_PAUSED,
         'impressions' => 0,
         'clicks' => 0,
-        'spend' => 0
+        'spend' => 0,
+        'ctr' => 0
     ];
 
 
@@ -99,7 +98,8 @@ class Ad extends Model
 
         'impressions' => 'integer',
         'clicks' => 'integer',
-        'spend' => 'float'
+        'spend' => 'float',
+        'ctr' => 'float'
     ];
 
 
@@ -114,7 +114,7 @@ class Ad extends Model
      */
     public function adSet(): BelongsTo
     {
-        return $this->belongsTo(AdSet::class);
+        return $this->belongsTo(AdSet::class, 'adset_id', 'id');
     }
 
 
@@ -123,16 +123,16 @@ class Ad extends Model
      */
     public function creative(): BelongsTo
     {
-        return $this->belongsTo(Creative::class);
+        return $this->belongsTo(Creative::class, 'creative_id', 'id');
     }
 
 
     /**
-     * Access Campaign through AdSet
+     * Access campaign through adset
      */
     public function campaign()
     {
-        return $this->adSet ? $this->adSet->campaign : null;
+        return $this->adSet?->campaign;
     }
 
 
@@ -164,8 +164,12 @@ class Ad extends Model
     |--------------------------------------------------------------------------
     */
 
-    public function getCtrAttribute(): float
+    public function getCtrAttribute($value): float
     {
+        if ($value !== null) {
+            return (float) $value;
+        }
+
         if ($this->impressions <= 0) {
             return 0;
         }

@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-
 use App\Services\MetaAdsService;
 use App\Models\Ad;
 use App\Models\AdSet;
@@ -25,7 +24,7 @@ class SyncMetaAds extends Command
     |--------------------------------------------------------------------------
     */
 
-    protected $description = 'Synchronize Meta Ads performance, insights and enforce daily budgets';
+    protected $description = 'Synchronize Meta Ads metrics and enforce daily budgets';
 
     protected MetaAdsService $meta;
 
@@ -53,12 +52,6 @@ class SyncMetaAds extends Command
         Log::info('META_SYNC_STARTED');
 
         try {
-
-            /*
-            |--------------------------------------------------------------------------
-            | Fetch Ads From Meta
-            |--------------------------------------------------------------------------
-            */
 
             $response = $this->meta->getAds();
 
@@ -93,7 +86,9 @@ class SyncMetaAds extends Command
                     $adset = AdSet::where('meta_id', $metaAd['adset_id'])->first();
 
                     if ($adset) {
+
                         $localAdsetId = $adset->id;
+
                     } else {
 
                         Log::warning('META_ADSET_NOT_FOUND', [
@@ -104,11 +99,11 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Create / Update Local Ad
+                | Create or Update Local Ad
                 |--------------------------------------------------------------------------
                 */
 
-                $record = Ad::updateOrCreate(
+                $ad = Ad::updateOrCreate(
 
                     ['meta_ad_id' => $metaAdId],
 
@@ -142,32 +137,39 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Daily Spend Handling
+                | Today Spend Calculation
                 |--------------------------------------------------------------------------
                 */
 
                 $today = now()->toDateString();
 
-                if (!$record->spend_date || $record->spend_date !== $today) {
+                if (!$ad->spend_date || $ad->spend_date !== $today) {
 
-                    $record->daily_spend = $spend;
-                    $record->spend_date = $today;
-
-                } else {
-
-                    $record->daily_spend = $spend;
-
+                    // New day reset
+                    $ad->daily_spend = 0;
+                    $ad->spend_date = $today;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Enforce Daily Budget (Skip manual pauses)
+                | Today = today's spend (Meta daily)
+                |--------------------------------------------------------------------------
+                */
+
+                $todaySpend = $spend;
+
+                $ad->daily_spend = $todaySpend;
+
+                /*
+                |--------------------------------------------------------------------------
+                | Enforce Daily Budget
                 |--------------------------------------------------------------------------
                 */
 
                 if (
-                    $record->pause_reason !== 'manual' &&
-                    $record->daily_spend >= $record->daily_budget
+                    $ad->pause_reason !== 'manual' &&
+                    $ad->daily_budget &&
+                    $todaySpend >= $ad->daily_budget
                 ) {
 
                     $this->meta->updateAd(
@@ -175,66 +177,61 @@ class SyncMetaAds extends Command
                         ['status' => 'PAUSED']
                     );
 
-                    $record->status = 'PAUSED';
-                    $record->pause_reason = 'budget_limit';
+                    $ad->status = 'PAUSED';
+                    $ad->pause_reason = 'budget_limit';
 
                     Log::info('AD_AUTO_PAUSED_DAILY_BUDGET', [
 
                         'meta_ad_id' => $metaAdId,
-                        'daily_spend' => $record->daily_spend,
-                        'daily_budget' => $record->daily_budget
+                        'daily_spend' => $todaySpend,
+                        'daily_budget' => $ad->daily_budget
 
                     ]);
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Calculate CTR
+                | CTR Calculation
                 |--------------------------------------------------------------------------
                 */
 
-                $ctr = $impressions > 0
-                    ? round(($clicks / $impressions) * 100, 2)
-                    : 0;
+                $ctr = 0;
+
+                if ($impressions > 0) {
+                    $ctr = round(($clicks / $impressions) * 100, 2);
+                }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Update Local Metrics
+                | Update Metrics
                 |--------------------------------------------------------------------------
                 */
 
-                $record->update([
+                $ad->update([
 
-                    'status' => $record->status ?? ($metaAd['status'] ?? 'PAUSED'),
-
+                    'status' => $ad->status ?? ($metaAd['status'] ?? 'PAUSED'),
                     'impressions' => $impressions,
                     'clicks' => $clicks,
                     'spend' => $spend,
                     'ctr' => $ctr,
-
-                    'daily_spend' => $record->daily_spend,
-                    'spend_date' => $record->spend_date
+                    'daily_spend' => $todaySpend,
+                    'spend_date' => $today
 
                 ]);
 
                 Log::info('META_AD_SYNCED', [
 
                     'meta_ad_id' => $metaAdId,
-                    'name' => $record->name,
+                    'name' => $ad->name,
                     'impressions' => $impressions,
                     'clicks' => $clicks,
-                    'spend' => $spend
+                    'spend' => $spend,
+                    'today_spend' => $todaySpend
 
                 ]);
 
                 $count++;
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Sync Completed
-            |--------------------------------------------------------------------------
-            */
 
             $this->info("Synced {$count} ads.");
             Log::info('META_SYNC_COMPLETED', ['count' => $count]);

@@ -14,28 +14,44 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
 
-$schedule->command('meta:sync-ads')
-    ->everyFiveMinutes()
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->runInBackground()
-    ->name('meta-ads-sync')
-    ->appendOutputTo(storage_path('logs/meta-sync.log'));
+        /*
+        |--------------------------------------------------------------------------
+        | META ADS SYNC
+        |--------------------------------------------------------------------------
+        | Synchronizes Meta Ads insights, spend, and metrics.
+        | Updates dashboard data used by AJAX live refresh.
+        */
 
-$schedule->command('ads:reset-daily-budget')
-    ->dailyAt('00:01')
-    ->withoutOverlapping()
-    ->onOneServer()
-    ->runInBackground()
-    ->name('ads-budget-reset')
-    ->appendOutputTo(storage_path('logs/ad-reset.log'));
-    
-    /*
+        $schedule->command('meta:sync-ads')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground()
+            ->name('meta-ads-sync')
+            ->appendOutputTo(storage_path('logs/meta-sync.log'));
+
+
+        /*
         |--------------------------------------------------------------------------
-        | Messaging Automation
+        | DAILY BUDGET RESET
         |--------------------------------------------------------------------------
-        | WhatsApp / Messenger unread message reporting
-        | Runs every 5 minutes
+        | Resets "Today Spend" counters at midnight.
+        */
+
+        $schedule->command('ads:reset-daily-budget')
+            ->dailyAt('00:01')
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground()
+            ->name('ads-budget-reset')
+            ->appendOutputTo(storage_path('logs/ad-reset.log'));
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | MESSAGING AUTOMATION
+        |--------------------------------------------------------------------------
+        | WhatsApp / Messenger unread reporting.
         */
 
         $schedule->command('report:unread-messages')
@@ -49,9 +65,9 @@ $schedule->command('ads:reset-daily-budget')
 
         /*
         |--------------------------------------------------------------------------
-        | META MARKETING SYNC ENGINE
+        | META MARKETING ENGINE
         |--------------------------------------------------------------------------
-        | Unified Meta Ads synchronization engine
+        | Full Meta platform sync (campaigns, adsets, creatives, ads).
         */
 
         $schedule->command('meta:sync')
@@ -67,9 +83,7 @@ $schedule->command('ads:reset-daily-budget')
         |--------------------------------------------------------------------------
         | AGENT ESCALATION MONITOR
         |--------------------------------------------------------------------------
-        | Ensures human escalations are handled quickly
-        | If an assigned agent does not respond within the configured timeout,
-        | the conversation is automatically reassigned
+        | Ensures conversations are reassigned if agents do not respond.
         */
 
         $schedule->command('agents:monitor')
@@ -83,11 +97,9 @@ $schedule->command('ads:reset-daily-budget')
 
         /*
         |--------------------------------------------------------------------------
-        | WhatsApp Chatbot Queue Worker
+        | CHATBOT QUEUE WORKER
         |--------------------------------------------------------------------------
-        | Ensures fast processing of chatbot messages
-        | Equivalent to:
-        | php artisan queue:work --tries=3 --timeout=90
+        | Processes WhatsApp / Messenger chatbot jobs.
         */
 
         $schedule->command('queue:work --tries=3 --timeout=90')
@@ -100,9 +112,9 @@ $schedule->command('ads:reset-daily-budget')
 
         /*
         |--------------------------------------------------------------------------
-        | System Health Monitoring
+        | SYSTEM HEALTH HEARTBEAT
         |--------------------------------------------------------------------------
-        | Scheduler heartbeat to confirm cron is alive
+        | Confirms scheduler is running.
         */
 
         $schedule->call(function () {
@@ -117,16 +129,15 @@ $schedule->command('ads:reset-daily-budget')
         ->name('scheduler-heartbeat')
         ->withoutOverlapping();
 
-        
+
         /*
         |--------------------------------------------------------------------------
-        | Optional Future Jobs (Disabled)
+        | OPTIONAL FUTURE JOBS
         |--------------------------------------------------------------------------
         */
 
         // $schedule->command('report:daily-summary')
-        //     ->dailyAt('18:00')
-        //     ->withoutOverlapping();
+        //     ->dailyAt('18:00');
 
         // $schedule->command('queue:restart')
         //     ->dailyAt('02:00');

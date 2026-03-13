@@ -429,10 +429,9 @@ public function createAdSet(string $accountId, array $data): array
         $payload = [
 
             'name'=>$data['name'],
-
-            'object_story_spec'=>json_encode(
-                $data['object_story_spec']
-            )
+'object_story_spec' => json_encode(
+    array_filter($data['object_story_spec'])
+)
         ];
 
         Log::info('META_CREATIVE_PAYLOAD',$payload);
@@ -602,11 +601,11 @@ public function getAds(string $accountId): array
 | GET INSIGHTS
 |--------------------------------------------------------------------------
 */
-
 public function getInsights(string $objectId): array
 {
     return $this->get("{$objectId}/insights", [
-        'fields' => 'impressions,clicks,spend'
+        'fields' => 'impressions,clicks,spend,reach,ctr,cpm',
+        'date_preset' => 'lifetime'
     ]);
 }
 /*
@@ -614,19 +613,11 @@ public function getInsights(string $objectId): array
 | PULISH CREATIVE
 |--------------------------------------------------------------------------
 */
-public function getCreative($creativeId)
+public function getCreative(string $creativeId): array
 {
-    $token = $this->getAccessToken();
-
-    $response = Http::get(
-        "https://graph.facebook.com/v19.0/{$creativeId}",
-        [
-            'fields' => 'id,name,status,effective_status,review_feedback',
-            'access_token' => $token
-        ]
-    );
-
-    return $response->json();
+    return $this->get($creativeId, [
+        'fields' => 'id,name,status,effective_status,review_feedback'
+    ]);
 }
 /*
 |--------------------------------------------------------------------------
@@ -668,5 +659,12 @@ protected function getAccessToken(): string
 public function updateCreative(string $creativeId,array $data):array
 {
     return $this->post($creativeId,$data);
+}
+public function getCreativeInsights(string $creativeId): array
+{
+    return $this->get("{$creativeId}/insights", [
+        'fields' => 'impressions,clicks,spend,ctr',
+        'date_preset' => 'lifetime'
+    ]);
 }
 }

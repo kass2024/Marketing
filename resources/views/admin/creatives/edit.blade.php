@@ -2,15 +2,52 @@
 
 @section('content')
 
-<div class="max-w-7xl mx-auto py-10 grid grid-cols-1 lg:grid-cols-2 gap-10">
+<div class="max-w-7xl mx-auto py-10 space-y-8">
 
-{{-- FORM --}}
+{{-- HEADER --}}
+<div class="flex justify-between items-center">
+
+<div>
+<h1 class="text-2xl font-bold">Edit Creative</h1>
+<p class="text-gray-500 text-sm">
+Update your ad creative and preview changes.
+</p>
+</div>
+
+<a href="{{ route('admin.creatives.index') }}"
+class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
+Back
+</a>
+
+</div>
+
+
+{{-- ALERTS --}}
+@if(session('success'))
+<div class="bg-green-100 text-green-700 p-4 rounded-lg">
+{{ session('success') }}
+</div>
+@endif
+
+@if($errors->any())
+<div class="bg-red-100 text-red-700 p-4 rounded-lg">
+{{ $errors->first() }}
+</div>
+@endif
+
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
+
+
+{{-- =========================================
+FORM
+========================================= --}}
 <div>
 
 <div class="bg-white shadow rounded-2xl p-10">
 
-<h2 class="text-2xl font-bold mb-8">
-Edit Ad Creative
+<h2 class="text-xl font-bold mb-8">
+Creative Settings
 </h2>
 
 <form method="POST"
@@ -22,7 +59,7 @@ id="creativeForm">
 @method('PUT')
 
 
-{{-- CREATIVE NAME --}}
+{{-- NAME --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -57,7 +94,7 @@ oninput="updatePreview()">
 </div>
 
 
-{{-- PRIMARY TEXT --}}
+{{-- BODY --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -74,7 +111,7 @@ oninput="updatePreview()">{{ old('body',$creative->body) }}</textarea>
 </div>
 
 
-{{-- DESTINATION URL --}}
+{{-- DESTINATION --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -105,25 +142,11 @@ onchange="updatePreview()">
 
 <option value="">None</option>
 
-<option value="LEARN_MORE" @selected($creative->call_to_action=='LEARN_MORE')>
-Learn More
-</option>
-
-<option value="APPLY_NOW" @selected($creative->call_to_action=='APPLY_NOW')>
-Apply Now
-</option>
-
-<option value="SIGN_UP" @selected($creative->call_to_action=='SIGN_UP')>
-Sign Up
-</option>
-
-<option value="CONTACT_US" @selected($creative->call_to_action=='CONTACT_US')>
-Contact Us
-</option>
-
-<option value="DOWNLOAD" @selected($creative->call_to_action=='DOWNLOAD')>
-Download
-</option>
+<option value="LEARN_MORE" @selected($creative->call_to_action=='LEARN_MORE')>Learn More</option>
+<option value="APPLY_NOW" @selected($creative->call_to_action=='APPLY_NOW')>Apply Now</option>
+<option value="SIGN_UP" @selected($creative->call_to_action=='SIGN_UP')>Sign Up</option>
+<option value="CONTACT_US" @selected($creative->call_to_action=='CONTACT_US')>Contact Us</option>
+<option value="DOWNLOAD" @selected($creative->call_to_action=='DOWNLOAD')>Download</option>
 
 </select>
 
@@ -141,14 +164,14 @@ Current Image
 
 <img
 src="{{ $creative->image_url }}"
-class="rounded-xl w-60">
+class="rounded-xl w-72 shadow">
 
 </div>
 
 @endif
 
 
-{{-- NEW IMAGE --}}
+{{-- REPLACE IMAGE --}}
 <div class="mb-6">
 
 <label class="block font-semibold mb-2">
@@ -176,36 +199,44 @@ Status
 name="status"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="DRAFT" @selected($creative->status=='DRAFT')>
-Draft
-</option>
-
-<option value="ACTIVE" @selected($creative->status=='ACTIVE')>
-Active
-</option>
-
-<option value="PAUSED" @selected($creative->status=='PAUSED')>
-Paused
-</option>
+<option value="DRAFT" @selected($creative->status=='DRAFT')>Draft</option>
+<option value="ACTIVE" @selected($creative->status=='ACTIVE')>Active</option>
+<option value="PAUSED" @selected($creative->status=='PAUSED')>Paused</option>
 
 </select>
 
 </div>
 
 
-<div class="flex justify-between">
+{{-- META INFO --}}
+@if($creative->meta_id)
+
+<div class="mb-6 bg-gray-50 p-4 rounded-lg">
+
+<p class="text-sm text-gray-600">
+Meta Creative ID
+</p>
+
+<p class="font-semibold">
+{{ $creative->meta_id }}
+</p>
+
+</div>
+
+@endif
+
+
+<div class="flex justify-between items-center">
 
 <a
 href="{{ route('admin.creatives.index') }}"
-class="text-gray-600">
-
+class="text-gray-600 hover:underline">
 Cancel
-
 </a>
 
 <button
 type="submit"
-class="bg-blue-600 text-white px-6 py-3 rounded-xl">
+class="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700">
 
 Update Creative
 
@@ -220,36 +251,52 @@ Update Creative
 </div>
 
 
-{{-- PREVIEW --}}
+
+{{-- =========================================
+PREVIEW
+========================================= --}}
 <div>
 
 <div class="bg-white shadow rounded-2xl p-6">
 
 <h3 class="font-bold mb-6">
-Preview
+Ad Preview
 </h3>
 
 <img
 id="preview-image"
-src="{{ $creative->image_url }}"
+src="{{ $creative->image_url ?? '' }}"
 class="w-full rounded-xl mb-4">
 
-<div id="preview-text">
+<div id="preview-text" class="text-gray-700">
 {{ $creative->body }}
 </div>
 
-<div id="preview-headline"
-class="font-semibold mt-3">
+<div
+id="preview-headline"
+class="font-semibold mt-3 text-lg">
 
 {{ $creative->headline }}
 
 </div>
 
-</div>
+<button
+id="preview-cta"
+class="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm">
+
+{{ $creative->call_to_action ?? 'Learn More' }}
+
+</button>
 
 </div>
 
 </div>
+
+
+</div>
+
+</div>
+
 
 <script>
 
@@ -258,14 +305,13 @@ function previewImage(event){
 let reader = new FileReader();
 
 reader.onload = function(){
-
 document.getElementById('preview-image').src = reader.result;
-
 };
 
 reader.readAsDataURL(event.target.files[0]);
 
 }
+
 
 function updatePreview(){
 
@@ -274,6 +320,9 @@ document.getElementById('body').value;
 
 document.getElementById('preview-headline').innerText =
 document.getElementById('headline').value;
+
+document.getElementById('preview-cta').innerText =
+document.getElementById('cta').value.replace('_',' ');
 
 }
 

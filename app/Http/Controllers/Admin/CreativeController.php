@@ -271,8 +271,7 @@ class CreativeController extends Controller
                 'destination_url' => $data['destination_url'] ?? null,
 
                 'call_to_action' => $data['call_to_action'] ?? null,
-
-                'image_url' => $imagePath,
+'image_url' => Storage::url($imagePath),
 
                 'image_hash' => $imageHash,
 
@@ -424,12 +423,19 @@ public function sync($id)
 {
     try {
 
+        /*
+        |--------------------------------------------------------------------------
+        | Find Creative
+        |--------------------------------------------------------------------------
+        */
+
         $creative = Creative::findOrFail($id);
 
         if (!$creative->meta_id) {
-            return back()->withErrors([
-                'meta' => 'Creative not synced with Meta.'
-            ]);
+
+            return redirect()
+                ->back()
+                ->with('error', 'Creative is not connected to Meta.');
         }
 
         /*
@@ -440,30 +446,44 @@ public function sync($id)
 
         $meta = $this->meta->getCreative($creative->meta_id);
 
+        if (!$meta || isset($meta['error'])) {
+
+            Log::error('META_CREATIVE_SYNC_ERROR', [
+                'creative_id' => $creative->id,
+                'meta_response' => $meta
+            ]);
+
+            return redirect()
+                ->back()
+                ->with('error', 'Meta sync failed. Unable to fetch creative.');
+        }
+
         Log::info('META_CREATIVE_SYNC_RESPONSE', [
             'creative_id' => $creative->id,
+            'meta_id' => $creative->meta_id,
             'meta_response' => $meta
         ]);
 
         /*
         |--------------------------------------------------------------------------
-        | Extract Meta Fields Safely
+        | Extract Status Fields Safely
         |--------------------------------------------------------------------------
         */
 
         $status = $meta['status'] ?? $creative->status;
 
-        $effectiveStatus = $meta['effective_status'] ?? null;
+        $effectiveStatus = $meta['effective_status'] ?? $creative->effective_status;
 
         $reviewStatus = null;
 
         if (isset($meta['review_feedback']['approval_status'])) {
+
             $reviewStatus = $meta['review_feedback']['approval_status'];
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Update Local Creative
+        | Update Local Database
         |--------------------------------------------------------------------------
         */
 
@@ -479,18 +499,28 @@ public function sync($id)
 
         ]);
 
-        return back()->with('success','Creative synced with Meta.');
+        /*
+        |--------------------------------------------------------------------------
+        | Success Response
+        |--------------------------------------------------------------------------
+        */
+
+        return redirect()
+            ->back()
+            ->with('success', 'Creative synced successfully with Meta.');
 
     } catch (\Throwable $e) {
 
         Log::error('CREATIVE_SYNC_FAILED', [
+
             'creative_id' => $id,
             'error' => $e->getMessage()
+
         ]);
 
-        return back()->withErrors([
-            'meta' => 'Unable to sync creative: '.$e->getMessage()
-        ]);
+        return redirect()
+            ->back()
+            ->with('error', 'Creative sync failed: ' . $e->getMessage());
     }
 }
 

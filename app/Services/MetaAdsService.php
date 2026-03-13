@@ -689,9 +689,11 @@ public function getInsights(string $objectId): array
 }
 /*
 |--------------------------------------------------------------------------
-| PULISH CREATIVE
+| GET CREATIVE
 |--------------------------------------------------------------------------
+| Fetch a single Meta Ad Creative with review information
 */
+
 public function getCreative(string $creativeId): array
 {
     return $this->get($creativeId, [
@@ -700,9 +702,21 @@ public function getCreative(string $creativeId): array
 
             'id',
             'name',
+
+            /*
+            |--------------------------------------------------------------
+            | Creative Status
+            |--------------------------------------------------------------
+            */
+
             'status',
-            'configured_status',
             'effective_status',
+
+            /*
+            |--------------------------------------------------------------
+            | Review Feedback (if available)
+            |--------------------------------------------------------------
+            */
 
             'ad_review_feedback'
 

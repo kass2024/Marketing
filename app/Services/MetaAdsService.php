@@ -617,7 +617,7 @@ public function getInsights(string $objectId): array
 {
     return $this->get("{$objectId}/insights", [
         'fields' => 'impressions,clicks,spend,reach,ctr,cpm',
-        'date_preset' => 'lifetime'
+        'date_preset' => 'maximum'
     ]);
 }
 /*

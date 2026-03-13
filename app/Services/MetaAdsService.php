@@ -634,7 +634,18 @@ public function getAds(string $accountId): array
     $accountId = $this->formatAccount($accountId);
 
     return $this->get("{$accountId}/ads", [
-        'fields' => 'id,name,adset_id,status'
+        'fields' => implode(',', [
+
+            'id',
+            'name',
+            'status',
+            'effective_status',
+
+            'creative{id,name}',
+
+            'ad_review_feedback'
+
+        ])
     ]);
 }
 
@@ -659,8 +670,21 @@ public function getAd(string $adId): array
 public function getInsights(string $objectId): array
 {
     return $this->get("{$objectId}/insights", [
-        'fields' => 'impressions,clicks,spend,reach,ctr,cpm',
-        'date_preset' => 'maximum'
+
+        'fields' => implode(',', [
+
+            'impressions',
+            'clicks',
+            'spend',
+            'reach',
+            'ctr',
+            'cpm',
+            'cpc',
+            'actions'
+
+        ]),
+
+        'date_preset' => 'lifetime'
     ]);
 }
 /*
@@ -672,26 +696,13 @@ public function getCreative(string $creativeId): array
 {
     return $this->get($creativeId, [
 
-        /*
-        |--------------------------------------------------------------------------
-        | Request Correct Review Fields From Meta
-        |--------------------------------------------------------------------------
-        */
-
         'fields' => implode(',', [
 
             'id',
             'name',
-
             'status',
             'configured_status',
             'effective_status',
-
-            /*
-            |--------------------------------------------------------------------------
-            | IMPORTANT: Creative Review Status
-            |--------------------------------------------------------------------------
-            */
 
             'ad_review_feedback'
 

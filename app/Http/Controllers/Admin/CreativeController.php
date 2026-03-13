@@ -422,22 +422,76 @@ class CreativeController extends Controller
     }
 public function sync($id)
 {
-    $creative = Creative::findOrFail($id);
+    try {
 
-    if(!$creative->meta_id){
-        return back()->with('error','Creative not synced with Meta');
+        $creative = Creative::findOrFail($id);
+
+        if (!$creative->meta_id) {
+            return back()->withErrors([
+                'meta' => 'Creative not synced with Meta.'
+            ]);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Fetch Creative From Meta
+        |--------------------------------------------------------------------------
+        */
+
+        $meta = $this->meta->getCreative($creative->meta_id);
+
+        Log::info('META_CREATIVE_SYNC_RESPONSE', [
+            'creative_id' => $creative->id,
+            'meta_response' => $meta
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Extract Meta Fields Safely
+        |--------------------------------------------------------------------------
+        */
+
+        $status = $meta['status'] ?? $creative->status;
+
+        $effectiveStatus = $meta['effective_status'] ?? null;
+
+        $reviewStatus = null;
+
+        if (isset($meta['review_feedback']['approval_status'])) {
+            $reviewStatus = $meta['review_feedback']['approval_status'];
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update Local Creative
+        |--------------------------------------------------------------------------
+        */
+
+        $creative->update([
+
+            'status' => $status,
+
+            'effective_status' => $effectiveStatus,
+
+            'review_status' => $reviewStatus,
+
+            'last_synced_at' => now()
+
+        ]);
+
+        return back()->with('success','Creative synced with Meta.');
+
+    } catch (\Throwable $e) {
+
+        Log::error('CREATIVE_SYNC_FAILED', [
+            'creative_id' => $id,
+            'error' => $e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'meta' => 'Unable to sync creative: '.$e->getMessage()
+        ]);
     }
-
-    $meta = app(MetaAdsService::class)->getCreative($creative->meta_id);
-
-    $creative->update([
-        'status' => $meta['status'] ?? $creative->status,
-        'effective_status' => $meta['effective_status'] ?? null,
-        'review_status' => $meta['review_feedback']['approval_status'] ?? null,
-        'last_synced_at' => now()
-    ]);
-
-    return back()->with('success','Creative synced with Meta');
 }
 
     /*
@@ -450,4 +504,81 @@ public function sync($id)
     {
         return view('admin.creatives.preview', compact('creative'));
     }
+    /*
+|--------------------------------------------------------------------------
+| ACTIVATE CREATIVE
+|--------------------------------------------------------------------------
+*/
+
+public function activate(Creative $creative)
+{
+    try {
+
+        if(!$creative->meta_id){
+            return back()->withErrors([
+                'meta' => 'Creative not synced with Meta.'
+            ]);
+        }
+
+        $this->meta->updateCreative(
+            $creative->meta_id,
+            ['status' => 'ACTIVE']
+        );
+
+        $creative->update([
+            'effective_status' => 'ACTIVE'
+        ]);
+
+        return back()->with('success','Creative activated.');
+
+    } catch(Throwable $e){
+
+        Log::error('CREATIVE_ACTIVATE_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'meta'=>'Unable to activate creative.'
+        ]);
+    }
+}
+/*
+|--------------------------------------------------------------------------
+| PAUSE CREATIVE
+|--------------------------------------------------------------------------
+*/
+
+public function pause(Creative $creative)
+{
+    try {
+
+        if(!$creative->meta_id){
+            return back()->withErrors([
+                'meta'=>'Creative not synced with Meta.'
+            ]);
+        }
+
+        $this->meta->updateCreative(
+            $creative->meta_id,
+            ['status'=>'PAUSED']
+        );
+
+        $creative->update([
+            'effective_status'=>'PAUSED'
+        ]);
+
+        return back()->with('success','Creative paused.');
+
+    } catch(Throwable $e){
+
+        Log::error('CREATIVE_PAUSE_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'meta'=>'Unable to pause creative.'
+        ]);
+    }
+}
+
 }

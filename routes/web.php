@@ -358,8 +358,7 @@ Route::middleware(['auth','verified','role:admin'])
         Route::get('adsets/{adset}/ads/create', 
             [AdController::class, 'createFromAdSet'])
             ->name('adsets.ads.create');
-Route::post('{ad}/sync', [AdController::class, 'sync'])
-    ->name('sync');
+
 
         /*
 |--------------------------------------------------------------------------
@@ -377,12 +376,17 @@ Route::prefix('creatives')->name('creatives.')->group(function () {
     Route::get('{creative}/preview', [CreativeController::class, 'preview'])
         ->name('preview');
 
-    // NEW ROUTE (Meta sync)
     Route::post('{creative}/sync', [CreativeController::class, 'sync'])
         ->name('sync');
 
-});
+    // ADD THESE
+    Route::patch('{creative}/activate', [CreativeController::class, 'activate'])
+        ->name('activate');
 
+    Route::patch('{creative}/pause', [CreativeController::class, 'pause'])
+        ->name('pause');
+
+});
         /*
         |--------------------------------------------------------------------------
         | META ADS MANAGER - Unified Interface

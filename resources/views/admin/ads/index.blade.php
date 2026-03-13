@@ -246,7 +246,6 @@ ${{ number_format($ad->spend ?? 0,2) }}
 </td>
 
 
-
 {{-- ACTIONS --}}
 <td class="px-6 py-4 text-right whitespace-nowrap">
 
@@ -266,7 +265,9 @@ Edit
 {{-- PUBLISH --}}
 @if($ad->status !== 'ACTIVE')
 
-<form method="POST" action="{{ route('admin.ads.activate',$ad) }}">
+<form method="POST"
+action="{{ route('admin.ads.activate',$ad) }}">
+
 @csrf
 @method('PATCH')
 
@@ -286,7 +287,9 @@ Publish
 {{-- PAUSE --}}
 @if($ad->status === 'ACTIVE')
 
-<form method="POST" action="{{ route('admin.ads.pause',$ad) }}">
+<form method="POST"
+action="{{ route('admin.ads.pause',$ad) }}">
+
 @csrf
 @method('PATCH')
 
@@ -303,7 +306,8 @@ Pause
 @endif
 
 
-<form method="POST" action="{{ route('admin.ads.sync',$ad) }}">
+<form method="POST"
+action="{{ route('admin.ads.sync',$ad) }}">
 @csrf
 
 <button class="text-gray-600 hover:text-gray-800">
@@ -313,7 +317,8 @@ Sync
 </form>
 
 
-<form method="POST" action="{{ route('admin.ads.duplicate',$ad) }}">
+<form method="POST"
+action="{{ route('admin.ads.duplicate',$ad) }}">
 @csrf
 
 <button class="text-purple-600 hover:text-purple-800">
@@ -323,7 +328,8 @@ Duplicate
 </form>
 
 
-<form method="POST" action="{{ route('admin.ads.destroy',$ad) }}">
+<form method="POST"
+action="{{ route('admin.ads.destroy',$ad) }}">
 @csrf
 @method('DELETE')
 

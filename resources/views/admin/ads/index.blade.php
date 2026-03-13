@@ -125,6 +125,9 @@ TABLE
 <th class="px-6 py-3 text-left">Clicks</th>
 <th class="px-6 py-3 text-left">CTR</th>
 <th class="px-6 py-3 text-left">Spend</th>
+<th class="px-6 py-3 text-left">Today</th>
+<th class="px-6 py-3 text-left">Budget</th>
+<th class="px-6 py-3 text-left">Reason</th>
 <th class="px-6 py-3 text-right">Actions</th>
 
 </tr>
@@ -271,7 +274,48 @@ $ctr = $ad->ctr ?? 0;
 
 </td>
 
+{{-- =========================================================
+TODAY SPEND
+========================================================= --}}
+<td class="px-6 py-4 text-blue-600 font-semibold">
+${{ number_format($ad->daily_spend ?? 0,2) }}
+</td>
 
+
+{{-- =========================================================
+DAILY BUDGET
+========================================================= --}}
+<td class="px-6 py-4 text-gray-700">
+${{ number_format($ad->daily_budget ?? 0,2) }}
+</td>
+
+
+{{-- =========================================================
+PAUSE REASON
+========================================================= --}}
+<td class="px-6 py-4">
+
+@if($ad->pause_reason == 'budget_limit')
+
+<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">
+Budget Limit
+</span>
+
+@elseif($ad->pause_reason == 'manual')
+
+<span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">
+Manual
+</span>
+
+@else
+
+<span class="text-gray-400 text-xs">
+—
+</span>
+
+@endif
+
+</td>
 {{-- =========================================================
 SPEND
 ========================================================= --}}
@@ -397,7 +441,7 @@ Delete
 
 <tr>
 
-<td colspan="9" class="text-center py-16 text-gray-400">
+<td colspan="12" class="text-center py-16 text-gray-400">
 
 <div class="flex flex-col items-center gap-4">
 

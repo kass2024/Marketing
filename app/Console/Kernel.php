@@ -14,7 +14,23 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
 
-        /*
+$schedule->command('meta:sync-ads')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground()
+    ->name('meta-ads-sync')
+    ->appendOutputTo(storage_path('logs/meta-sync.log'));
+
+$schedule->command('ads:reset-daily-budget')
+    ->dailyAt('00:01')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground()
+    ->name('ads-budget-reset')
+    ->appendOutputTo(storage_path('logs/ad-reset.log'));
+    
+    /*
         |--------------------------------------------------------------------------
         | Messaging Automation
         |--------------------------------------------------------------------------
@@ -101,7 +117,7 @@ class Kernel extends ConsoleKernel
         ->name('scheduler-heartbeat')
         ->withoutOverlapping();
 
-
+        
         /*
         |--------------------------------------------------------------------------
         | Optional Future Jobs (Disabled)

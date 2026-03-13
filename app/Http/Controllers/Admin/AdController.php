@@ -516,17 +516,65 @@ public function update(Request $request, Ad $ad): RedirectResponse
 }
 public function activate(Ad $ad): RedirectResponse
 {
-    return $this->updateStatus(
-        new Request(['status'=>'ACTIVE']),
-        $ad
-    );
+    try {
+
+        if ($ad->meta_ad_id) {
+
+            $this->meta->updateAd(
+                $ad->meta_ad_id,
+                ['status'=>'ACTIVE']
+            );
+
+        }
+
+        $ad->update([
+            'status'=>'ACTIVE',
+            'pause_reason'=>null
+        ]);
+
+        return back()->with('success','Ad activated.');
+
+    } catch(Throwable $e){
+
+        Log::error('AD_ACTIVATE_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'activate'=>'Failed to activate ad'
+        ]);
+    }
 }
 public function pause(Ad $ad): RedirectResponse
 {
-    return $this->updateStatus(
-        new Request(['status'=>'PAUSED']),
-        $ad
-    );
+    try {
+
+        if ($ad->meta_ad_id) {
+
+            $this->meta->updateAd(
+                $ad->meta_ad_id,
+                ['status' => 'PAUSED']
+            );
+
+        }
+
+        $ad->update([
+            'status' => 'PAUSED',
+            'pause_reason' => 'manual'
+        ]);
+
+        return back()->with('success','Ad paused manually.');
+
+    } catch(Throwable $e){
+
+        Log::error('AD_MANUAL_PAUSE_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'pause'=>'Failed to pause ad'
+        ]);
+    }
 }
 public function duplicate(Ad $ad): RedirectResponse
 {
@@ -586,6 +634,57 @@ public function sync(Ad $ad): RedirectResponse
             $spend = $row['spend'] ?? 0;
         }
 
+        $today = now()->toDateString();
+
+/*
+|--------------------------------------------------------------------------
+| Reset daily spend if new day
+|--------------------------------------------------------------------------
+*/
+
+if ($ad->spend_date !== $today) {
+
+    $ad->daily_spend = 0;
+
+    $ad->spend_date = $today;
+}
+
+/*
+|--------------------------------------------------------------------------
+| Calculate today's spend increment
+|--------------------------------------------------------------------------
+*/
+
+$spentToday = $spend - $ad->spend;
+
+if ($spentToday < 0) {
+    $spentToday = 0;
+}
+
+$ad->daily_spend += $spentToday;
+
+/*
+|--------------------------------------------------------------------------
+| Budget Guard
+|--------------------------------------------------------------------------
+*/
+
+if ($ad->daily_spend >= $ad->daily_budget) {
+
+    $this->meta->updateAd(
+        $ad->meta_ad_id,
+        ['status' => 'PAUSED']
+    );
+
+ $ad->status = 'PAUSED';
+$ad->pause_reason = 'budget_limit';
+
+    Log::info('AD_AUTO_PAUSED_BUDGET_LIMIT', [
+        'ad_id' => $ad->id,
+        'daily_spend' => $ad->daily_spend
+    ]);
+}
+
         $ctr = $impressions > 0
             ? ($clicks / $impressions) * 100
             : 0;
@@ -596,19 +695,25 @@ public function sync(Ad $ad): RedirectResponse
         |----------------------------------------
         */
 
-        $ad->update([
+$ad->update([
 
-            'status' => $metaAd['status'] ?? $ad->status,
+    'status' => $ad->status ?? ($metaAd['status'] ?? $ad->status),
 
-            'impressions' => $impressions,
+    'pause_reason' => $ad->pause_reason,
 
-            'clicks' => $clicks,
+    'impressions' => $impressions,
 
-            'spend' => $spend,
+    'clicks' => $clicks,
 
-            'ctr' => $ctr
+    'spend' => $spend,
 
-        ]);
+    'ctr' => $ctr,
+
+    'daily_spend' => $ad->daily_spend,
+
+    'spend_date' => $ad->spend_date
+
+]);
 
         return back()->with('success','Ad synced with Meta.');
 

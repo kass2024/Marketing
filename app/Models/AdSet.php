@@ -26,45 +26,49 @@ class AdSet extends Model
     |--------------------------------------------------------------------------
     */
 
-    const STATUS_ACTIVE = 'ACTIVE';
-    const STATUS_PAUSED = 'PAUSED';
-    const STATUS_DRAFT  = 'DRAFT';
+    const STATUS_ACTIVE   = 'ACTIVE';
+    const STATUS_PAUSED   = 'PAUSED';
+    const STATUS_DRAFT    = 'DRAFT';
     const STATUS_ARCHIVED = 'ARCHIVED';
 
 
     /*
     |--------------------------------------------------------------------------
-    | Mass Assignment
+    | Mass Assignment (Editable via UI)
     |--------------------------------------------------------------------------
     */
 
     protected $fillable = [
+
+        /* Relations */
         'campaign_id',
 
-        // Meta identifiers
+        /* Meta identifiers */
         'meta_id',
 
-        // basic info
+        /* Basic Info */
         'name',
         'status',
 
-        // budget & bidding
+        /* Budget */
         'daily_budget',
+
+        /* Bidding */
         'bid_strategy',
         'bid_amount',
 
-        // optimization
+        /* Optimization */
         'optimization_goal',
         'billing_event',
 
-        // targeting JSON
+        /* Targeting */
         'targeting',
 
-        // schedule
+        /* Schedule */
         'start_time',
         'end_time',
 
-        // cached metrics
+        /* Cached metrics */
         'impressions',
         'clicks',
         'spend'
@@ -82,14 +86,14 @@ class AdSet extends Model
         'targeting' => 'array',
 
         'daily_budget' => 'float',
-        'bid_amount' => 'float',
+        'bid_amount'   => 'float',
 
-        'impressions' => 'integer',
-        'clicks' => 'integer',
-        'spend' => 'float',
+        'impressions'  => 'integer',
+        'clicks'       => 'integer',
+        'spend'        => 'float',
 
-        'start_time' => 'datetime',
-        'end_time' => 'datetime'
+        'start_time'   => 'datetime',
+        'end_time'     => 'datetime'
     ];
 
 
@@ -99,18 +103,11 @@ class AdSet extends Model
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Campaign this AdSet belongs to
-     */
     public function campaign(): BelongsTo
     {
         return $this->belongsTo(Campaign::class);
     }
 
-
-    /**
-     * Ads inside this AdSet
-     */
     public function ads(): HasMany
     {
         return $this->hasMany(Ad::class);
@@ -141,14 +138,14 @@ class AdSet extends Model
     public function scopeRunning($query)
     {
         return $query->where('status', self::STATUS_ACTIVE)
-                     ->where(function ($q) {
-                         $q->whereNull('start_time')
-                           ->orWhere('start_time', '<=', now());
-                     })
-                     ->where(function ($q) {
-                         $q->whereNull('end_time')
-                           ->orWhere('end_time', '>=', now());
-                     });
+            ->where(function ($q) {
+                $q->whereNull('start_time')
+                  ->orWhere('start_time', '<=', now());
+            })
+            ->where(function ($q) {
+                $q->whereNull('end_time')
+                  ->orWhere('end_time', '>=', now());
+            });
     }
 
 
@@ -158,18 +155,11 @@ class AdSet extends Model
     |--------------------------------------------------------------------------
     */
 
-    /**
-     * Format budget
-     */
     public function getBudgetFormattedAttribute(): string
     {
-        return '$' . number_format($this->daily_budget, 2);
+        return '$'.number_format($this->daily_budget,2);
     }
 
-
-    /**
-     * Click Through Rate
-     */
     public function getCtrAttribute(): float
     {
         if ($this->impressions == 0) {
@@ -179,10 +169,6 @@ class AdSet extends Model
         return round(($this->clicks / $this->impressions) * 100, 2);
     }
 
-
-    /**
-     * Cost Per Click
-     */
     public function getCpcAttribute(): float
     {
         if ($this->clicks == 0) {
@@ -192,10 +178,6 @@ class AdSet extends Model
         return round($this->spend / $this->clicks, 2);
     }
 
-
-    /**
-     * Cost Per 1000 impressions
-     */
     public function getCpmAttribute(): float
     {
         if ($this->impressions == 0) {

@@ -233,53 +233,113 @@ Inactive
 {{ optional($creative->created_at)->format('d M Y') }}
 
 </td>
+{{-- =========================================================
+ACTIONS
+========================================================= --}}
+<td class="px-6 py-4 text-right whitespace-nowrap">
 
+<div class="flex items-center justify-end gap-3">
 
-
-{{-- ACTIONS --}}
-<td class="px-6 py-4 text-right space-x-3 whitespace-nowrap">
-
+{{-- PREVIEW --}}
 <a
 href="{{ route('admin.creatives.preview',$creative->id) }}"
-class="text-indigo-600 hover:text-indigo-800">
+class="text-indigo-600 hover:text-indigo-800 font-medium">
 Preview
 </a>
 
+
+{{-- EDIT --}}
 <a
 href="{{ route('admin.creatives.edit',$creative->id) }}"
-class="text-blue-600 hover:text-blue-800">
+class="text-blue-600 hover:text-blue-800 font-medium">
 Edit
 </a>
 
 
+{{-- ACTIVATE --}}
+@if(empty($creative->effective_status) || $creative->effective_status !== 'ACTIVE')
+
 <form
 method="POST"
-action="{{ route('admin.creatives.sync',$creative->id) }}"
-class="inline">
+action="{{ route('admin.creatives.activate',$creative->id) }}">
+
+@csrf
+@method('PATCH')
+
+<button
+type="submit"
+class="text-green-600 hover:text-green-800 font-medium">
+
+Activate
+
+</button>
+
+</form>
+
+@endif
+
+
+{{-- PAUSE --}}
+@if($creative->effective_status === 'ACTIVE')
+
+<form
+method="POST"
+action="{{ route('admin.creatives.pause',$creative->id) }}">
+
+@csrf
+@method('PATCH')
+
+<button
+type="submit"
+class="text-yellow-600 hover:text-yellow-800 font-medium">
+
+Pause
+
+</button>
+
+</form>
+
+@endif
+
+
+{{-- SYNC META --}}
+<form
+method="POST"
+action="{{ route('admin.creatives.sync',$creative->id) }}">
 
 @csrf
 
-<button class="text-purple-600 hover:text-purple-800">
+<button
+type="submit"
+class="text-purple-600 hover:text-purple-800 font-medium">
+
 Sync
+
 </button>
 
 </form>
 
 
+{{-- DELETE --}}
 <form
 method="POST"
 action="{{ route('admin.creatives.destroy',$creative->id) }}"
-class="inline"
 onsubmit="return confirm('Delete creative?');">
 
 @csrf
 @method('DELETE')
 
-<button class="text-red-600 hover:text-red-800">
+<button
+type="submit"
+class="text-red-600 hover:text-red-800 font-medium">
+
 Delete
+
 </button>
 
 </form>
+
+</div>
 
 </td>
 
@@ -291,7 +351,21 @@ Delete
 
 <td colspan="7" class="text-center py-16 text-gray-400">
 
+<div class="flex flex-col items-center gap-3">
+
+<div class="text-lg font-medium">
 No creatives yet
+</div>
+
+<a
+href="{{ route('admin.creatives.create') }}"
+class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+
+Create First Creative
+
+</a>
+
+</div>
 
 </td>
 
@@ -304,7 +378,6 @@ No creatives yet
 </table>
 
 </div>
-
 
 {{-- PAGINATION --}}
 @if(method_exists($creatives,'links'))

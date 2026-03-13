@@ -4,6 +4,21 @@
 
 <div class="max-w-7xl mx-auto py-10 space-y-8">
 
+@if($errors->any())
+<div class="bg-red-100 border border-red-200 text-red-700 p-4 rounded-lg">
+
+<ul class="list-disc pl-5 space-y-1">
+
+@foreach($errors->all() as $error)
+<li>{{ $error }}</li>
+@endforeach
+
+</ul>
+
+</div>
+@endif
+<div class="max-w-7xl mx-auto py-10 space-y-8">
+
 {{-- =========================================================
 HEADER
 ========================================================= --}}

@@ -459,6 +459,11 @@ public function duplicate(Ad $ad): RedirectResponse
 
     $copy->meta_ad_id = null;
 
+    $copy->impressions = 0;
+    $copy->clicks = 0;
+    $copy->spend = 0;
+    $copy->ctr = 0;
+
     $copy->status = 'PAUSED';
 
     $copy->save();
@@ -475,10 +480,57 @@ public function sync(Ad $ad): RedirectResponse
 
     try {
 
-        $meta = $this->meta->getAd($ad->meta_ad_id);
+        /*
+        |----------------------------------------
+        | Fetch Ad
+        |----------------------------------------
+        */
+
+        $metaAd = $this->meta->getAd($ad->meta_ad_id);
+
+        /*
+        |----------------------------------------
+        | Fetch Insights
+        |----------------------------------------
+        */
+
+        $insights = $this->meta->getInsights($ad->meta_ad_id);
+
+        $impressions = 0;
+        $clicks = 0;
+        $spend = 0;
+
+        if(isset($insights['data'][0])){
+
+            $row = $insights['data'][0];
+
+            $impressions = $row['impressions'] ?? 0;
+            $clicks = $row['clicks'] ?? 0;
+            $spend = $row['spend'] ?? 0;
+        }
+
+        $ctr = $impressions > 0
+            ? ($clicks / $impressions) * 100
+            : 0;
+
+        /*
+        |----------------------------------------
+        | Update Local Ad
+        |----------------------------------------
+        */
 
         $ad->update([
-            'status' => $meta['status'] ?? $ad->status
+
+            'status' => $metaAd['status'] ?? $ad->status,
+
+            'impressions' => $impressions,
+
+            'clicks' => $clicks,
+
+            'spend' => $spend,
+
+            'ctr' => $ctr
+
         ]);
 
         return back()->with('success','Ad synced with Meta.');
@@ -486,6 +538,10 @@ public function sync(Ad $ad): RedirectResponse
     }
 
     catch(Throwable $e){
+
+        Log::error('AD_SYNC_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
 
         return back()->withErrors([
             'sync'=>$e->getMessage()

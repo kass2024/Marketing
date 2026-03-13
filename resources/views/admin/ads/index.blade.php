@@ -2,7 +2,7 @@
 
 @section('content')
 
-<div class="max-w-7xl mx-auto space-y-8">
+<div class="max-w-7xl mx-auto py-10 space-y-8">
 
 {{-- HEADER --}}
 <div class="flex items-center justify-between flex-wrap gap-4">
@@ -12,14 +12,14 @@
 Ads Manager
 </h1>
 
-<p class="text-sm text-gray-500 mt-1">
-Manage ads, creatives and delivery performance.
+<p class="text-sm text-gray-500">
+Create, publish and monitor ad delivery performance.
 </p>
 </div>
 
 <a
 href="{{ route('admin.ads.create') }}"
-class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition">
+class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700">
 
 <span class="text-lg">＋</span>
 <span>Create Ad</span>
@@ -29,48 +29,51 @@ class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-l
 </div>
 
 
+{{-- ALERTS --}}
+@if(session('success'))
+<div class="bg-green-100 text-green-700 p-4 rounded-lg">
+{{ session('success') }}
+</div>
+@endif
+
+@if(session('error'))
+<div class="bg-red-100 text-red-700 p-4 rounded-lg">
+{{ session('error') }}
+</div>
+@endif
+
+
 
 {{-- METRICS --}}
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
-<div class="bg-white p-5 rounded-xl shadow border">
+<div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Ads</p>
-<p class="text-xl font-bold">{{ $ads->total() }}</p>
+<p class="text-2xl font-bold">{{ $ads->total() }}</p>
 </div>
 
-<div class="bg-white p-5 rounded-xl shadow border">
+<div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Active Ads</p>
-<p class="text-xl font-bold text-green-600">
+<p class="text-2xl font-bold text-green-600">
 {{ $ads->getCollection()->where('status','ACTIVE')->count() }}
 </p>
 </div>
 
-<div class="bg-white p-5 rounded-xl shadow border">
+<div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Spend</p>
-<p class="text-xl font-bold text-blue-600">
+<p class="text-2xl font-bold text-blue-600">
 ${{ number_format($ads->getCollection()->sum('spend'),2) }}
 </p>
 </div>
 
-<div class="bg-white p-5 rounded-xl shadow border">
+<div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Clicks</p>
-<p class="text-xl font-bold text-purple-600">
+<p class="text-2xl font-bold text-purple-600">
 {{ number_format($ads->getCollection()->sum('clicks')) }}
 </p>
 </div>
 
 </div>
-
-
-
-{{-- SUCCESS MESSAGE --}}
-@if(session('success'))
-
-<div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-{{ session('success') }}
-</div>
-
-@endif
 
 
 
@@ -86,7 +89,7 @@ ${{ number_format($ads->getCollection()->sum('spend'),2) }}
 <th class="px-6 py-3 text-left">Ad</th>
 <th class="px-6 py-3 text-left">Creative</th>
 <th class="px-6 py-3 text-left">AdSet</th>
-<th class="px-6 py-3 text-left">Status</th>
+<th class="px-6 py-3 text-left">Delivery</th>
 <th class="px-6 py-3 text-left">Impressions</th>
 <th class="px-6 py-3 text-left">Clicks</th>
 <th class="px-6 py-3 text-left">CTR</th>
@@ -103,9 +106,9 @@ ${{ number_format($ads->getCollection()->sum('spend'),2) }}
 
 @forelse($ads as $ad)
 
-<tr class="hover:bg-gray-50 transition">
+<tr class="hover:bg-gray-50">
 
-{{-- AD NAME --}}
+{{-- AD --}}
 <td class="px-6 py-4">
 
 <div class="font-medium text-gray-900">
@@ -132,30 +135,16 @@ Meta ID: {{ $ad->meta_ad_id }}
 @if($ad->creative->image_url)
 
 <img
-src="{{ asset('storage/'.$ad->creative->image_url) }}"
+src="{{ $ad->creative->image_url }}"
 class="w-10 h-10 rounded object-cover border">
-
-@else
-
-<div class="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-400">
-No Img
-</div>
 
 @endif
 
-<div>
-
-<div class="font-medium text-gray-800 text-sm">
+<div class="text-sm font-medium">
 {{ $ad->creative->name }}
 </div>
 
 </div>
-
-</div>
-
-@else
-
-<span class="text-gray-400">No Creative</span>
 
 @endif
 
@@ -165,9 +154,7 @@ No Img
 
 {{-- ADSET --}}
 <td class="px-6 py-4">
-
 {{ $ad->adSet?->name ?? '-' }}
-
 </td>
 
 
@@ -175,44 +162,31 @@ No Img
 {{-- STATUS --}}
 <td class="px-6 py-4">
 
-@switch($ad->status)
-
-@case('ACTIVE')
-<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
+@if($ad->status == 'ACTIVE')
+<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Active
 </span>
-@break
 
-@case('PAUSED')
-<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
+@elseif($ad->status == 'PAUSED')
+<span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Paused
 </span>
-@break
 
-@case('PENDING_REVIEW')
-<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">
+@elseif($ad->status == 'PENDING_REVIEW')
+<span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
 In Review
 </span>
-@break
 
-@case('DISAPPROVED')
-<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">
+@elseif($ad->status == 'DISAPPROVED')
+<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
 Disapproved
 </span>
-@break
 
-@case('ARCHIVED')
-<span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">
-Archived
-</span>
-@break
-
-@default
-<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
+@else
+<span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
 Draft
 </span>
-
-@endswitch
+@endif
 
 </td>
 
@@ -220,42 +194,59 @@ Draft
 
 {{-- IMPRESSIONS --}}
 <td class="px-6 py-4">
-{{ number_format($ad->impressions) }}
+{{ number_format($ad->impressions ?? 0) }}
 </td>
 
 
 
 {{-- CLICKS --}}
 <td class="px-6 py-4">
-{{ number_format($ad->clicks) }}
+{{ number_format($ad->clicks ?? 0) }}
 </td>
 
 
 
 {{-- CTR --}}
 <td class="px-6 py-4">
-{{ number_format($ad->ctr,2) }}%
+
+@php
+$ctr = $ad->ctr ?? 0;
+@endphp
+
+<span class="
+@if($ctr > 3) text-green-600
+@elseif($ctr > 1) text-yellow-600
+@else text-gray-600
+@endif
+font-semibold">
+
+{{ number_format($ctr,2) }}%
+
+</span>
+
 </td>
 
 
 
 {{-- SPEND --}}
-<td class="px-6 py-4 font-medium text-gray-800">
-${{ number_format($ad->spend,2) }}
+<td class="px-6 py-4 font-semibold text-gray-800">
+${{ number_format($ad->spend ?? 0,2) }}
 </td>
 
 
 
 {{-- ACTIONS --}}
-<td class="px-6 py-4 text-right whitespace-nowrap">
+<td class="px-6 py-4 text-right">
 
 <div class="flex justify-end gap-3 text-sm">
+
 
 <a
 href="{{ route('admin.ads.preview',$ad) }}"
 class="text-indigo-600 hover:text-indigo-800">
 Preview
 </a>
+
 
 <a
 href="{{ route('admin.ads.edit',$ad) }}"
@@ -264,7 +255,7 @@ Edit
 </a>
 
 
-@if($ad->status === 'DRAFT')
+@if($ad->status === 'DRAFT' || $ad->status === 'PAUSED')
 
 <form method="POST"
 action="{{ route('admin.ads.activate',$ad) }}">
@@ -272,7 +263,7 @@ action="{{ route('admin.ads.activate',$ad) }}">
 @csrf
 @method('PATCH')
 
-<button class="text-green-600 hover:text-green-800">
+<button class="text-green-600 hover:text-green-800 font-medium">
 Publish
 </button>
 
@@ -289,7 +280,7 @@ action="{{ route('admin.ads.pause',$ad) }}">
 @csrf
 @method('PATCH')
 
-<button class="text-yellow-600 hover:text-yellow-800">
+<button class="text-yellow-600 hover:text-yellow-800 font-medium">
 Pause
 </button>
 
@@ -299,24 +290,24 @@ Pause
 
 
 <form method="POST"
-action="{{ route('admin.ads.duplicate',$ad) }}">
-
-@csrf
-
-<button class="text-purple-600 hover:text-purple-800">
-Duplicate
-</button>
-
-</form>
-
-
-<form method="POST"
 action="{{ route('admin.ads.sync',$ad) }}">
 
 @csrf
 
 <button class="text-gray-600 hover:text-gray-800">
 Sync
+</button>
+
+</form>
+
+
+<form method="POST"
+action="{{ route('admin.ads.duplicate',$ad) }}">
+
+@csrf
+
+<button class="text-purple-600 hover:text-purple-800">
+Duplicate
 </button>
 
 </form>
@@ -338,6 +329,7 @@ Delete
 
 </form>
 
+
 </div>
 
 </td>
@@ -348,19 +340,23 @@ Delete
 
 <tr>
 
-<td colspan="9" class="text-center py-16">
+<td colspan="9" class="text-center py-20 text-gray-400">
 
-<div class="text-gray-400 text-lg mb-3">
-No ads found
-</div>
+<div class="flex flex-col items-center gap-4">
+
+<p class="text-lg">
+No ads created yet
+</p>
 
 <a
 href="{{ route('admin.ads.create') }}"
 class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700">
 
-Create First Ad
+Create Your First Ad
 
 </a>
+
+</div>
 
 </td>
 

@@ -628,27 +628,30 @@ public function getAdSets(string $accountId): array
 | GET ADS
 |--------------------------------------------------------------------------
 */
-
-public function getAds(string $accountId): array
+public function getAds(?string $accountId = null): array
 {
-    $accountId = $this->formatAccount($accountId);
+    $accountId = $accountId
+        ? $this->formatAccount($accountId)
+        : $this->defaultAccount;
 
     return $this->get("{$accountId}/ads", [
+
         'fields' => implode(',', [
 
             'id',
             'name',
             'status',
             'effective_status',
+            'adset_id',
 
             'creative{id,name}',
 
             'ad_review_feedback'
 
         ])
+
     ]);
 }
-
 
 /*
 |--------------------------------------------------------------------------

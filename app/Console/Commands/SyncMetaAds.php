@@ -4,8 +4,10 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+
 use App\Services\MetaAdsService;
 use App\Models\Ad;
+use App\Models\AdSet;
 
 class SyncMetaAds extends Command
 {
@@ -23,7 +25,7 @@ class SyncMetaAds extends Command
     |--------------------------------------------------------------------------
     */
 
-    protected $description = 'Sync Meta Ads, Insights and enforce daily budget';
+    protected $description = 'Synchronize Meta Ads performance, insights and enforce daily budgets';
 
     protected MetaAdsService $meta;
 
@@ -41,7 +43,7 @@ class SyncMetaAds extends Command
 
     /*
     |--------------------------------------------------------------------------
-    | Handle Command
+    | Main Handler
     |--------------------------------------------------------------------------
     */
 
@@ -51,6 +53,12 @@ class SyncMetaAds extends Command
         Log::info('META_SYNC_STARTED');
 
         try {
+
+            /*
+            |--------------------------------------------------------------------------
+            | Fetch Ads From Meta
+            |--------------------------------------------------------------------------
+            */
 
             $response = $this->meta->getAds();
 
@@ -66,27 +74,49 @@ class SyncMetaAds extends Command
 
             foreach ($response['data'] as $ad) {
 
-                $metaId = $ad['id'] ?? null;
+                $metaAdId = $ad['id'] ?? null;
 
-                if (!$metaId) {
+                if (!$metaAdId) {
                     continue;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Create or Update Local Ad
+                | Resolve Local AdSet ID
+                |--------------------------------------------------------------------------
+                */
+
+                $metaAdsetId = $ad['adset_id'] ?? null;
+                $localAdsetId = null;
+
+                if ($metaAdsetId) {
+
+                    $adset = AdSet::where('meta_id', $metaAdsetId)->first();
+
+                    if ($adset) {
+                        $localAdsetId = $adset->id;
+                    } else {
+
+                        Log::warning('META_ADSET_NOT_FOUND', [
+                            'meta_adset_id' => $metaAdsetId
+                        ]);
+                    }
+                }
+
+                /*
+                |--------------------------------------------------------------------------
+                | Create / Update Ad Record
                 |--------------------------------------------------------------------------
                 */
 
                 $record = Ad::updateOrCreate(
 
-                    ['meta_ad_id' => $metaId],
+                    ['meta_ad_id' => $metaAdId],
 
                     [
                         'name' => $ad['name'] ?? 'Unnamed Ad',
                         'status' => $ad['status'] ?? 'PAUSED',
-                        'adset_id' => $ad['adset_id'] ?? null,
-                        'creative_id' => $ad['creative']['id'] ?? null
+                        'adset_id' => $localAdsetId
                     ]
                 );
 
@@ -96,19 +126,19 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
-                $insights = $this->meta->getInsights($metaId);
+                $insights = $this->meta->getInsights($metaAdId);
 
                 $impressions = 0;
                 $clicks = 0;
                 $spend = 0;
 
-                if (isset($insights['data'][0])) {
+                if (!empty($insights['data'][0])) {
 
                     $row = $insights['data'][0];
 
-                    $impressions = $row['impressions'] ?? 0;
-                    $clicks = $row['clicks'] ?? 0;
-                    $spend = $row['spend'] ?? 0;
+                    $impressions = (int) ($row['impressions'] ?? 0);
+                    $clicks = (int) ($row['clicks'] ?? 0);
+                    $spend = (float) ($row['spend'] ?? 0);
                 }
 
                 /*
@@ -119,13 +149,13 @@ class SyncMetaAds extends Command
 
                 $today = now()->toDateString();
 
-                if ($record->spend_date !== $today) {
+                if (!$record->spend_date || $record->spend_date !== $today) {
 
                     $record->daily_spend = 0;
                     $record->spend_date = $today;
                 }
 
-                $spentToday = $spend - $record->spend;
+                $spentToday = $spend - ($record->spend ?? 0);
 
                 if ($spentToday < 0) {
                     $spentToday = 0;
@@ -133,10 +163,16 @@ class SyncMetaAds extends Command
 
                 $record->daily_spend += $spentToday;
 
+                /*
+                |--------------------------------------------------------------------------
+                | Enforce Daily Budget
+                |--------------------------------------------------------------------------
+                */
+
                 if ($record->daily_spend >= $record->daily_budget) {
 
                     $this->meta->updateAd(
-                        $metaId,
+                        $metaAdId,
                         ['status' => 'PAUSED']
                     );
 
@@ -144,7 +180,7 @@ class SyncMetaAds extends Command
 
                     Log::info('AD_AUTO_PAUSED_DAILY_BUDGET', [
 
-                        'meta_ad_id' => $metaId,
+                        'meta_ad_id' => $metaAdId,
                         'daily_spend' => $record->daily_spend,
                         'daily_budget' => $record->daily_budget
 
@@ -157,13 +193,15 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
-                $ctr = $impressions > 0
-                    ? ($clicks / $impressions) * 100
-                    : 0;
+                $ctr = 0;
+
+                if ($impressions > 0) {
+                    $ctr = ($clicks / $impressions) * 100;
+                }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Update Local Record
+                | Update Metrics
                 |--------------------------------------------------------------------------
                 */
 
@@ -177,7 +215,7 @@ class SyncMetaAds extends Command
 
                     'spend' => $spend,
 
-                    'ctr' => $ctr,
+                    'ctr' => round($ctr, 2),
 
                     'daily_spend' => $record->daily_spend,
 
@@ -187,17 +225,25 @@ class SyncMetaAds extends Command
 
                 Log::info('META_AD_SYNCED', [
 
-                    'meta_ad_id' => $metaId,
+                    'meta_ad_id' => $metaAdId,
                     'name' => $record->name,
-                    'spend' => $spend
+                    'spend' => $spend,
+                    'clicks' => $clicks,
+                    'impressions' => $impressions
 
                 ]);
 
                 $count++;
             }
 
+            /*
+            |--------------------------------------------------------------------------
+            | Sync Completed
+            |--------------------------------------------------------------------------
+            */
+
             $this->info("Synced {$count} ads.");
-            Log::info("META_SYNC_COMPLETED", ['count'=>$count]);
+            Log::info('META_SYNC_COMPLETED', ['count' => $count]);
 
             return Command::SUCCESS;
 
@@ -210,7 +256,7 @@ class SyncMetaAds extends Command
 
             ]);
 
-            $this->error('Meta Ads sync failed: '.$e->getMessage());
+            $this->error('Meta Ads sync failed: ' . $e->getMessage());
 
             return Command::FAILURE;
         }

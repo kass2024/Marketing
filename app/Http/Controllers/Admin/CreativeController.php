@@ -486,9 +486,9 @@ public function sync($id)
 
         if (!$reviewStatus) {
 
-            $ads = $this->meta->getAds(
-                config('services.meta.ad_account_id')
-            );
+         $ads = $this->meta->getAds(
+    config('services.meta.ad_account_id')
+);
 
             if (!empty($ads['data'])) {
 
@@ -499,10 +499,16 @@ public function sync($id)
                         $ad['creative']['id'] == $creative->meta_id
                     ) {
 
-                        $reviewStatus =
-                            $ad['effective_status'] === 'ACTIVE'
-                            ? 'APPROVED'
-                            : 'PENDING_REVIEW';
+                       $reviewStatus = match ($ad['effective_status']) {
+
+    'ACTIVE' => 'APPROVED',
+
+    'PAUSED' => 'APPROVED',
+
+    'DISAPPROVED' => 'DISAPPROVED',
+
+    default => 'PENDING_REVIEW'
+};
 
                         $effectiveStatus = $ad['effective_status'];
 

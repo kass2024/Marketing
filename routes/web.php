@@ -552,3 +552,5 @@ Route::delete('/admin/inbox/{conversation}/delete', [InboxController::class,'del
     Route::get('/admin/inbox/{conversation}/messages', [InboxController::class, 'fetchMessages'])
     ->name('admin.inbox.messages');
 require __DIR__.'/auth.php';
+Route::get('/admin/ads/live', [AdController::class,'live'])
+    ->name('admin.ads.live');

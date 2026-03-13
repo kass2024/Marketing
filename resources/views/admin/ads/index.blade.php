@@ -6,18 +6,14 @@
 
 @if($errors->any())
 <div class="bg-red-100 border border-red-200 text-red-700 p-4 rounded-lg">
-
 <ul class="list-disc pl-5 space-y-1">
-
 @foreach($errors->all() as $error)
 <li>{{ $error }}</li>
 @endforeach
-
 </ul>
-
 </div>
 @endif
-<div class="max-w-7xl mx-auto py-10 space-y-8">
+
 
 {{-- =========================================================
 HEADER
@@ -25,10 +21,7 @@ HEADER
 <div class="flex items-center justify-between flex-wrap gap-4">
 
 <div>
-<h1 class="text-2xl font-bold text-gray-900">
-Ads Manager
-</h1>
-
+<h1 class="text-2xl font-bold text-gray-900">Ads Manager</h1>
 <p class="text-sm text-gray-500">
 Create, publish and monitor ad delivery performance.
 </p>
@@ -36,23 +29,18 @@ Create, publish and monitor ad delivery performance.
 
 <div class="flex gap-3">
 
-<a
-href="{{ route('admin.dashboard') }}"
+<a href="{{ route('admin.dashboard') }}"
 class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
 Dashboard
 </a>
 
-<a
-href="{{ route('admin.ads.create') }}"
+<a href="{{ route('admin.ads.create') }}"
 class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700">
-
 <span>＋</span>
 <span>Create Ad</span>
-
 </a>
 
 </div>
-
 </div>
 
 
@@ -79,26 +67,28 @@ METRICS
 
 <div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Ads</p>
-<p class="text-2xl font-bold">{{ $ads->total() }}</p>
+<p class="text-2xl font-bold" id="metric-total-ads">
+{{ $ads->total() }}
+</p>
 </div>
 
 <div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Active Ads</p>
-<p class="text-2xl font-bold text-green-600">
+<p class="text-2xl font-bold text-green-600" id="metric-active-ads">
 {{ $ads->getCollection()->where('status','ACTIVE')->count() }}
 </p>
 </div>
 
 <div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Spend</p>
-<p class="text-2xl font-bold text-blue-600">
+<p class="text-2xl font-bold text-blue-600" id="metric-total-spend">
 ${{ number_format($ads->getCollection()->sum('spend'),2) }}
 </p>
 </div>
 
 <div class="bg-white p-6 rounded-xl shadow border">
 <p class="text-sm text-gray-500">Total Clicks</p>
-<p class="text-2xl font-bold text-purple-600">
+<p class="text-2xl font-bold text-purple-600" id="metric-total-clicks">
 {{ number_format($ads->getCollection()->sum('clicks')) }}
 </p>
 </div>
@@ -114,9 +104,7 @@ TABLE
 <table class="min-w-full text-sm">
 
 <thead class="bg-gray-50 text-gray-600">
-
 <tr>
-
 <th class="px-6 py-3 text-left">Ad</th>
 <th class="px-6 py-3 text-left">Creative</th>
 <th class="px-6 py-3 text-left">AdSet</th>
@@ -129,11 +117,8 @@ TABLE
 <th class="px-6 py-3 text-left">Budget</th>
 <th class="px-6 py-3 text-left">Reason</th>
 <th class="px-6 py-3 text-right">Actions</th>
-
 </tr>
-
 </thead>
-
 
 <tbody class="divide-y">
 
@@ -142,39 +127,26 @@ TABLE
 <tr class="hover:bg-gray-50 transition">
 
 
-{{-- =========================================================
-AD
-========================================================= --}}
+{{-- AD --}}
 <td class="px-6 py-4">
-
-<div class="font-medium text-gray-900">
-{{ $ad->name }}
-</div>
-
+<div class="font-medium text-gray-900">{{ $ad->name }}</div>
 @if($ad->meta_ad_id)
 <div class="text-xs text-gray-400 mt-1">
 Meta ID: {{ $ad->meta_ad_id }}
 </div>
 @endif
-
 </td>
 
 
-{{-- =========================================================
-CREATIVE
-========================================================= --}}
+{{-- CREATIVE --}}
 <td class="px-6 py-4">
 
 @if($ad->creative)
-
 <div class="flex items-center gap-3">
 
 @if($ad->creative->image_url)
-
-<img
-src="{{ $ad->creative->image_url }}"
+<img src="{{ $ad->creative->image_url }}"
 class="w-10 h-10 rounded object-cover border">
-
 @endif
 
 <div class="text-sm font-medium">
@@ -182,263 +154,184 @@ class="w-10 h-10 rounded object-cover border">
 </div>
 
 </div>
-
 @endif
 
 </td>
 
 
-{{-- =========================================================
-ADSET
-========================================================= --}}
+{{-- ADSET --}}
 <td class="px-6 py-4">
 {{ $ad->adSet?->name ?? '-' }}
 </td>
 
 
-{{-- =========================================================
-STATUS
-========================================================= --}}
-<td class="px-6 py-4">
+{{-- STATUS --}}
+<td class="px-6 py-4" id="status-{{ $ad->id }}">
 
 @switch($ad->status)
 
 @case('ACTIVE')
-<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">
-Active
-</span>
+<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">Active</span>
 @break
 
 @case('PAUSED')
-<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">
-Paused
-</span>
+<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">Paused</span>
 @break
 
 @case('PENDING_REVIEW')
-<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">
-In Review
-</span>
+<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">In Review</span>
 @break
 
 @case('DISAPPROVED')
-<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">
-Disapproved
-</span>
+<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">Disapproved</span>
 @break
 
 @default
-<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">
-Draft
-</span>
+<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Draft</span>
 
 @endswitch
 
 </td>
 
 
-{{-- =========================================================
-IMPRESSIONS
-========================================================= --}}
-<td class="px-6 py-4">
+{{-- IMPRESSIONS --}}
+<td class="px-6 py-4" id="imp-{{ $ad->id }}">
 {{ number_format($ad->impressions ?? 0) }}
 </td>
 
 
-{{-- =========================================================
-CLICKS
-========================================================= --}}
-<td class="px-6 py-4">
+{{-- CLICKS --}}
+<td class="px-6 py-4" id="clk-{{ $ad->id }}">
 {{ number_format($ad->clicks ?? 0) }}
 </td>
 
 
-{{-- =========================================================
-CTR
-========================================================= --}}
+{{-- CTR --}}
 <td class="px-6 py-4">
-
-@php
-$ctr = $ad->ctr ?? 0;
-@endphp
-
+@php $ctr = $ad->ctr ?? 0; @endphp
 <span class="font-semibold
 @if($ctr > 3) text-green-600
 @elseif($ctr > 1) text-yellow-600
 @else text-gray-600
 @endif">
-
 {{ number_format($ctr,2) }}%
-
 </span>
-
-</td>
-{{-- =========================================================
-SPEND
-========================================================= --}}
-<td class="px-6 py-4 font-semibold text-gray-800">
-    ${{ number_format($ad->spend ?? 0,2) }}
 </td>
 
 
-{{-- =========================================================
-TODAY SPEND
-========================================================= --}}
-<td class="px-6 py-4 font-semibold text-blue-600">
-    ${{ number_format($ad->daily_spend ?? 0,2) }}
+{{-- SPEND --}}
+<td class="px-6 py-4 font-semibold text-gray-800" id="spend-{{ $ad->id }}">
+${{ number_format($ad->spend ?? 0,2) }}
 </td>
 
 
-{{-- =========================================================
-DAILY BUDGET
-========================================================= --}}
+{{-- TODAY --}}
+<td class="px-6 py-4 font-semibold text-blue-600" id="today-{{ $ad->id }}">
+${{ number_format($ad->daily_spend ?? 0,2) }}
+</td>
+
+
+{{-- BUDGET --}}
 <td class="px-6 py-4 text-gray-700 font-medium">
-    ${{ number_format($ad->daily_budget ?? 0,2) }}
+${{ number_format($ad->daily_budget ?? 0,2) }}
 </td>
 
 
-{{-- =========================================================
-PAUSE REASON
-========================================================= --}}
+{{-- REASON --}}
 <td class="px-6 py-4">
 
 @if($ad->pause_reason === 'budget_limit')
-
 <span class="inline-block bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-medium">
 Budget Limit
 </span>
 
 @elseif($ad->pause_reason === 'manual')
-
 <span class="inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-medium">
 Manual
 </span>
 
 @else
-
 <span class="text-gray-400 text-xs">—</span>
-
 @endif
 
 </td>
 
 
-{{-- =========================================================
-ACTIONS
-========================================================= --}}
+{{-- ACTIONS --}}
 <td class="px-6 py-4">
-
 <div class="flex flex-wrap gap-2 justify-end text-xs font-medium">
 
-
-{{-- Preview --}}
-<a
-href="{{ route('admin.ads.preview',$ad) }}"
+<a href="{{ route('admin.ads.preview',$ad) }}"
 class="px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">
 Preview
 </a>
 
-
-{{-- Edit --}}
-<a
-href="{{ route('admin.ads.edit',$ad) }}"
+<a href="{{ route('admin.ads.edit',$ad) }}"
 class="px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
 Edit
 </a>
 
-
-{{-- Publish --}}
 @if($ad->status !== 'ACTIVE')
-<form method="POST"
-action="{{ route('admin.ads.publish',$ad->id) }}">
+<form method="POST" action="{{ route('admin.ads.publish',$ad->id) }}">
 @csrf
-<button
-type="submit"
+<button type="submit"
 class="px-2 py-1 bg-green-50 text-green-600 rounded hover:bg-green-100">
 Publish
 </button>
 </form>
 @endif
 
-
-{{-- Pause --}}
 @if($ad->status === 'ACTIVE')
-<form method="POST"
-action="{{ route('admin.ads.pause',$ad->id) }}">
+<form method="POST" action="{{ route('admin.ads.pause',$ad->id) }}">
 @csrf
 @method('PATCH')
-<button
-type="submit"
+<button type="submit"
 class="px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
 Pause
 </button>
 </form>
 @endif
 
-
-{{-- Sync --}}
-<form method="POST"
-action="{{ route('admin.ads.sync',$ad->id) }}">
+<form method="POST" action="{{ route('admin.ads.sync',$ad->id) }}">
 @csrf
-<button
-class="px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">
+<button class="px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">
 Sync
 </button>
 </form>
 
-
-{{-- Duplicate --}}
-<form method="POST"
-action="{{ route('admin.ads.duplicate',$ad->id) }}">
+<form method="POST" action="{{ route('admin.ads.duplicate',$ad->id) }}">
 @csrf
-<button
-class="px-2 py-1 bg-purple-50 text-purple-600 rounded hover:bg-purple-100">
+<button class="px-2 py-1 bg-purple-50 text-purple-600 rounded hover:bg-purple-100">
 Duplicate
 </button>
 </form>
 
-
-{{-- Delete --}}
-<form method="POST"
-action="{{ route('admin.ads.destroy',$ad->id) }}">
+<form method="POST" action="{{ route('admin.ads.destroy',$ad->id) }}">
 @csrf
 @method('DELETE')
-<button
-onclick="return confirm('Delete this ad?')"
+<button onclick="return confirm('Delete this ad?')"
 class="px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
 Delete
 </button>
 </form>
 
-
 </div>
-
 </td>
-</tr>
 
+</tr>
 
 @empty
 
 <tr>
-
 <td colspan="12" class="text-center py-16 text-gray-400">
-
 <div class="flex flex-col items-center gap-4">
-
 <p class="text-lg">No ads created yet</p>
-
-<a
-href="{{ route('admin.ads.create') }}"
+<a href="{{ route('admin.ads.create') }}"
 class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700">
-
 Create Your First Ad
-
 </a>
-
 </div>
-
 </td>
-
 </tr>
 
 @endforelse
@@ -455,5 +348,79 @@ Create Your First Ad
 
 </div>
 </div>
+
+
+{{-- =========================================================
+LIVE AJAX DASHBOARD UPDATE
+========================================================= --}}
+<script>
+
+(function(){
+
+let running = false;
+
+async function refreshAdsDashboard(){
+
+if(running) return;
+
+running = true;
+
+try{
+
+const response = await fetch("{{ route('admin.ads.live') }}");
+
+if(!response.ok) throw new Error("Network");
+
+const data = await response.json();
+
+
+/* METRICS */
+
+document.getElementById('metric-total-ads').textContent =
+data.metrics.total_ads;
+
+document.getElementById('metric-active-ads').textContent =
+data.metrics.active_ads;
+
+document.getElementById('metric-total-spend').textContent =
+'$'+Number(data.metrics.total_spend).toFixed(2);
+
+document.getElementById('metric-total-clicks').textContent =
+Number(data.metrics.total_clicks).toLocaleString();
+
+
+/* TABLE VALUES */
+
+data.ads.forEach(ad=>{
+
+const imp = document.getElementById('imp-'+ad.id);
+const clk = document.getElementById('clk-'+ad.id);
+const spn = document.getElementById('spend-'+ad.id);
+const tdy = document.getElementById('today-'+ad.id);
+
+if(imp) imp.textContent = Number(ad.impressions).toLocaleString();
+if(clk) clk.textContent = Number(ad.clicks).toLocaleString();
+if(spn) spn.textContent = '$'+Number(ad.spend).toFixed(2);
+if(tdy) tdy.textContent = '$'+Number(ad.daily_spend).toFixed(2);
+
+});
+
+}catch(e){
+
+console.warn('Live update failed',e);
+
+}
+
+running = false;
+
+}
+
+/* refresh every 15 seconds */
+
+setInterval(refreshAdsDashboard,15000);
+
+})();
+
+</script>
 
 @endsection

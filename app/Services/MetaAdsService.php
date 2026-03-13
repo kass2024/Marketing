@@ -484,11 +484,12 @@ public function createAdSet(string $accountId, array $data): array
 
   
 
-   /*
+ /*
 |--------------------------------------------------------------------------
 | CREATE AD
 |--------------------------------------------------------------------------
 */
+
 public function createAd(string $accountId, array $data): array
 {
     $accountId = $this->formatAccount($accountId);
@@ -515,6 +516,8 @@ public function createAd(string $accountId, array $data): array
     |--------------------------------------------------------------------------
     | BUILD PAYLOAD
     |--------------------------------------------------------------------------
+    | Meta requires the creative field to be JSON encoded
+    | and it must contain creative_id
     */
 
     $payload = [
@@ -525,11 +528,9 @@ public function createAd(string $accountId, array $data): array
 
         'status' => $data['status'] ?? 'PAUSED',
 
-        // Meta requires creative as JSON string
-        'creative' => [
-    'id' => $data['creative']['id']
-]
-
+        'creative' => json_encode([
+            'creative_id' => $data['creative']['id']
+        ])
     ];
 
     /*
@@ -539,8 +540,11 @@ public function createAd(string $accountId, array $data): array
     */
 
     Log::info('META_AD_CREATE_PAYLOAD', [
+
         'endpoint' => "{$accountId}/ads",
+
         'payload' => $payload
+
     ]);
 
     /*
@@ -551,11 +555,16 @@ public function createAd(string $accountId, array $data): array
 
     $response = $this->post("{$accountId}/ads", $payload);
 
+    /*
+    |--------------------------------------------------------------------------
+    | RESPONSE LOG
+    |--------------------------------------------------------------------------
+    */
+
     Log::info('META_AD_CREATE_RESPONSE', $response);
 
     return $response;
 }
-
 
 /*
 |--------------------------------------------------------------------------

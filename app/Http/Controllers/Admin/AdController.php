@@ -210,32 +210,32 @@ public function index(): View
 
 
           /*
+/*
 |--------------------------------------------------------------------------
 | META PAYLOAD
 |--------------------------------------------------------------------------
-|
-| Build the payload for Meta Ads API. The creative must be attached
-| using "id" (NOT creative_id) according to Meta Graph API specs.
-|
+| Prepare the payload to create the Ad in Meta.
+| The creative meta_id is passed as "id" and converted by MetaAdsService
+| to the required format: creative={"creative_id":"..."}
 */
 
 $payload = [
 
+    // Ad name in Meta
     'name' => $data['name'],
 
-    // Meta AdSet ID
+    // Meta AdSet ID (not local id)
     'adset_id' => $adset->meta_id,
 
-    // Attach existing creative
+    // Attach existing Meta creative
     'creative' => [
         'id' => $creative->meta_id
     ],
 
-    // Delivery status
+    // Delivery status (default paused for safety)
     'status' => $data['status'] ?? 'PAUSED'
 
 ];
-
 
 /*
 |--------------------------------------------------------------------------

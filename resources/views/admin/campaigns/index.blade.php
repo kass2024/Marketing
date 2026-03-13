@@ -289,6 +289,7 @@ action="{{ route('admin.campaigns.activate',$campaign->id) }}"
 class="inline">
 
 @csrf
+@method('PATCH')
 
 <button class="text-green-600 hover:text-green-800 font-medium">
 Activate
@@ -309,6 +310,7 @@ action="{{ route('admin.campaigns.pause',$campaign->id) }}"
 class="inline">
 
 @csrf
+@method('PATCH')
 
 <button class="text-yellow-600 hover:text-yellow-800">
 Pause

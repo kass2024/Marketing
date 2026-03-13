@@ -103,35 +103,33 @@ CREATIVE TABLE
 
 </thead>
 
+
 <tbody class="divide-y">
 
 @forelse($creatives as $creative)
 
-@php
-
-$review = $creative->review_status ?? 'DRAFT';
-$delivery = $creative->effective_status ?? 'INACTIVE';
-
-@endphp
-
-<tr class="hover:bg-gray-50 transition">
+<tr class="hover:bg-gray-50">
 
 
-{{-- =========================================================
-PREVIEW
-========================================================= --}}
+{{-- PREVIEW --}}
 <td class="px-6 py-4">
 
 @if($creative->image_url)
 
 <img
-src="{{ asset('storage/'.$creative->image_url) }}"
+src="{{ $creative->image_url }}"
 class="w-16 h-16 object-cover rounded"
 />
 
+@elseif($creative->video_url)
+
+<div class="w-16 h-16 bg-gray-200 flex items-center justify-center text-xs rounded">
+Video
+</div>
+
 @else
 
-<div class="w-16 h-16 bg-gray-100 flex items-center justify-center text-xs text-gray-400 rounded">
+<div class="w-16 h-16 bg-gray-100 flex items-center justify-center text-xs rounded text-gray-400">
 No Media
 </div>
 
@@ -141,18 +139,16 @@ No Media
 
 
 
-{{-- =========================================================
-CREATIVE NAME
-========================================================= --}}
+{{-- CREATIVE NAME --}}
 <td class="px-6 py-4">
 
-<div class="font-medium text-gray-900">
+<div class="font-medium">
 {{ $creative->name }}
 </div>
 
 @if($creative->meta_id)
 
-<div class="text-xs text-gray-400 mt-1">
+<div class="text-xs text-gray-400">
 Meta ID: {{ $creative->meta_id }}
 </div>
 
@@ -162,9 +158,7 @@ Meta ID: {{ $creative->meta_id }}
 
 
 
-{{-- =========================================================
-HEADLINE
-========================================================= --}}
+{{-- HEADLINE --}}
 <td class="px-6 py-4">
 
 {{ $creative->headline ?? '-' }}
@@ -173,32 +167,30 @@ HEADLINE
 
 
 
-{{-- =========================================================
-META REVIEW STATUS
-========================================================= --}}
+{{-- META REVIEW --}}
 <td class="px-6 py-4">
 
-@if($review === 'APPROVED')
+@if($creative->review_status == 'APPROVED')
 
-<span class="px-2 py-1 text-xs rounded bg-green-100 text-green-700">
+<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Approved
 </span>
 
-@elseif($review === 'PENDING_REVIEW')
+@elseif($creative->review_status == 'PENDING_REVIEW')
 
-<span class="px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-700">
+<span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Pending Review
 </span>
 
-@elseif($review === 'DISAPPROVED')
+@elseif($creative->review_status == 'DISAPPROVED')
 
-<span class="px-2 py-1 text-xs rounded bg-red-100 text-red-700">
+<span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
 Rejected
 </span>
 
 @else
 
-<span class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-600">
+<span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
 Draft
 </span>
 
@@ -208,26 +200,24 @@ Draft
 
 
 
-{{-- =========================================================
-DELIVERY STATUS
-========================================================= --}}
+{{-- DELIVERY --}}
 <td class="px-6 py-4">
 
-@if($delivery === 'ACTIVE')
+@if($creative->effective_status == 'ACTIVE')
 
-<span class="px-2 py-1 text-xs rounded bg-green-100 text-green-700">
+<span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Active
 </span>
 
-@elseif($delivery === 'PAUSED')
+@elseif($creative->effective_status == 'PAUSED')
 
-<span class="px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-700">
+<span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Paused
 </span>
 
 @else
 
-<span class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-600">
+<span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
 Inactive
 </span>
 
@@ -237,42 +227,37 @@ Inactive
 
 
 
-{{-- =========================================================
-CREATED DATE
-========================================================= --}}
+{{-- DATE --}}
 <td class="px-6 py-4 text-gray-500">
 
 {{ optional($creative->created_at)->format('d M Y') }}
 
 </td>
-
-
-
 {{-- =========================================================
 ACTIONS
 ========================================================= --}}
 <td class="px-6 py-4 text-right whitespace-nowrap">
 
-<div class="flex justify-end gap-3">
+<div class="flex items-center justify-end gap-3">
 
-
+{{-- PREVIEW --}}
 <a
 href="{{ route('admin.creatives.preview',$creative->id) }}"
-class="text-indigo-600 hover:text-indigo-800">
+class="text-indigo-600 hover:text-indigo-800 font-medium">
 Preview
 </a>
 
 
+{{-- EDIT --}}
 <a
 href="{{ route('admin.creatives.edit',$creative->id) }}"
-class="text-blue-600 hover:text-blue-800">
+class="text-blue-600 hover:text-blue-800 font-medium">
 Edit
 </a>
 
 
-
 {{-- ACTIVATE --}}
-@if($delivery !== 'ACTIVE')
+@if(empty($creative->effective_status) || $creative->effective_status !== 'ACTIVE')
 
 <form
 method="POST"
@@ -282,7 +267,8 @@ action="{{ route('admin.creatives.activate',$creative->id) }}">
 @method('PATCH')
 
 <button
-class="text-green-600 hover:text-green-800">
+type="submit"
+class="text-green-600 hover:text-green-800 font-medium">
 
 Activate
 
@@ -293,9 +279,8 @@ Activate
 @endif
 
 
-
 {{-- PAUSE --}}
-@if($delivery === 'ACTIVE')
+@if($creative->effective_status === 'ACTIVE')
 
 <form
 method="POST"
@@ -305,7 +290,8 @@ action="{{ route('admin.creatives.pause',$creative->id) }}">
 @method('PATCH')
 
 <button
-class="text-yellow-600 hover:text-yellow-800">
+type="submit"
+class="text-yellow-600 hover:text-yellow-800 font-medium">
 
 Pause
 
@@ -316,8 +302,7 @@ Pause
 @endif
 
 
-
-{{-- SYNC --}}
+{{-- SYNC META --}}
 <form
 method="POST"
 action="{{ route('admin.creatives.sync',$creative->id) }}">
@@ -325,14 +310,14 @@ action="{{ route('admin.creatives.sync',$creative->id) }}">
 @csrf
 
 <button
-class="text-purple-600 hover:text-purple-800">
+type="submit"
+class="text-purple-600 hover:text-purple-800 font-medium">
 
 Sync
 
 </button>
 
 </form>
-
 
 
 {{-- DELETE --}}
@@ -345,7 +330,8 @@ onsubmit="return confirm('Delete creative?');">
 @method('DELETE')
 
 <button
-class="text-red-600 hover:text-red-800">
+type="submit"
+class="text-red-600 hover:text-red-800 font-medium">
 
 Delete
 
@@ -365,7 +351,7 @@ Delete
 
 <td colspan="7" class="text-center py-16 text-gray-400">
 
-<div class="flex flex-col items-center gap-4">
+<div class="flex flex-col items-center gap-3">
 
 <div class="text-lg font-medium">
 No creatives yet
@@ -373,7 +359,7 @@ No creatives yet
 
 <a
 href="{{ route('admin.creatives.create') }}"
-class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700">
+class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
 
 Create First Creative
 
@@ -388,6 +374,10 @@ Create First Creative
 @endforelse
 
 </tbody>
+
+</table>
+
+</div>
 
 {{-- PAGINATION --}}
 @if(method_exists($creatives,'links'))

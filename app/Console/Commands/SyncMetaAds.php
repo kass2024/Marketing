@@ -72,9 +72,9 @@ class SyncMetaAds extends Command
 
             $count = 0;
 
-            foreach ($response['data'] as $ad) {
+            foreach ($response['data'] as $metaAd) {
 
-                $metaAdId = $ad['id'] ?? null;
+                $metaAdId = $metaAd['id'] ?? null;
 
                 if (!$metaAdId) {
                     continue;
@@ -82,30 +82,29 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Resolve Local AdSet ID
+                | Resolve Local AdSet
                 |--------------------------------------------------------------------------
                 */
 
-                $metaAdsetId = $ad['adset_id'] ?? null;
                 $localAdsetId = null;
 
-                if ($metaAdsetId) {
+                if (!empty($metaAd['adset_id'])) {
 
-                    $adset = AdSet::where('meta_id', $metaAdsetId)->first();
+                    $adset = AdSet::where('meta_id', $metaAd['adset_id'])->first();
 
                     if ($adset) {
                         $localAdsetId = $adset->id;
                     } else {
 
                         Log::warning('META_ADSET_NOT_FOUND', [
-                            'meta_adset_id' => $metaAdsetId
+                            'meta_adset_id' => $metaAd['adset_id']
                         ]);
                     }
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Create / Update Ad Record
+                | Create / Update Local Ad
                 |--------------------------------------------------------------------------
                 */
 
@@ -114,8 +113,8 @@ class SyncMetaAds extends Command
                     ['meta_ad_id' => $metaAdId],
 
                     [
-                        'name' => $ad['name'] ?? 'Unnamed Ad',
-                        'status' => $ad['status'] ?? 'PAUSED',
+                        'name' => $metaAd['name'] ?? 'Unnamed Ad',
+                        'status' => $metaAd['status'] ?? 'PAUSED',
                         'adset_id' => $localAdsetId
                     ]
                 );
@@ -143,7 +142,7 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Daily Budget Guard
+                | Daily Spend Handling
                 |--------------------------------------------------------------------------
                 */
 
@@ -151,25 +150,25 @@ class SyncMetaAds extends Command
 
                 if (!$record->spend_date || $record->spend_date !== $today) {
 
-                    $record->daily_spend = 0;
+                    $record->daily_spend = $spend;
                     $record->spend_date = $today;
+
+                } else {
+
+                    $record->daily_spend = $spend;
+
                 }
-
-                $spentToday = $spend - ($record->spend ?? 0);
-
-                if ($spentToday < 0) {
-                    $spentToday = 0;
-                }
-
-                $record->daily_spend += $spentToday;
 
                 /*
                 |--------------------------------------------------------------------------
-                | Enforce Daily Budget
+                | Enforce Daily Budget (Skip manual pauses)
                 |--------------------------------------------------------------------------
                 */
 
-                if ($record->daily_spend >= $record->daily_budget) {
+                if (
+                    $record->pause_reason !== 'manual' &&
+                    $record->daily_spend >= $record->daily_budget
+                ) {
 
                     $this->meta->updateAd(
                         $metaAdId,
@@ -177,6 +176,7 @@ class SyncMetaAds extends Command
                     );
 
                     $record->status = 'PAUSED';
+                    $record->pause_reason = 'budget_limit';
 
                     Log::info('AD_AUTO_PAUSED_DAILY_BUDGET', [
 
@@ -193,32 +193,26 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
-                $ctr = 0;
-
-                if ($impressions > 0) {
-                    $ctr = ($clicks / $impressions) * 100;
-                }
+                $ctr = $impressions > 0
+                    ? round(($clicks / $impressions) * 100, 2)
+                    : 0;
 
                 /*
                 |--------------------------------------------------------------------------
-                | Update Metrics
+                | Update Local Metrics
                 |--------------------------------------------------------------------------
                 */
 
                 $record->update([
 
-                    'status' => $record->status ?? ($ad['status'] ?? 'PAUSED'),
+                    'status' => $record->status ?? ($metaAd['status'] ?? 'PAUSED'),
 
                     'impressions' => $impressions,
-
                     'clicks' => $clicks,
-
                     'spend' => $spend,
-
-                    'ctr' => round($ctr, 2),
+                    'ctr' => $ctr,
 
                     'daily_spend' => $record->daily_spend,
-
                     'spend_date' => $record->spend_date
 
                 ]);
@@ -227,9 +221,9 @@ class SyncMetaAds extends Command
 
                     'meta_ad_id' => $metaAdId,
                     'name' => $record->name,
-                    'spend' => $spend,
+                    'impressions' => $impressions,
                     'clicks' => $clicks,
-                    'impressions' => $impressions
+                    'spend' => $spend
 
                 ]);
 
@@ -256,7 +250,7 @@ class SyncMetaAds extends Command
 
             ]);
 
-            $this->error('Meta Ads sync failed: ' . $e->getMessage());
+            $this->error('Meta Ads sync failed: '.$e->getMessage());
 
             return Command::FAILURE;
         }

@@ -273,20 +273,27 @@ $ctr = $ad->ctr ?? 0;
 </span>
 
 </td>
+{{-- =========================================================
+SPEND
+========================================================= --}}
+<td class="px-6 py-4 font-semibold text-gray-800">
+    ${{ number_format($ad->spend ?? 0,2) }}
+</td>
+
 
 {{-- =========================================================
 TODAY SPEND
 ========================================================= --}}
-<td class="px-6 py-4 text-blue-600 font-semibold">
-${{ number_format($ad->daily_spend ?? 0,2) }}
+<td class="px-6 py-4 font-semibold text-blue-600">
+    ${{ number_format($ad->daily_spend ?? 0,2) }}
 </td>
 
 
 {{-- =========================================================
 DAILY BUDGET
 ========================================================= --}}
-<td class="px-6 py-4 text-gray-700">
-${{ number_format($ad->daily_budget ?? 0,2) }}
+<td class="px-6 py-4 text-gray-700 font-medium">
+    ${{ number_format($ad->daily_budget ?? 0,2) }}
 </td>
 
 
@@ -295,147 +302,120 @@ PAUSE REASON
 ========================================================= --}}
 <td class="px-6 py-4">
 
-@if($ad->pause_reason == 'budget_limit')
+@if($ad->pause_reason === 'budget_limit')
 
-<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">
+<span class="inline-block bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-medium">
 Budget Limit
 </span>
 
-@elseif($ad->pause_reason == 'manual')
+@elseif($ad->pause_reason === 'manual')
 
-<span class="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs">
+<span class="inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-medium">
 Manual
 </span>
 
 @else
 
-<span class="text-gray-400 text-xs">
-—
-</span>
+<span class="text-gray-400 text-xs">—</span>
 
 @endif
 
-</td>
-{{-- =========================================================
-SPEND
-========================================================= --}}
-<td class="px-6 py-4 font-semibold text-gray-800">
-${{ number_format($ad->spend ?? 0,2) }}
 </td>
 
 
 {{-- =========================================================
 ACTIONS
 ========================================================= --}}
-<td class="px-6 py-4 text-right whitespace-nowrap">
+<td class="px-6 py-4">
 
-<div class="flex justify-end gap-4 text-sm items-center">
+<div class="flex flex-wrap gap-2 justify-end text-xs font-medium">
 
 
+{{-- Preview --}}
 <a
 href="{{ route('admin.ads.preview',$ad) }}"
-class="text-indigo-600 hover:text-indigo-800">
+class="px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">
 Preview
 </a>
 
+
+{{-- Edit --}}
 <a
 href="{{ route('admin.ads.edit',$ad) }}"
-class="text-blue-600 hover:text-blue-800">
+class="px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
 Edit
 </a>
 
 
 {{-- Publish --}}
 @if($ad->status !== 'ACTIVE')
-
 <form method="POST"
-action="{{ route('admin.ads.publish',$ad->id) }}"
-class="inline">
-
+action="{{ route('admin.ads.publish',$ad->id) }}">
 @csrf
-
 <button
 type="submit"
-class="text-green-600 hover:text-green-800 font-medium">
+class="px-2 py-1 bg-green-50 text-green-600 rounded hover:bg-green-100">
 Publish
 </button>
-
 </form>
-
 @endif
 
 
 {{-- Pause --}}
 @if($ad->status === 'ACTIVE')
-
 <form method="POST"
-action="{{ route('admin.ads.pause',$ad->id) }}"
-class="inline">
-
+action="{{ route('admin.ads.pause',$ad->id) }}">
 @csrf
 @method('PATCH')
-
 <button
 type="submit"
-class="text-yellow-600 hover:text-yellow-800 font-medium">
+class="px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
 Pause
 </button>
-
 </form>
-
 @endif
 
 
 {{-- Sync --}}
 <form method="POST"
-action="{{ route('admin.ads.sync',$ad->id) }}"
-class="inline">
-
+action="{{ route('admin.ads.sync',$ad->id) }}">
 @csrf
-
-<button class="text-gray-600 hover:text-gray-800">
+<button
+class="px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">
 Sync
 </button>
-
 </form>
 
 
 {{-- Duplicate --}}
 <form method="POST"
-action="{{ route('admin.ads.duplicate',$ad->id) }}"
-class="inline">
-
+action="{{ route('admin.ads.duplicate',$ad->id) }}">
 @csrf
-
-<button class="text-purple-600 hover:text-purple-800">
+<button
+class="px-2 py-1 bg-purple-50 text-purple-600 rounded hover:bg-purple-100">
 Duplicate
 </button>
-
 </form>
 
 
 {{-- Delete --}}
 <form method="POST"
-action="{{ route('admin.ads.destroy',$ad->id) }}"
-class="inline">
-
+action="{{ route('admin.ads.destroy',$ad->id) }}">
 @csrf
 @method('DELETE')
-
 <button
 onclick="return confirm('Delete this ad?')"
-class="text-red-600 hover:text-red-800">
+class="px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
 Delete
 </button>
-
 </form>
 
 
 </div>
 
 </td>
-
 </tr>
+
 
 @empty
 
@@ -445,9 +425,7 @@ Delete
 
 <div class="flex flex-col items-center gap-4">
 
-<p class="text-lg">
-No ads created yet
-</p>
+<p class="text-lg">No ads created yet</p>
 
 <a
 href="{{ route('admin.ads.create') }}"
@@ -466,21 +444,16 @@ Create Your First Ad
 @endforelse
 
 </tbody>
-
 </table>
 
 
 @if($ads->hasPages())
-
 <div class="p-4 border-t">
 {{ $ads->links() }}
 </div>
-
 @endif
 
-
 </div>
-
 </div>
 
 @endsection

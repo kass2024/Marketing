@@ -419,6 +419,8 @@ class CreativeController extends Controller
             ]);
         }
     }
+
+
 public function sync($id)
 {
     try {
@@ -432,11 +434,11 @@ public function sync($id)
         $creative = Creative::findOrFail($id);
 
         if (!$creative->meta_id) {
-
             return redirect()
                 ->back()
                 ->with('error', 'Creative is not connected to Meta.');
         }
+
 
         /*
         |--------------------------------------------------------------------------
@@ -450,6 +452,7 @@ public function sync($id)
 
             Log::error('META_CREATIVE_SYNC_ERROR', [
                 'creative_id' => $creative->id,
+                'meta_id' => $creative->meta_id,
                 'meta_response' => $meta
             ]);
 
@@ -464,9 +467,10 @@ public function sync($id)
             'meta_response' => $meta
         ]);
 
+
         /*
         |--------------------------------------------------------------------------
-        | Extract Status Fields Safely
+        | Extract Status Fields
         |--------------------------------------------------------------------------
         */
 
@@ -474,42 +478,62 @@ public function sync($id)
 
         $effectiveStatus = $meta['effective_status'] ?? $creative->effective_status;
 
-     $reviewStatus = null;
-$reviewFeedback = null;
+        $reviewStatus = null;
+        $reviewFeedback = null;
 
-/*
-|--------------------------------------------------------------------------
-| Extract Review Status Safely
-|--------------------------------------------------------------------------
-*/
 
-if (!empty($meta['review_feedback'])) {
+        /*
+        |--------------------------------------------------------------------------
+        | Extract Review Status (Meta Graph Structure)
+        |--------------------------------------------------------------------------
+        */
 
-    if (isset($meta['review_feedback']['global_review'])) {
+        if (!empty($meta['ad_review_feedback'])) {
 
-        $reviewStatus = $meta['review_feedback']['global_review'];
+            if (isset($meta['ad_review_feedback']['global']['review_status'])) {
 
-    }
+                $reviewStatus = strtoupper(
+                    $meta['ad_review_feedback']['global']['review_status']
+                );
+            }
 
-    if (isset($meta['review_feedback']['message'])) {
+            if (isset($meta['ad_review_feedback']['global']['message'])) {
 
-        $reviewFeedback = $meta['review_feedback']['message'];
+                $reviewFeedback = $meta['ad_review_feedback']['global']['message'];
+            }
+        }
 
-    }
 
-}
+        /*
+        |--------------------------------------------------------------------------
+        | Fallback Logic If Review Status Not Returned
+        |--------------------------------------------------------------------------
+        */
 
-/*
-|--------------------------------------------------------------------------
-| Fallback to effective_status if no review info exists
-|--------------------------------------------------------------------------
-*/
+        if (!$reviewStatus) {
 
-if (!$reviewStatus && isset($meta['effective_status'])) {
+            switch ($effectiveStatus) {
 
-    $reviewStatus = $meta['effective_status'];
+                case 'ACTIVE':
+                    $reviewStatus = 'APPROVED';
+                    break;
 
-}
+                case 'DISAPPROVED':
+                    $reviewStatus = 'DISAPPROVED';
+                    break;
+
+                case 'PAUSED':
+                case 'IN_PROCESS':
+                case 'PENDING_REVIEW':
+                    $reviewStatus = 'PENDING_REVIEW';
+                    break;
+
+                default:
+                    $reviewStatus = $creative->review_status ?? 'PENDING_REVIEW';
+                    break;
+            }
+        }
+
 
         /*
         |--------------------------------------------------------------------------
@@ -517,19 +541,20 @@ if (!$reviewStatus && isset($meta['effective_status'])) {
         |--------------------------------------------------------------------------
         */
 
-      $creative->update([
+        $creative->update([
 
-    'status' => $status,
+            'status' => $status,
 
-    'effective_status' => $effectiveStatus,
+            'effective_status' => $effectiveStatus,
 
-    'review_status' => $reviewStatus,
+            'review_status' => $reviewStatus,
 
-    'review_feedback' => $reviewFeedback,
+            'review_feedback' => $reviewFeedback,
 
-    'last_synced_at' => now()
+            'last_synced_at' => now()
 
-]);
+        ]);
+
 
         /*
         |--------------------------------------------------------------------------
@@ -544,15 +569,13 @@ if (!$reviewStatus && isset($meta['effective_status'])) {
     } catch (\Throwable $e) {
 
         Log::error('CREATIVE_SYNC_FAILED', [
-
             'creative_id' => $id,
             'error' => $e->getMessage()
-
         ]);
 
         return redirect()
             ->back()
-            ->with('error', 'Creative sync failed: ' . $e->getMessage());
+            ->with('error', 'Creative sync failed: '.$e->getMessage());
     }
 }
 

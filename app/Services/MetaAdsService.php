@@ -671,7 +671,31 @@ public function getInsights(string $objectId): array
 public function getCreative(string $creativeId): array
 {
     return $this->get($creativeId, [
-        'fields' => 'id,name,status,configured_status,effective_status,review_feedback'
+
+        /*
+        |--------------------------------------------------------------------------
+        | Request Correct Review Fields From Meta
+        |--------------------------------------------------------------------------
+        */
+
+        'fields' => implode(',', [
+
+            'id',
+            'name',
+
+            'status',
+            'configured_status',
+            'effective_status',
+
+            /*
+            |--------------------------------------------------------------------------
+            | IMPORTANT: Creative Review Status
+            |--------------------------------------------------------------------------
+            */
+
+            'ad_review_feedback'
+
+        ])
     ]);
 }
 /*

@@ -54,22 +54,28 @@ class Ad extends Model
     | Mass Assignment
     |--------------------------------------------------------------------------
     */
+protected $fillable = [
 
-    protected $fillable = [
+    'adset_id',
+    'creative_id',
 
-        'adset_id',
-        'creative_id',
+    'meta_ad_id',
 
-        'meta_ad_id',
+    'name',
+    'status',
 
-        'name',
-        'status',
+    /* Budget control */
+    'daily_budget',
+    'daily_spend',
+    'pause_reason',
+    'spend_date',
 
-        'impressions',
-        'clicks',
-        'spend',
-        'ctr'
-    ];
+    /* Metrics */
+    'impressions',
+    'clicks',
+    'spend',
+    'ctr'
+];
 
 
     /*
@@ -93,14 +99,17 @@ class Ad extends Model
     | Casts
     |--------------------------------------------------------------------------
     */
+protected $casts = [
 
-    protected $casts = [
+    'daily_budget' => 'float',
+    'daily_spend' => 'float',
+    'spend_date' => 'date',
 
-        'impressions' => 'integer',
-        'clicks' => 'integer',
-        'spend' => 'float',
-        'ctr' => 'float'
-    ];
+    'impressions' => 'integer',
+    'clicks' => 'integer',
+    'spend' => 'float',
+    'ctr' => 'float'
+];
 
 
     /*

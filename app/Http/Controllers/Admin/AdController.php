@@ -489,21 +489,43 @@ public function update(Request $request, Ad $ad): RedirectResponse
         'name' => 'required|string|max:255',
         'adset_id' => 'required|exists:ad_sets,id',
         'creative_id' => 'required|exists:creatives,id',
-        'status' => 'required|in:ACTIVE,PAUSED'
+        'daily_budget' => 'required|numeric|min:1',
+        'status' => 'required|in:ACTIVE,PAUSED,ARCHIVED'
     ]);
 
     try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE META AD (only name/status allowed)
+        |--------------------------------------------------------------------------
+        */
 
         if ($ad->meta_ad_id) {
 
             $this->meta->updateAd(
                 $ad->meta_ad_id,
-                ['name' => $data['name']]
+                [
+                    'name' => $data['name'],
+                    'status' => $data['status']
+                ]
             );
 
         }
 
-        $ad->update($data);
+        /*
+        |--------------------------------------------------------------------------
+        | UPDATE LOCAL DB
+        |--------------------------------------------------------------------------
+        */
+
+        $ad->update([
+            'name' => $data['name'],
+            'adset_id' => $data['adset_id'],
+            'creative_id' => $data['creative_id'],
+            'daily_budget' => $data['daily_budget'],
+            'status' => $data['status']
+        ]);
 
         return redirect()
             ->route('admin.ads.index')

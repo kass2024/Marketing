@@ -276,6 +276,8 @@ Route::middleware(['auth','verified','role:admin'])
             Route::patch('{campaign}/pause', [AdminCampaignController::class, 'pause'])->name('pause');
             Route::post('{campaign}/duplicate', [AdminCampaignController::class, 'duplicate'])->name('duplicate');
             Route::get('{campaign}/insights', [AdminCampaignController::class, 'insights'])->name('insights');
+            Route::post('{campaign}/sync', [AdminCampaignController::class, 'sync'])
+    ->name('sync');
         });
 
 

@@ -628,4 +628,45 @@ public function getCreative($creativeId)
 
     return $response->json();
 }
+/*
+|--------------------------------------------------------------------------
+| GET SINGLE CAMPAIGN
+|--------------------------------------------------------------------------
+*/
+
+public function getCampaign(string $campaignId): array
+{
+    return $this->get($campaignId, [
+        'fields' => 'id,name,status,objective'
+    ]);
+}
+/*
+|--------------------------------------------------------------------------
+| UPDATE ADSET
+|--------------------------------------------------------------------------
+*/
+
+public function updateAdSet(string $adsetId, array $data): array
+{
+    Log::info('META_ADSET_UPDATE',[
+        'adset_id'=>$adsetId,
+        'payload'=>$data
+    ]);
+
+    return $this->post($adsetId,$data);
+}
+/*
+|--------------------------------------------------------------------------
+| ACCESS TOKEN
+|--------------------------------------------------------------------------
+*/
+
+protected function getAccessToken(): string
+{
+    return $this->accessToken;
+}
+public function updateCreative(string $creativeId,array $data):array
+{
+    return $this->post($creativeId,$data);
+}
 }

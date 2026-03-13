@@ -294,4 +294,128 @@ class CampaignController extends Controller
             ]);
         }
     }
+    /*
+|--------------------------------------------------------------------------
+| ACTIVATE CAMPAIGN
+|--------------------------------------------------------------------------
+*/
+
+public function activate(Campaign $campaign)
+{
+    try {
+
+        if($campaign->meta_id){
+
+            $this->meta->updateCampaign(
+                $campaign->meta_id,
+                ['status'=>'ACTIVE']
+            );
+        }
+
+        $campaign->update([
+            'status' => 'ACTIVE'
+        ]);
+
+        Log::info('CAMPAIGN_ACTIVATED',[
+            'campaign_id'=>$campaign->id,
+            'meta_id'=>$campaign->meta_id
+        ]);
+
+        return back()->with('success','Campaign activated.');
+
+    } catch(Throwable $e){
+
+        Log::error('CAMPAIGN_ACTIVATE_FAILED',[
+            'campaign_id'=>$campaign->id,
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'meta'=>'Unable to activate campaign.'
+        ]);
+    }
+}
+/*
+|--------------------------------------------------------------------------
+| PAUSE CAMPAIGN
+|--------------------------------------------------------------------------
+*/
+
+public function pause(Campaign $campaign)
+{
+    try {
+
+        if($campaign->meta_id){
+
+            $this->meta->updateCampaign(
+                $campaign->meta_id,
+                ['status'=>'PAUSED']
+            );
+        }
+
+        $campaign->update([
+            'status'=>'PAUSED'
+        ]);
+
+        Log::info('CAMPAIGN_PAUSED',[
+            'campaign_id'=>$campaign->id
+        ]);
+
+        return back()->with('success','Campaign paused.');
+
+    } catch(Throwable $e){
+
+        Log::error('CAMPAIGN_PAUSE_FAILED',[
+            'campaign_id'=>$campaign->id,
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'meta'=>'Unable to pause campaign.'
+        ]);
+    }
+}
+/*
+|--------------------------------------------------------------------------
+| SYNC CAMPAIGN FROM META
+|--------------------------------------------------------------------------
+*/
+
+public function sync(Campaign $campaign)
+{
+    try {
+
+        if(!$campaign->meta_id){
+            return back()->withErrors([
+                'meta'=>'Campaign not connected to Meta.'
+            ]);
+        }
+
+        $metaCampaign = $this->meta->getCampaign(
+            $campaign->meta_id
+        );
+
+        $campaign->update([
+            'status' => $metaCampaign['status'] ?? $campaign->status
+        ]);
+
+        Log::info('CAMPAIGN_SYNCED',[
+            'campaign_id'=>$campaign->id,
+            'meta_status'=>$metaCampaign['status'] ?? null
+        ]);
+
+        return back()->with('success','Campaign synced.');
+
+    } catch(Throwable $e){
+
+        Log::error('CAMPAIGN_SYNC_FAILED',[
+            'campaign_id'=>$campaign->id,
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'meta'=>'Unable to sync campaign.'
+        ]);
+    }
+}
 }

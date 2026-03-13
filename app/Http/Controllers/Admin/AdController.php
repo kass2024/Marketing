@@ -157,7 +157,8 @@ public function index(): View
             $adset = AdSet::with('campaign.adAccount')
                 ->findOrFail($data['adset_id']);
 
-           $creative = Creative::where('meta_id',$data['creative_id'])->firstOrFail();
+           #$creative = Creative::where('meta_id',$data['creative_id'])->firstOrFail();
+           $creative = Creative::findOrFail($data['creative_id']);
 
             $campaign = $adset->campaign;
 
@@ -390,7 +391,6 @@ $ad = Ad::create([
 | UPDATE STATUS
 |--------------------------------------------------------------------------
 */
-
 public function updateStatus(Request $request, Ad $ad): RedirectResponse
 {
     $data = $request->validate([
@@ -399,33 +399,29 @@ public function updateStatus(Request $request, Ad $ad): RedirectResponse
 
     try {
 
-        // Sync status with Meta if ad exists there
         if ($ad->meta_ad_id) {
+
             $this->meta->updateAd(
                 $ad->meta_ad_id,
                 [
                     'status' => $data['status']
                 ]
             );
+
         }
 
-        // Determine pause reason
         $pauseReason = null;
 
         if ($data['status'] === 'PAUSED') {
             $pauseReason = 'manual';
         }
 
-        // Update local database
-       $ad->update([
-'name' => $data['name'],
-'adset_id' => $data['adset_id'],
-'creative_id' => $data['creative_id'],
-'daily_budget' => $data['daily_budget'],
-'status' => $data['status']
-]);
+        $ad->update([
+            'status' => $data['status'],
+            'pause_reason' => $pauseReason
+        ]);
 
-        return back()->with('success', 'Ad status updated.');
+        return back()->with('success','Ad status updated.');
 
     } catch (\Throwable $e) {
 

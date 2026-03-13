@@ -372,4 +372,117 @@ class AdSetController extends Controller
             ]);
         }
     }
+    /*
+|--------------------------------------------------------------------------
+| ACTIVATE ADSET
+|--------------------------------------------------------------------------
+*/
+
+public function activate(AdSet $adset)
+{
+    try {
+
+        if($adset->meta_id){
+
+            $this->meta->updateAdSet(
+                $adset->meta_id,
+                ['status'=>'ACTIVE']
+            );
+
+        }
+
+        $adset->update([
+            'status' => 'ACTIVE'
+        ]);
+
+        return back()->with('success','Ad Set activated.');
+
+    } catch(\Throwable $e){
+
+        return back()->withErrors([
+            'meta'=>'Unable to activate Ad Set: '.$e->getMessage()
+        ]);
+    }
+}
+/*
+|--------------------------------------------------------------------------
+| PAUSE ADSET
+|--------------------------------------------------------------------------
+*/
+
+public function pause(AdSet $adset)
+{
+    try {
+
+        if($adset->meta_id){
+
+            $this->meta->updateAdSet(
+                $adset->meta_id,
+                ['status'=>'PAUSED']
+            );
+
+        }
+
+        $adset->update([
+            'status'=>'PAUSED'
+        ]);
+
+        return back()->with('success','Ad Set paused.');
+
+    } catch(\Throwable $e){
+
+        return back()->withErrors([
+            'meta'=>'Unable to pause Ad Set.'
+        ]);
+    }
+}
+/*
+|--------------------------------------------------------------------------
+| SYNC ADSET FROM META
+|--------------------------------------------------------------------------
+*/
+
+public function sync(AdSet $adset)
+{
+    try {
+
+        if(!$adset->meta_id){
+
+            return back()->withErrors([
+                'meta' => 'Ad Set not connected to Meta.'
+            ]);
+
+        }
+
+        $metaAdSets = $this->meta->getAdSets(
+            $adset->campaign->adAccount->meta_id
+        );
+
+        $metaData = collect($metaAdSets['data'] ?? [])
+            ->firstWhere('id',$adset->meta_id);
+
+        if(!$metaData){
+
+            return back()->withErrors([
+                'meta'=>'Ad Set not found on Meta.'
+            ]);
+
+        }
+
+        $adset->update([
+
+            'status' => $metaData['status'] ?? $adset->status,
+            'daily_budget' => $metaData['daily_budget'] ?? $adset->daily_budget
+
+        ]);
+
+        return back()->with('success','Ad Set synced from Meta.');
+
+    } catch(\Throwable $e){
+
+        return back()->withErrors([
+            'meta'=>'Unable to sync Ad Set: '.$e->getMessage()
+        ]);
+    }
+}
 }

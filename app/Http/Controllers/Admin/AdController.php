@@ -667,14 +667,16 @@ public function sync(Ad $ad): RedirectResponse
 | Reset daily spend if new day
 |--------------------------------------------------------------------------
 */
+if (!$ad->spend_date) {
 
-if ($ad->spend_date !== $today) {
+    $ad->spend_date = $today;
+
+} elseif ($ad->spend_date != $today) {
 
     $ad->daily_spend = 0;
 
     $ad->spend_date = $today;
 }
-
 /*
 |--------------------------------------------------------------------------
 | Calculate today's spend increment
@@ -695,7 +697,7 @@ $ad->daily_spend += $spentToday;
 |--------------------------------------------------------------------------
 */
 
-if ($ad->daily_spend >= $ad->daily_budget) {
+if ($ad->pause_reason !== 'manual' && $ad->daily_spend >= $ad->daily_budget) {
 
     $this->meta->updateAd(
         $ad->meta_ad_id,

@@ -5,7 +5,9 @@
 <div class="max-w-7xl mx-auto space-y-8 py-10">
 
 
-{{-- HEADER --}}
+{{-- =========================================================
+HEADER
+========================================================= --}}
 <div class="flex items-center justify-between flex-wrap gap-4">
 
 <div>
@@ -18,19 +20,29 @@ Manage targeting, budgets and delivery settings.
 </p>
 </div>
 
+<div class="flex gap-3">
+
+<a
+href="{{ route('admin.dashboard') }}"
+class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+Dashboard
+</a>
+
 <a
 href="{{ route('admin.campaigns.index') }}"
 class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition">
-
 Back to Campaigns
-
 </a>
+
+</div>
 
 </div>
 
 
 
-{{-- METRICS --}}
+{{-- =========================================================
+METRICS
+========================================================= --}}
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
 <div class="bg-white p-5 rounded-xl shadow border">
@@ -65,7 +77,9 @@ Back to Campaigns
 
 
 
-{{-- FILTER BAR --}}
+{{-- =========================================================
+FILTER BAR
+========================================================= --}}
 <div class="bg-white p-4 rounded-xl shadow flex items-center justify-between flex-wrap gap-3">
 
 <div class="flex gap-3">
@@ -93,7 +107,9 @@ Back to Campaigns
 
 
 
-{{-- TABLE --}}
+{{-- =========================================================
+TABLE
+========================================================= --}}
 <div class="bg-white rounded-xl shadow overflow-hidden">
 
 <table class="w-full text-sm">
@@ -121,6 +137,7 @@ Back to Campaigns
 </tr>
 
 </thead>
+
 
 <tbody>
 
@@ -222,42 +239,34 @@ Draft
 
 
 
-{{-- ACTIONS --}}
+{{-- =========================================================
+ACTIONS
+========================================================= --}}
 <td class="text-right pr-6 space-x-2 whitespace-nowrap">
 
 
-{{-- CREATE AD --}}
 <a
 href="{{ route('admin.ads.create',['adset'=>$adset->id]) }}"
 class="text-purple-600 hover:text-purple-800 text-sm">
-
 Create Ad
-
 </a>
 
 
-{{-- VIEW ADS --}}
 <a
 href="{{ route('admin.ads.index',['adset'=>$adset->id]) }}"
 class="text-gray-600 hover:text-gray-800 text-sm">
-
 View Ads
-
 </a>
 
 
-{{-- EDIT --}}
 <a
 href="{{ route('admin.adsets.edit',$adset->id) }}"
 class="text-blue-600 hover:text-blue-800 text-sm">
-
 Edit
-
 </a>
 
 
 
-{{-- ACTIVATE --}}
 @if($adset->status=='PAUSED' || $adset->status=='DRAFT')
 
 <form method="POST"
@@ -277,7 +286,6 @@ Activate
 
 
 
-{{-- PAUSE --}}
 @if($adset->status=='ACTIVE')
 
 <form method="POST"
@@ -297,7 +305,6 @@ Pause
 
 
 
-{{-- DUPLICATE --}}
 <form method="POST"
 action="{{ route('admin.adsets.duplicate',$adset) }}"
 class="inline">
@@ -312,7 +319,6 @@ Duplicate
 
 
 
-{{-- SYNC META --}}
 <form method="POST"
 action="{{ route('admin.adsets.sync',$adset) }}"
 class="inline">
@@ -327,7 +333,6 @@ Sync
 
 
 
-{{-- DELETE --}}
 <form method="POST"
 action="{{ route('admin.adsets.destroy',$adset) }}"
 class="inline">
@@ -338,9 +343,7 @@ class="inline">
 <button
 onclick="return confirm('Delete this Ad Set?')"
 class="text-red-600 hover:text-red-800 text-sm">
-
 Delete
-
 </button>
 
 </form>
@@ -351,6 +354,7 @@ Delete
 </tr>
 
 @empty
+
 
 <tr>
 
@@ -369,9 +373,7 @@ Create an Ad Set from a Campaign to start running ads.
 <a
 href="{{ route('admin.campaigns.index') }}"
 class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-
 Go to Campaigns
-
 </a>
 
 </div>
@@ -390,7 +392,9 @@ Go to Campaigns
 
 
 
-{{-- PAGINATION --}}
+{{-- =========================================================
+PAGINATION
+========================================================= --}}
 @if(method_exists($adsets,'links'))
 
 <div>

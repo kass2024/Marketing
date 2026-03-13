@@ -17,16 +17,27 @@ Create, publish and monitor ad delivery performance.
 </p>
 </div>
 
+<div class="flex gap-3">
+
+<a
+href="{{ route('admin.dashboard') }}"
+class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
+Dashboard
+</a>
+
 <a
 href="{{ route('admin.ads.create') }}"
 class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700">
 
-<span class="text-lg">＋</span>
+<span>＋</span>
 <span>Create Ad</span>
 
 </a>
 
 </div>
+
+</div>
+
 
 
 {{-- ALERTS --}}
@@ -85,7 +96,6 @@ ${{ number_format($ads->getCollection()->sum('spend'),2) }}
 <thead class="bg-gray-50 text-gray-600">
 
 <tr>
-
 <th class="px-6 py-3 text-left">Ad</th>
 <th class="px-6 py-3 text-left">Creative</th>
 <th class="px-6 py-3 text-left">AdSet</th>
@@ -95,11 +105,9 @@ ${{ number_format($ads->getCollection()->sum('spend'),2) }}
 <th class="px-6 py-3 text-left">CTR</th>
 <th class="px-6 py-3 text-left">Spend</th>
 <th class="px-6 py-3 text-right">Actions</th>
-
 </tr>
 
 </thead>
-
 
 
 <tbody class="divide-y">
@@ -133,11 +141,9 @@ Meta ID: {{ $ad->meta_ad_id }}
 <div class="flex items-center gap-3">
 
 @if($ad->creative->image_url)
-
 <img
 src="{{ $ad->creative->image_url }}"
 class="w-10 h-10 rounded object-cover border">
-
 @endif
 
 <div class="text-sm font-medium">
@@ -159,34 +165,41 @@ class="w-10 h-10 rounded object-cover border">
 
 
 
-{{-- STATUS --}}
+{{-- DELIVERY STATUS --}}
 <td class="px-6 py-4">
 
-@if($ad->status == 'ACTIVE')
+@switch($ad->status)
+
+@case('ACTIVE')
 <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Active
 </span>
+@break
 
-@elseif($ad->status == 'PAUSED')
+@case('PAUSED')
 <span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Paused
 </span>
+@break
 
-@elseif($ad->status == 'PENDING_REVIEW')
+@case('PENDING_REVIEW')
 <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
 In Review
 </span>
+@break
 
-@elseif($ad->status == 'DISAPPROVED')
+@case('DISAPPROVED')
 <span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
 Disapproved
 </span>
+@break
 
-@else
+@default
 <span class="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
 Draft
 </span>
-@endif
+
+@endswitch
 
 </td>
 
@@ -213,12 +226,11 @@ Draft
 $ctr = $ad->ctr ?? 0;
 @endphp
 
-<span class="
+<span class="font-semibold
 @if($ctr > 3) text-green-600
 @elseif($ctr > 1) text-yellow-600
 @else text-gray-600
-@endif
-font-semibold">
+@endif">
 
 {{ number_format($ctr,2) }}%
 
@@ -236,35 +248,34 @@ ${{ number_format($ad->spend ?? 0,2) }}
 
 
 {{-- ACTIONS --}}
-<td class="px-6 py-4 text-right">
+<td class="px-6 py-4 text-right whitespace-nowrap">
 
 <div class="flex justify-end gap-3 text-sm">
 
-
-<a
-href="{{ route('admin.ads.preview',$ad) }}"
+<a href="{{ route('admin.ads.preview',$ad) }}"
 class="text-indigo-600 hover:text-indigo-800">
 Preview
 </a>
 
-
-<a
-href="{{ route('admin.ads.edit',$ad) }}"
+<a href="{{ route('admin.ads.edit',$ad) }}"
 class="text-blue-600 hover:text-blue-800">
 Edit
 </a>
 
 
-@if($ad->status === 'DRAFT' || $ad->status === 'PAUSED')
+{{-- PUBLISH --}}
+@if($ad->status !== 'ACTIVE')
 
-<form method="POST"
-action="{{ route('admin.ads.activate',$ad) }}">
-
+<form method="POST" action="{{ route('admin.ads.activate',$ad) }}">
 @csrf
 @method('PATCH')
 
-<button class="text-green-600 hover:text-green-800 font-medium">
+<button
+type="submit"
+class="text-green-600 hover:text-green-800 font-medium">
+
 Publish
+
 </button>
 
 </form>
@@ -272,16 +283,19 @@ Publish
 @endif
 
 
+{{-- PAUSE --}}
 @if($ad->status === 'ACTIVE')
 
-<form method="POST"
-action="{{ route('admin.ads.pause',$ad) }}">
-
+<form method="POST" action="{{ route('admin.ads.pause',$ad) }}">
 @csrf
 @method('PATCH')
 
-<button class="text-yellow-600 hover:text-yellow-800 font-medium">
+<button
+type="submit"
+class="text-yellow-600 hover:text-yellow-800 font-medium">
+
 Pause
+
 </button>
 
 </form>
@@ -289,9 +303,7 @@ Pause
 @endif
 
 
-<form method="POST"
-action="{{ route('admin.ads.sync',$ad) }}">
-
+<form method="POST" action="{{ route('admin.ads.sync',$ad) }}">
 @csrf
 
 <button class="text-gray-600 hover:text-gray-800">
@@ -301,9 +313,7 @@ Sync
 </form>
 
 
-<form method="POST"
-action="{{ route('admin.ads.duplicate',$ad) }}">
-
+<form method="POST" action="{{ route('admin.ads.duplicate',$ad) }}">
 @csrf
 
 <button class="text-purple-600 hover:text-purple-800">
@@ -313,9 +323,7 @@ Duplicate
 </form>
 
 
-<form method="POST"
-action="{{ route('admin.ads.destroy',$ad) }}">
-
+<form method="POST" action="{{ route('admin.ads.destroy',$ad) }}">
 @csrf
 @method('DELETE')
 
@@ -329,7 +337,6 @@ Delete
 
 </form>
 
-
 </div>
 
 </td>
@@ -340,7 +347,7 @@ Delete
 
 <tr>
 
-<td colspan="9" class="text-center py-20 text-gray-400">
+<td colspan="9" class="text-center py-16 text-gray-400">
 
 <div class="flex flex-col items-center gap-4">
 
@@ -369,13 +376,10 @@ Create Your First Ad
 </table>
 
 
-
 @if($ads->hasPages())
-
 <div class="p-4 border-t">
 {{ $ads->links() }}
 </div>
-
 @endif
 
 

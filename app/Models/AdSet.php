@@ -154,11 +154,10 @@ class AdSet extends Model
     | Accessors
     |--------------------------------------------------------------------------
     */
-
-    public function getBudgetFormattedAttribute(): string
-    {
-        return '$'.number_format($this->daily_budget,2);
-    }
+public function getBudgetFormattedAttribute(): string
+{
+    return '$'.number_format($this->daily_budget ?? 0, 2);
+}
 
     public function getCtrAttribute(): float
     {

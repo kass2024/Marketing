@@ -48,19 +48,25 @@ public function index(): View
             'adSet.campaign:id,name,ad_account_id',
             'adSet.campaign.adAccount:id,name,meta_id'
         ])
-        ->select([
-            'id',
-            'name',
-            'adset_id',
-            'creative_id',
-            'meta_ad_id',
-            'status',
-            'impressions',
-            'clicks',
-            'ctr',
-            'spend',
-            'created_at'
-        ])
+    ->select([
+'id',
+'name',
+'adset_id',
+'creative_id',
+'meta_ad_id',
+'status',
+'impressions',
+'clicks',
+'ctr',
+'spend',
+
+'daily_budget',
+'daily_spend',
+'pause_reason',
+'spend_date',
+
+'created_at'
+])
         ->latest()
         ->paginate(20);
 
@@ -286,21 +292,17 @@ Log::info('META_AD_CREATE_REQUEST', [
             | SAVE LOCAL AD
             |--------------------------------------------------------------------------
             */
+$ad = Ad::create([
+'adset_id' => $adset->id,
+'creative_id' => $creative->id,
+'meta_ad_id' => $response['id'],
 
-            $ad = Ad::create([
+'name' => $data['name'],
+'status' => $data['status'],
 
-                'adset_id' => $adset->id,
-
-                'creative_id' => $creative->id,
-
-                'meta_ad_id' => $response['id'],
-
-                'name' => $data['name'],
-
-                'status' => $data['status']
-
-            ]);
-
+'daily_budget' => $request->input('daily_budget', 2),
+'daily_spend' => 0
+]);
 
             DB::commit();
 
@@ -388,49 +390,58 @@ Log::info('META_AD_CREATE_REQUEST', [
     }
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | UPDATE STATUS
-    |--------------------------------------------------------------------------
-    */
+   /*
+|--------------------------------------------------------------------------
+| UPDATE STATUS
+|--------------------------------------------------------------------------
+*/
 
-    public function updateStatus(Request $request, Ad $ad): RedirectResponse
-    {
-        $data = $request->validate([
-            'status' => 'required|in:ACTIVE,PAUSED,ARCHIVED'
+public function updateStatus(Request $request, Ad $ad): RedirectResponse
+{
+    $data = $request->validate([
+        'status' => 'required|in:ACTIVE,PAUSED,ARCHIVED'
+    ]);
+
+    try {
+
+        // Sync status to Meta if ad exists there
+        if ($ad->meta_ad_id) {
+
+            $this->meta->updateAd(
+                $ad->meta_ad_id,
+                [
+                    'status' => $data['status']
+                ]
+            );
+        }
+
+        // Determine pause reason
+        $pauseReason = null;
+
+        if ($data['status'] === 'PAUSED') {
+            $pauseReason = 'manual';
+        }
+
+        // Update local record
+        $ad->update([
+            'status' => $data['status'],
+            'pause_reason' => $pauseReason
         ]);
 
-        try {
+        return back()->with('success', 'Ad status updated.');
 
-            if ($ad->meta_ad_id) {
+    } catch (Throwable $e) {
 
-                $this->meta->updateAd(
-                    $ad->meta_ad_id,
-                    ['status'=>$data['status']]
-                );
-            }
+        Log::error('AD_STATUS_UPDATE_FAILED', [
+            'ad_id' => $ad->id,
+            'error' => $e->getMessage()
+        ]);
 
-            $ad->update([
-                'status'=>$data['status']
-            ]);
-
-            return back()->with('success','Ad status updated.');
-
-        }
-
-        catch (Throwable $e) {
-
-            Log::error('AD_STATUS_UPDATE_FAILED',[
-                'error'=>$e->getMessage()
-            ]);
-
-            return back()->withErrors([
-                'meta'=>'Unable to update ad status'
-            ]);
-        }
+        return back()->withErrors([
+            'meta' => 'Unable to update ad status.'
+        ]);
     }
-
-
+}
     /*
     |--------------------------------------------------------------------------
     | DELETE AD

@@ -633,43 +633,157 @@ public function publish(Ad $ad): RedirectResponse
 {
     try {
 
+        /*
+        |--------------------------------------------------------------------------
+        | Load Required Relations
+        |--------------------------------------------------------------------------
+        */
+
+        $ad->load([
+            'creative',
+            'adSet',
+            'adSet.campaign.adAccount'
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Validate Local Data
+        |--------------------------------------------------------------------------
+        */
+
         if (!$ad->meta_ad_id) {
-            throw new Exception('Ad not synced with Meta.');
+            throw new Exception('Ad is not synced with Meta.');
         }
 
-        $ad->load(['creative','adSet']);
+        if (!$ad->adSet) {
+            throw new Exception('AdSet relation missing.');
+        }
+
+        if (!$ad->creative) {
+            throw new Exception('Creative relation missing.');
+        }
+
+        if (!$ad->adSet->meta_id) {
+            throw new Exception('AdSet not synced with Meta.');
+        }
+
+        if (!$ad->creative->meta_id) {
+            throw new Exception('Creative not synced with Meta.');
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Prepare Payload (Meta only requires status change)
+        |--------------------------------------------------------------------------
+        */
 
         $payload = [
-
-            'status' => 'ACTIVE',
-
-            'adset_id' => $ad->adSet->meta_id,
-
-            'creative' => [
-                'creative_id' => $ad->creative->meta_id
-            ]
-
+            'status' => 'ACTIVE'
         ];
 
-        $this->meta->updateAd(
+        /*
+        |--------------------------------------------------------------------------
+        | Log Publish Request
+        |--------------------------------------------------------------------------
+        */
+
+        Log::info('META_AD_PUBLISH_REQUEST', [
+
+            'local_ad_id' => $ad->id,
+
+            'meta_ad_id' => $ad->meta_ad_id,
+
+            'adset_meta_id' => $ad->adSet->meta_id,
+
+            'creative_meta_id' => $ad->creative->meta_id,
+
+            'payload' => $payload
+
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Send Request To Meta
+        |--------------------------------------------------------------------------
+        */
+
+        $response = $this->meta->updateAd(
             $ad->meta_ad_id,
             $payload
         );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Log Meta Response
+        |--------------------------------------------------------------------------
+        */
+
+        Log::info('META_AD_PUBLISH_RESPONSE', [
+
+            'local_ad_id' => $ad->id,
+
+            'meta_response' => $response
+
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Detect Meta API Errors
+        |--------------------------------------------------------------------------
+        */
+
+        if (isset($response['error'])) {
+
+            $message = $response['error']['message']
+                ?? 'Unknown Meta API error';
+
+            throw new Exception($message);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update Local Ad
+        |--------------------------------------------------------------------------
+        */
 
         $ad->update([
             'status' => 'ACTIVE'
         ]);
 
-        return back()->with('success','Ad published successfully.');
+        Log::info('META_AD_PUBLISHED', [
 
-    } catch(Throwable $e){
+            'local_ad_id' => $ad->id,
 
-        Log::error('AD_PUBLISH_FAILED',[
-            'error'=>$e->getMessage()
+            'meta_ad_id' => $ad->meta_ad_id
+
+        ]);
+
+        return back()->with('success', 'Ad successfully published.');
+
+    }
+
+    catch (Throwable $e) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Log Failure
+        |--------------------------------------------------------------------------
+        */
+
+        Log::error('AD_PUBLISH_FAILED', [
+
+            'local_ad_id' => $ad->id ?? null,
+
+            'meta_ad_id' => $ad->meta_ad_id ?? null,
+
+            'error' => $e->getMessage(),
+
+            'trace' => $e->getTraceAsString()
+
         ]);
 
         return back()->withErrors([
-            'publish'=>'Unable to publish ad: '.$e->getMessage()
+            'publish' => 'Publish failed: ' . $e->getMessage()
         ]);
     }
 }

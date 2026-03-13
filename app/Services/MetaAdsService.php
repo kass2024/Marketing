@@ -598,6 +598,18 @@ public function getAds(string $accountId): array
 
 /*
 |--------------------------------------------------------------------------
+| GET SINGLE AD
+|--------------------------------------------------------------------------
+*/
+
+public function getAd(string $adId): array
+{
+    return $this->get($adId, [
+        'fields' => 'id,name,status,effective_status,adset_id,campaign_id'
+    ]);
+}
+/*
+|--------------------------------------------------------------------------
 | GET INSIGHTS
 |--------------------------------------------------------------------------
 */

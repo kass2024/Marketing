@@ -97,7 +97,12 @@ class="min-h-screen bg-gray-100 font-sans">
            {{ str_contains($route,'admin.adsets') ? 'text-blue-600 font-semibold' : '' }}">
             Ad Sets
         </a>
-
+          {{-- Creatives --}}
+        <a href="{{ route('admin.creatives.index') }}"
+           class="block py-2 px-3 rounded-lg hover:bg-gray-100
+           {{ str_contains($route,'admin.creatives') ? 'text-blue-600 font-semibold' : '' }}">
+            Creatives
+        </a>
         {{-- Ads --}}
         <a href="{{ route('admin.ads.index') }}"
            class="block py-2 px-3 rounded-lg hover:bg-gray-100
@@ -105,12 +110,7 @@ class="min-h-screen bg-gray-100 font-sans">
             Ads
         </a>
 
-        {{-- Creatives --}}
-        <a href="{{ route('admin.creatives.index') }}"
-           class="block py-2 px-3 rounded-lg hover:bg-gray-100
-           {{ str_contains($route,'admin.creatives') ? 'text-blue-600 font-semibold' : '' }}">
-            Creatives
-        </a>
+      
 
         {{-- Analytics --}}
         <a href="{{ route('admin.analytics.index') }}"
@@ -118,11 +118,7 @@ class="min-h-screen bg-gray-100 font-sans">
            {{ str_contains($route,'admin.analytics') ? 'text-blue-600 font-semibold' : '' }}">
             Insights & Reports
         </a>
-{{-- Ads Manager --}}
-<a href="{{ route('admin.ads.manager.index') }}"
-   class="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100">
-   📊 Ads Manager
-</a>
+
     </div>
 </div>
         {{-- ================= SOCIAL ================= --}}

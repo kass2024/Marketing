@@ -82,8 +82,6 @@ METRICS
 
 </div>
 
-
-
 {{-- =========================================================
 CREATIVE TABLE
 ========================================================= --}}
@@ -117,15 +115,15 @@ CREATIVE TABLE
 <tr class="hover:bg-gray-50">
 
 
-{{-- PREVIEW --}}
+{{-- ================= PREVIEW ================= --}}
 <td class="px-6 py-4">
 
-@if($creative->image_url)
+@if(!empty($creative->image_url))
 
 <img src="{{ $creative->image_url }}"
 class="w-16 h-16 object-cover rounded"/>
 
-@elseif($creative->video_url)
+@elseif(!empty($creative->video_url))
 
 <div class="w-16 h-16 bg-gray-200 flex items-center justify-center text-xs rounded">
 Video
@@ -143,17 +141,31 @@ No Media
 
 
 
-{{-- CREATIVE NAME --}}
+{{-- ================= CREATIVE NAME ================= --}}
 <td class="px-6 py-4">
 
-<div class="font-medium">
+<div class="font-medium text-gray-900">
 {{ $creative->name }}
 </div>
 
-@if($creative->meta_id)
+{{-- Meta ID --}}
+@if(!empty($creative->meta_id))
 
 <div class="text-xs text-gray-400">
 Meta ID: {{ $creative->meta_id }}
+</div>
+
+{{-- Sync detection --}}
+@if(empty($creative->review_status))
+<div class="text-xs text-yellow-600 mt-1">
+⚠ Waiting for Meta review
+</div>
+@endif
+
+@else
+
+<div class="text-xs text-red-600 mt-1">
+❌ Not uploaded to Meta
 </div>
 
 @endif
@@ -162,8 +174,8 @@ Meta ID: {{ $creative->meta_id }}
 
 
 
-{{-- HEADLINE --}}
-<td class="px-6 py-4">
+{{-- ================= HEADLINE ================= --}}
+<td class="px-6 py-4 text-gray-700">
 
 {{ $creative->headline ?? '-' }}
 
@@ -171,22 +183,22 @@ Meta ID: {{ $creative->meta_id }}
 
 
 
-{{-- REVIEW STATUS --}}
+{{-- ================= REVIEW STATUS ================= --}}
 <td class="px-6 py-4">
 
-@if($creative->review_status == 'APPROVED')
+@if($creative->review_status === 'APPROVED')
 
 <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Approved
 </span>
 
-@elseif($creative->review_status == 'PENDING_REVIEW')
+@elseif($creative->review_status === 'PENDING_REVIEW')
 
 <span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Pending
 </span>
 
-@elseif($creative->review_status == 'DISAPPROVED')
+@elseif($creative->review_status === 'DISAPPROVED')
 
 <span class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded">
 Rejected
@@ -200,20 +212,30 @@ Draft
 
 @endif
 
+
+{{-- Meta rejection feedback --}}
+@if(!empty($creative->review_feedback))
+
+<div class="text-xs text-red-600 mt-2 max-w-xs">
+⚠ {{ $creative->review_feedback }}
+</div>
+
+@endif
+
 </td>
 
 
 
-{{-- DELIVERY --}}
+{{-- ================= DELIVERY STATUS ================= --}}
 <td class="px-6 py-4">
 
-@if($creative->effective_status == 'ACTIVE')
+@if($creative->effective_status === 'ACTIVE')
 
 <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
 Active
 </span>
 
-@elseif($creative->effective_status == 'PAUSED')
+@elseif($creative->effective_status === 'PAUSED')
 
 <span class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
 Paused
@@ -231,10 +253,10 @@ Inactive
 
 
 
-{{-- SPEND --}}
+{{-- ================= SPEND ================= --}}
 <td class="px-6 py-4 text-gray-600">
 
-@if($creative->spend)
+@if(isset($creative->spend) && $creative->spend > 0)
 
 ${{ number_format($creative->spend,2) }}
 
@@ -248,16 +270,24 @@ ${{ number_format($creative->spend,2) }}
 
 
 
-{{-- IMPRESSIONS --}}
+{{-- ================= IMPRESSIONS ================= --}}
 <td class="px-6 py-4 text-gray-600">
 
-{{ $creative->impressions ?? '—' }}
+@if(isset($creative->impressions))
+
+{{ number_format($creative->impressions) }}
+
+@else
+
+—
+
+@endif
 
 </td>
 
 
 
-{{-- DATE --}}
+{{-- ================= CREATED DATE ================= --}}
 <td class="px-6 py-4 text-gray-500">
 
 {{ optional($creative->created_at)->format('d M Y') }}
@@ -330,7 +360,7 @@ action="{{ route('admin.creatives.sync',$creative->id) }}">
 @csrf
 
 <button class="text-purple-600 hover:text-purple-800">
-Sync
+🔄 Sync
 </button>
 
 </form>
@@ -388,8 +418,6 @@ Create First Creative
 </table>
 
 </div>
-
-
 
 {{-- PAGINATION --}}
 @if(method_exists($creatives,'links'))

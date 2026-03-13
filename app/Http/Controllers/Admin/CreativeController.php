@@ -474,12 +474,42 @@ public function sync($id)
 
         $effectiveStatus = $meta['effective_status'] ?? $creative->effective_status;
 
-        $reviewStatus = null;
+     $reviewStatus = null;
+$reviewFeedback = null;
 
-        if (isset($meta['review_feedback']['approval_status'])) {
+/*
+|--------------------------------------------------------------------------
+| Extract Review Status Safely
+|--------------------------------------------------------------------------
+*/
 
-            $reviewStatus = $meta['review_feedback']['approval_status'];
-        }
+if (!empty($meta['review_feedback'])) {
+
+    if (isset($meta['review_feedback']['global_review'])) {
+
+        $reviewStatus = $meta['review_feedback']['global_review'];
+
+    }
+
+    if (isset($meta['review_feedback']['message'])) {
+
+        $reviewFeedback = $meta['review_feedback']['message'];
+
+    }
+
+}
+
+/*
+|--------------------------------------------------------------------------
+| Fallback to effective_status if no review info exists
+|--------------------------------------------------------------------------
+*/
+
+if (!$reviewStatus && isset($meta['effective_status'])) {
+
+    $reviewStatus = $meta['effective_status'];
+
+}
 
         /*
         |--------------------------------------------------------------------------
@@ -487,17 +517,19 @@ public function sync($id)
         |--------------------------------------------------------------------------
         */
 
-        $creative->update([
+      $creative->update([
 
-            'status' => $status,
+    'status' => $status,
 
-            'effective_status' => $effectiveStatus,
+    'effective_status' => $effectiveStatus,
 
-            'review_status' => $reviewStatus,
+    'review_status' => $reviewStatus,
 
-            'last_synced_at' => now()
+    'review_feedback' => $reviewFeedback,
 
-        ]);
+    'last_synced_at' => now()
+
+]);
 
         /*
         |--------------------------------------------------------------------------

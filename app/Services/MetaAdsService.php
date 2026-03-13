@@ -68,21 +68,64 @@ class MetaAdsService
     | HANDLE ERROR
     |--------------------------------------------------------------------------
     */
+protected function handleError($response, $endpoint, $payload = [])
+{
+    /*
+    |--------------------------------------------------------------------------
+    | Parse Response Safely
+    |--------------------------------------------------------------------------
+    */
 
-    protected function handleError($response,$endpoint,$payload=[])
-    {
+    $body = null;
+
+    try {
         $body = $response->json();
-
-        Log::error('META_API_ERROR',[
-            'endpoint'=>$endpoint,
-            'payload'=>$payload,
-            'response'=>$body
-        ]);
-
-        $message = $body['error']['message'] ?? 'Meta API Error';
-
-        throw new Exception($message);
+    } catch (\Throwable $e) {
+        $body = $response->body();
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Extract Error Message Safely
+    |--------------------------------------------------------------------------
+    */
+
+    $message = 'Meta API Error';
+
+    if (is_array($body) && isset($body['error']['message'])) {
+        $message = $body['error']['message'];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Log Detailed Meta Error
+    |--------------------------------------------------------------------------
+    */
+
+    Log::error('META_API_ERROR', [
+
+        'endpoint' => $endpoint,
+
+        'http_status' => $response->status(),
+
+        'payload' => $payload,
+
+        'response' => $body,
+
+        'meta_error_code' => $body['error']['code'] ?? null,
+
+        'meta_error_type' => $body['error']['type'] ?? null
+
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Throw Exception
+    |--------------------------------------------------------------------------
+    */
+
+    throw new Exception($message);
+}
 
     /*
     |--------------------------------------------------------------------------
@@ -588,10 +631,8 @@ public function getAdSets(string $accountId): array
 
 public function getAds(string $accountId): array
 {
-    $accountId = $this->formatAccount($accountId);
-
     return $this->get("{$accountId}/ads", [
-        'fields' => 'id,name,adset_id,status'
+        'fields' => 'id,name,adset_id,status,effective_status'
     ]);
 }
 
@@ -617,7 +658,7 @@ public function getInsights(string $objectId): array
 {
     return $this->get("{$objectId}/insights", [
         'fields' => 'impressions,clicks,spend,reach,ctr,cpm',
-        'date_preset' => 'maximum'
+        'date_preset' => 'lifetime'
     ]);
 }
 /*
@@ -628,7 +669,7 @@ public function getInsights(string $objectId): array
 public function getCreative(string $creativeId): array
 {
     return $this->get($creativeId, [
-        'fields' => 'id,name,status,effective_status,review_feedback'
+        'fields' => 'id,name,status,configured_status,effective_status,review_feedback'
     ]);
 }
 /*

@@ -62,10 +62,8 @@ class Creative extends Model
         // Meta reference
         'meta_id',
 
-        // basic info
+        // creative data
         'name',
-
-        // content
         'headline',
         'body',
 
@@ -80,11 +78,23 @@ class Creative extends Model
         // destination
         'destination_url',
 
-        // raw meta payload
+        // raw Meta payload
         'json_payload',
 
         // lifecycle
-        'status'
+        'status',
+
+        // Meta delivery status
+        'effective_status',
+        'review_status',
+        'review_feedback',
+
+        // performance
+        'impressions',
+        'spend',
+
+        // sync
+        'last_synced_at'
     ];
 
 
@@ -95,7 +105,11 @@ class Creative extends Model
     */
 
     protected $attributes = [
-        'status' => self::STATUS_DRAFT
+
+        'status' => self::STATUS_DRAFT,
+        'impressions' => 0,
+        'spend' => 0
+
     ];
 
 
@@ -107,7 +121,13 @@ class Creative extends Model
 
     protected $casts = [
 
-        'json_payload' => 'array'
+        'json_payload' => 'array',
+
+        'impressions' => 'integer',
+
+        'spend' => 'float',
+
+        'last_synced_at' => 'datetime'
 
     ];
 
@@ -193,7 +213,7 @@ class Creative extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | STORAGE URL
+    | STORAGE URL ACCESSOR
     |--------------------------------------------------------------------------
     */
 
@@ -203,7 +223,10 @@ class Creative extends Model
             return null;
         }
 
-        if (str_starts_with($value, 'http')) {
+        if (
+            str_starts_with($value, 'http') ||
+            str_starts_with($value, '/storage')
+        ) {
             return $value;
         }
 
@@ -222,9 +245,11 @@ class Creative extends Model
         return [
 
             'headline' => $this->headline,
+
             'body' => $this->body,
 
             'image_url' => $this->image_url,
+
             'video_url' => $this->video_url,
 
             'cta' => $this->call_to_action,
@@ -274,6 +299,45 @@ class Creative extends Model
     public function isArchived(): bool
     {
         return $this->status === self::STATUS_ARCHIVED;
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | REVIEW HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function isApproved(): bool
+    {
+        return $this->review_status === 'APPROVED';
+    }
+
+    public function isPendingReview(): bool
+    {
+        return $this->review_status === 'PENDING_REVIEW';
+    }
+
+    public function isRejected(): bool
+    {
+        return $this->review_status === 'DISAPPROVED';
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DELIVERY HELPERS
+    |--------------------------------------------------------------------------
+    */
+
+    public function isDelivering(): bool
+    {
+        return $this->effective_status === 'ACTIVE';
+    }
+
+    public function isPaused(): bool
+    {
+        return $this->effective_status === 'PAUSED';
     }
 
 

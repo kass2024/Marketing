@@ -33,18 +33,77 @@ class AdController extends Controller
     | LIST ADS
     |--------------------------------------------------------------------------
     */
+public function index(): View
+{
+    /*
+    |--------------------------------------------------------------------------
+    | Load Ads With Required Relations
+    |--------------------------------------------------------------------------
+    */
 
-    public function index(): View
-    {
-        $ads = Ad::with([
-            'adSet.campaign.adAccount',
-            'creative'
+    $ads = Ad::query()
+        ->with([
+            'creative:id,name,image_url',
+            'adSet:id,name,campaign_id',
+            'adSet.campaign:id,name,ad_account_id',
+            'adSet.campaign.adAccount:id,name,meta_id'
+        ])
+        ->select([
+            'id',
+            'name',
+            'adset_id',
+            'creative_id',
+            'meta_ad_id',
+            'status',
+            'impressions',
+            'clicks',
+            'ctr',
+            'spend',
+            'created_at'
         ])
         ->latest()
         ->paginate(20);
 
-        return view('admin.ads.index', compact('ads'));
-    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dashboard Metrics
+    |--------------------------------------------------------------------------
+    */
+
+    $collection = $ads->getCollection();
+
+    $metrics = [
+
+        'total_ads' => $ads->total(),
+
+        'active_ads' => $collection->where('status','ACTIVE')->count(),
+
+        'total_spend' => $collection->sum('spend'),
+
+        'total_clicks' => $collection->sum('clicks'),
+
+        'total_impressions' => $collection->sum('impressions'),
+
+        'avg_ctr' => $collection->avg('ctr')
+
+    ];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Return View
+    |--------------------------------------------------------------------------
+    */
+
+    return view('admin.ads.index', [
+
+        'ads' => $ads,
+
+        'metrics' => $metrics
+
+    ]);
+}
 
     /*
     |--------------------------------------------------------------------------
@@ -569,5 +628,49 @@ public function bulkStatusUpdate(Request $request): RedirectResponse
         ->update(['status'=>$data['status']]);
 
     return back()->with('success','Ads updated.');
+}
+public function publish(Ad $ad): RedirectResponse
+{
+    try {
+
+        if (!$ad->meta_ad_id) {
+            throw new Exception('Ad not synced with Meta.');
+        }
+
+        $ad->load(['creative','adSet']);
+
+        $payload = [
+
+            'status' => 'ACTIVE',
+
+            'adset_id' => $ad->adSet->meta_id,
+
+            'creative' => [
+                'creative_id' => $ad->creative->meta_id
+            ]
+
+        ];
+
+        $this->meta->updateAd(
+            $ad->meta_ad_id,
+            $payload
+        );
+
+        $ad->update([
+            'status' => 'ACTIVE'
+        ]);
+
+        return back()->with('success','Ad published successfully.');
+
+    } catch(Throwable $e){
+
+        Log::error('AD_PUBLISH_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()->withErrors([
+            'publish'=>'Unable to publish ad: '.$e->getMessage()
+        ]);
+    }
 }
 }

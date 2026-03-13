@@ -336,7 +336,7 @@ Route::middleware(['auth','verified','role:admin'])
         Route::resource('ads', AdController::class)->names('ads');
 
         // Additional Ad routes
-    Route::prefix('ads')->name('ads.')->group(function () {
+Route::prefix('ads')->name('ads.')->group(function () {
 
     Route::post('bulk-status-update', [AdController::class, 'bulkStatusUpdate'])
         ->name('bulk-status-update');
@@ -351,7 +351,12 @@ Route::middleware(['auth','verified','role:admin'])
         ->name('duplicate');
 
     Route::post('{ad}/sync', [AdController::class, 'sync'])
-        ->name('sync');   // ← ADD THIS LINE
+        ->name('sync');
+
+    // ADD THIS
+    Route::post('{ad}/publish', [AdController::class, 'publish'])
+        ->name('publish');
+
 });
 
         // Ad Set-specific Ad creation

@@ -266,10 +266,9 @@ Edit
 @if($ad->status !== 'ACTIVE')
 
 <form method="POST"
-action="{{ route('admin.ads.activate',$ad) }}">
+action="{{ route('admin.ads.publish',$ad) }}">
 
 @csrf
-@method('PATCH')
 
 <button
 type="submit"

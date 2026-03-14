@@ -10,41 +10,17 @@ use App\Models\AdSet;
 
 class SyncMetaAds extends Command
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Command Signature
-    |--------------------------------------------------------------------------
-    */
-
     protected $signature = 'meta:sync-ads';
-
-    /*
-    |--------------------------------------------------------------------------
-    | Description
-    |--------------------------------------------------------------------------
-    */
 
     protected $description = 'Synchronize Meta Ads metrics and enforce daily budgets';
 
     protected MetaAdsService $meta;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Constructor
-    |--------------------------------------------------------------------------
-    */
 
     public function __construct(MetaAdsService $meta)
     {
         parent::__construct();
         $this->meta = $meta;
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Main Handler
-    |--------------------------------------------------------------------------
-    */
 
     public function handle()
     {
@@ -75,7 +51,7 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Resolve Local AdSet
+                | Resolve AdSet
                 |--------------------------------------------------------------------------
                 */
 
@@ -137,7 +113,7 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Today Spend Calculation
+                | DAILY SPEND LOGIC (FIXED)
                 |--------------------------------------------------------------------------
                 */
 
@@ -145,31 +121,33 @@ class SyncMetaAds extends Command
 
                 if (!$ad->spend_date || $ad->spend_date !== $today) {
 
-                    // New day reset
                     $ad->daily_spend = 0;
                     $ad->spend_date = $today;
                 }
 
+                $previousSpend = $ad->spend ?? 0;
+
+                $increment = $spend - $previousSpend;
+
+                if ($increment < 0) {
+                    $increment = 0;
+                }
+
+                $ad->daily_spend += $increment;
+
+                $todaySpend = $ad->daily_spend;
+
                 /*
                 |--------------------------------------------------------------------------
-                | Today = today's spend (Meta daily)
-                |--------------------------------------------------------------------------
-                */
-
-                $todaySpend = $spend;
-
-                $ad->daily_spend = $todaySpend;
-
-                /*
-                |--------------------------------------------------------------------------
-                | Enforce Daily Budget
+                | Budget Guard
                 |--------------------------------------------------------------------------
                 */
 
                 if (
                     $ad->pause_reason !== 'manual' &&
                     $ad->daily_budget &&
-                    $todaySpend >= $ad->daily_budget
+                    $todaySpend >= $ad->daily_budget &&
+                    $ad->status !== 'PAUSED'
                 ) {
 
                     $this->meta->updateAd(
@@ -191,7 +169,7 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | CTR Calculation
+                | CTR
                 |--------------------------------------------------------------------------
                 */
 
@@ -214,7 +192,7 @@ class SyncMetaAds extends Command
                     'clicks' => $clicks,
                     'spend' => $spend,
                     'ctr' => $ctr,
-                    'daily_spend' => $todaySpend,
+                    'daily_spend' => $ad->daily_spend,
                     'spend_date' => $today
 
                 ]);
@@ -222,11 +200,8 @@ class SyncMetaAds extends Command
                 Log::info('META_AD_SYNCED', [
 
                     'meta_ad_id' => $metaAdId,
-                    'name' => $ad->name,
-                    'impressions' => $impressions,
-                    'clicks' => $clicks,
-                    'spend' => $spend,
-                    'today_spend' => $todaySpend
+                    'lifetime_spend' => $spend,
+                    'daily_spend' => $ad->daily_spend
 
                 ]);
 
@@ -247,7 +222,7 @@ class SyncMetaAds extends Command
 
             ]);
 
-            $this->error('Meta Ads sync failed: '.$e->getMessage());
+            $this->error('Meta Ads sync failed: ' . $e->getMessage());
 
             return Command::FAILURE;
         }

@@ -606,6 +606,7 @@ public function update(Request $request, AdSet $adset)
     ]);
 
     if ($data['age_min'] >= $data['age_max']) {
+
         return back()->withErrors([
             'age' => 'Maximum age must be greater than minimum age'
         ])->withInput();
@@ -615,7 +616,7 @@ public function update(Request $request, AdSet $adset)
 
         /*
         |--------------------------------------------------------------------------
-        | Rebuild targeting
+        | Rebuild Targeting (LOCAL STORAGE ONLY)
         |--------------------------------------------------------------------------
         */
 
@@ -630,11 +631,13 @@ public function update(Request $request, AdSet $adset)
         ];
 
         if (!empty($data['genders'])) {
+
             $targeting['genders'] =
                 array_map('intval', $data['genders']);
         }
 
         if (!empty($data['languages'])) {
+
             $targeting['locales'] =
                 array_map('intval', $data['languages']);
         }
@@ -677,7 +680,7 @@ public function update(Request $request, AdSet $adset)
 
         /*
         |--------------------------------------------------------------------------
-        | Update Meta
+        | UPDATE META (SAFE FIELDS ONLY)
         |--------------------------------------------------------------------------
         */
 
@@ -689,14 +692,13 @@ public function update(Request $request, AdSet $adset)
 
                 'daily_budget' => (int)$data['daily_budget'] * 100,
 
-                'status' => $data['status'],
-
-                'targeting' => $targeting,
-
-                'promoted_object' => [
-                    'page_id' => $data['page_id']
-                ]
+                'status' => $data['status']
             ];
+
+            Log::info('META_ADSET_UPDATE_PAYLOAD', [
+                'adset_id' => $adset->meta_id,
+                'payload' => $payload
+            ]);
 
             $this->meta->updateAdSet(
                 $adset->meta_id,
@@ -706,7 +708,7 @@ public function update(Request $request, AdSet $adset)
 
         /*
         |--------------------------------------------------------------------------
-        | Update local DB
+        | UPDATE LOCAL DATABASE
         |--------------------------------------------------------------------------
         */
 
@@ -714,7 +716,7 @@ public function update(Request $request, AdSet $adset)
 
             'name' => $data['name'],
 
-            'daily_budget' => $data['daily_budget'],
+            'daily_budget' => (int)$data['daily_budget'] * 100,
 
             'status' => $data['status'],
 
@@ -723,20 +725,24 @@ public function update(Request $request, AdSet $adset)
 
         return redirect()
             ->route('admin.adsets.index')
-            ->with('success','Ad Set updated successfully');
-
+            ->with('success', 'Ad Set updated successfully');
     }
 
     catch (\Throwable $e) {
 
-        Log::error('ADSET_UPDATE_FAILED',[
-            'error'=>$e->getMessage()
+        Log::error('ADSET_UPDATE_FAILED', [
+
+            'adset_id' => $adset->id,
+
+            'meta_id' => $adset->meta_id,
+
+            'error' => $e->getMessage()
         ]);
 
         return back()
             ->withInput()
             ->withErrors([
-                'meta'=>$e->getMessage()
+                'meta' => $e->getMessage()
             ]);
     }
 }

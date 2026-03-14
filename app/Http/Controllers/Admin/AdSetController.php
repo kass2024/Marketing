@@ -507,7 +507,7 @@ public function edit(AdSet $adset)
 
     /*
     |--------------------------------------------------------------------------
-    | Config targeting
+    | Config
     |--------------------------------------------------------------------------
     */
 
@@ -517,7 +517,7 @@ public function edit(AdSet $adset)
 
     /*
     |--------------------------------------------------------------------------
-    | Facebook pages (Meta API)
+    | Meta Pages
     |--------------------------------------------------------------------------
     */
 
@@ -539,15 +539,29 @@ public function edit(AdSet $adset)
 
     /*
     |--------------------------------------------------------------------------
-    | Normalize targeting arrays
+    | Decode targeting JSON fields
     |--------------------------------------------------------------------------
     */
 
-    $adset->genders = $adset->genders ?? [];
-    $adset->countries = $adset->countries ?? [];
-    $adset->languages = $adset->languages ?? [];
-    $adset->interests = $adset->interests ?? [];
-    $adset->publisher_platforms = $adset->publisher_platforms ?? [];
+    $adset->genders = is_array($adset->genders)
+        ? $adset->genders
+        : json_decode($adset->genders ?? '[]', true);
+
+    $adset->countries = is_array($adset->countries)
+        ? $adset->countries
+        : json_decode($adset->countries ?? '[]', true);
+
+    $adset->languages = is_array($adset->languages)
+        ? $adset->languages
+        : json_decode($adset->languages ?? '[]', true);
+
+    $adset->interests = is_array($adset->interests)
+        ? $adset->interests
+        : json_decode($adset->interests ?? '[]', true);
+
+    $adset->publisher_platforms = is_array($adset->publisher_platforms)
+        ? $adset->publisher_platforms
+        : json_decode($adset->publisher_platforms ?? '[]', true);
 
 
     /*

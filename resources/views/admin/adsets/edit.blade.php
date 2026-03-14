@@ -10,20 +10,13 @@
 <div class="flex justify-between items-center">
 
 <div>
-<h1 class="text-3xl font-bold text-gray-900">
-Edit Ad Set
-</h1>
-
-<p class="text-sm text-gray-500">
-Modify targeting, budget and delivery settings
-</p>
+<h1 class="text-3xl font-bold text-gray-900">Edit Ad Set</h1>
+<p class="text-sm text-gray-500">Modify targeting, budget and delivery settings</p>
 </div>
 
 <a href="{{ route('admin.adsets.index') }}"
 class="bg-gray-600 text-white px-4 py-3 rounded-xl hover:bg-gray-700">
-
 Back
-
 </a>
 
 </div>
@@ -31,21 +24,13 @@ Back
 
 {{-- ERRORS --}}
 @if($errors->any())
-
 <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
-
 <ul class="list-disc ml-6">
-
 @foreach ($errors->all() as $error)
-
 <li>{{ $error }}</li>
-
 @endforeach
-
 </ul>
-
 </div>
-
 @endif
 
 
@@ -75,7 +60,7 @@ disabled>
 
 
 
-{{-- ADSET NAME --}}
+{{-- NAME --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Ad Set Name</label>
@@ -99,9 +84,9 @@ required>
 <input
 type="number"
 name="daily_budget"
-value="{{ old('daily_budget',$adset->daily_budget ?? 10) }}"
-min="5"
 step="0.01"
+min="5"
+value="{{ old('daily_budget',$adset->daily_budget ?? 10) }}"
 class="w-full border rounded-xl px-4 py-3"
 required>
 
@@ -118,8 +103,7 @@ Minimum recommended: $5/day
 
 <label class="font-semibold block mb-2">Status</label>
 
-<select
-name="status"
+<select name="status"
 class="w-full border rounded-xl px-4 py-3">
 
 <option value="ACTIVE" @selected($adset->status=='ACTIVE')>
@@ -139,14 +123,14 @@ Paused
 {{-- FACEBOOK PAGE --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Facebook Page
-</label>
+<label class="font-semibold block mb-2">Facebook Page</label>
 
 <select
 name="page_id"
 class="w-full border rounded-xl px-4 py-3"
 required>
+
+<option value="">Select Page</option>
 
 @foreach($pages as $page)
 
@@ -170,35 +154,28 @@ value="{{ $page['id'] }}"
 <div class="grid grid-cols-2 gap-4 mb-6">
 
 <div>
-
-<label class="font-semibold block mb-2">
-Min Age
-</label>
+<label class="font-semibold block mb-2">Min Age</label>
 
 <input
 type="number"
 name="age_min"
-value="{{ old('age_min',$adset->age_min ?? 18) }}"
 min="18"
 max="65"
+value="{{ old('age_min',$adset->age_min ?? 18) }}"
 class="w-full border rounded-xl px-4 py-3">
-
 </div>
 
-<div>
 
-<label class="font-semibold block mb-2">
-Max Age
-</label>
+<div>
+<label class="font-semibold block mb-2">Max Age</label>
 
 <input
 type="number"
 name="age_max"
-value="{{ old('age_max',$adset->age_max ?? 65) }}"
 min="18"
 max="65"
+value="{{ old('age_max',$adset->age_max ?? 65) }}"
 class="w-full border rounded-xl px-4 py-3">
-
 </div>
 
 </div>
@@ -208,9 +185,7 @@ class="w-full border rounded-xl px-4 py-3">
 {{-- GENDER --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Gender
-</label>
+<label class="font-semibold block mb-2">Gender</label>
 
 <select
 name="genders[]"
@@ -218,11 +193,13 @@ multiple
 id="gender-select"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="1" @selected(in_array(1,$adset->genders ?? []))>
+<option value="1"
+@selected(in_array(1,$adset->genders ?? []))>
 Male
 </option>
 
-<option value="2" @selected(in_array(2,$adset->genders ?? []))>
+<option value="2"
+@selected(in_array(2,$adset->genders ?? []))>
 Female
 </option>
 
@@ -235,9 +212,7 @@ Female
 {{-- COUNTRIES --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Countries
-</label>
+<label class="font-semibold block mb-2">Countries</label>
 
 <select
 name="countries[]"
@@ -267,9 +242,7 @@ value="{{ $code }}"
 {{-- LANGUAGES --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Languages
-</label>
+<label class="font-semibold block mb-2">Languages</label>
 
 <select
 name="languages[]"
@@ -298,9 +271,7 @@ value="{{ $id }}"
 {{-- INTERESTS --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Interest Targeting
-</label>
+<label class="font-semibold block mb-2">Interest Targeting</label>
 
 <select
 name="interests[]"
@@ -315,9 +286,7 @@ class="w-full border rounded-xl px-4 py-3"></select>
 {{-- PLACEMENT --}}
 <div class="mb-6">
 
-<label class="font-semibold block mb-2">
-Placement Strategy
-</label>
+<label class="font-semibold block mb-2">Placement Strategy</label>
 
 <select
 name="placement_type"
@@ -326,16 +295,12 @@ class="w-full border rounded-xl px-4 py-3">
 
 <option value="automatic"
 @selected($adset->placement_type=='automatic')>
-
 Automatic
-
 </option>
 
 <option value="manual"
 @selected($adset->placement_type=='manual')>
-
 Manual
-
 </option>
 
 </select>
@@ -359,10 +324,25 @@ multiple
 id="platform-select"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="facebook">Facebook</option>
-<option value="instagram">Instagram</option>
-<option value="messenger">Messenger</option>
-<option value="audience_network">Audience Network</option>
+<option value="facebook"
+@selected(in_array('facebook',$adset->publisher_platforms ?? []))>
+Facebook
+</option>
+
+<option value="instagram"
+@selected(in_array('instagram',$adset->publisher_platforms ?? []))>
+Instagram
+</option>
+
+<option value="messenger"
+@selected(in_array('messenger',$adset->publisher_platforms ?? []))>
+Messenger
+</option>
+
+<option value="audience_network"
+@selected(in_array('audience_network',$adset->publisher_platforms ?? []))>
+Audience Network
+</option>
 
 </select>
 
@@ -370,7 +350,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-{{-- META INFO --}}
+{{-- META ID --}}
 @if($adset->meta_id)
 
 <div class="bg-gray-50 border rounded-xl p-4 mb-6">
@@ -399,9 +379,7 @@ Meta AdSet ID
 <button
 type="submit"
 class="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700">
-
 Update Ad Set
-
 </button>
 
 </form>
@@ -417,9 +395,7 @@ action="{{ route('admin.adsets.destroy',$adset) }}">
 <button
 onclick="return confirm('Delete this Ad Set?')"
 class="bg-red-600 text-white px-8 py-3 rounded-xl hover:bg-red-700">
-
 Delete
-
 </button>
 
 </form>
@@ -442,7 +418,6 @@ new TomSelect("#language-select",{plugins:['remove_button']});
 new TomSelect("#platform-select",{plugins:['remove_button']});
 
 
-
 let interestSelect = new TomSelect("#interest-select",{
 
 plugins:['remove_button'],
@@ -460,6 +435,17 @@ fetch("/admin/meta/interests?q="+query)
 .catch(()=>callback());
 
 }
+
+});
+
+
+// Prefill interests
+let existingInterests = @json($adset->interests ?? []);
+
+existingInterests.forEach(function(id){
+
+interestSelect.addOption({id:id,name:id});
+interestSelect.addItem(id);
 
 });
 
@@ -489,7 +475,6 @@ let max=parseInt(document.querySelector("[name='age_max']").value);
 if(min > max){
 
 e.preventDefault();
-
 alert("Minimum age cannot be greater than maximum age");
 
 }

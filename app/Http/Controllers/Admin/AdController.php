@@ -625,25 +625,11 @@ public function sync(Ad $ad): RedirectResponse
 {
     if (!$ad->meta_ad_id) {
         return back()->withErrors([
-            'sync'=>'Ad not synced with Meta'
+            'sync' => 'Ad not synced with Meta'
         ]);
     }
 
     try {
-
-        /*
-        |----------------------------------------
-        | Fetch Ad
-        |----------------------------------------
-        */
-
-        $metaAd = $this->meta->getAd($ad->meta_ad_id);
-
-        /*
-        |----------------------------------------
-        | Fetch Insights
-        |----------------------------------------
-        */
 
         $insights = $this->meta->getInsights($ad->meta_ad_id);
 
@@ -651,120 +637,29 @@ public function sync(Ad $ad): RedirectResponse
         $clicks = 0;
         $spend = 0;
 
-        if(isset($insights['data'][0])){
+        if (!empty($insights['data'][0])) {
 
             $row = $insights['data'][0];
 
-            $impressions = $row['impressions'] ?? 0;
-            $clicks = $row['clicks'] ?? 0;
-            $spend = $row['spend'] ?? 0;
+            $impressions = (int) ($row['impressions'] ?? 0);
+            $clicks = (int) ($row['clicks'] ?? 0);
+            $spend = (float) ($row['spend'] ?? 0);
         }
 
-        $today = now()->toDateString();
+        $ctr = $impressions > 0
+            ? round(($clicks / $impressions) * 100, 2)
+            : 0;
 
-/*
-|--------------------------------------------------------------------------
-| Reset Daily Spend If New Day
-|--------------------------------------------------------------------------
-*/
+        $ad->update([
 
-$today = now()->toDateString();
+            'impressions' => $impressions,
+            'clicks' => $clicks,
+            'spend' => $spend,
+            'ctr' => $ctr
 
-if (!$ad->spend_date || $ad->spend_date !== $today) {
+        ]);
 
-    $ad->daily_spend = 0;
-    $ad->spend_date = $today;
-
-    Log::info('AD_DAILY_SPEND_RESET', [
-        'ad_id' => $ad->id,
-        'date' => $today
-    ]);
-}
-
-/*
-|--------------------------------------------------------------------------
-| Calculate Spend Increment
-|--------------------------------------------------------------------------
-| Meta returns lifetime spend. We calculate the difference from
-| the last stored value to determine today's increment.
-*/
-
-$previousSpend = (float) $ad->spend;
-$currentSpend  = (float) $spend;
-
-$increment = $currentSpend - $previousSpend;
-
-if ($increment < 0) {
-    $increment = 0;
-}
-
-$ad->daily_spend += $increment;
-
-/*
-|--------------------------------------------------------------------------
-| Budget Guard
-|--------------------------------------------------------------------------
-*/
-
-if (
-    $ad->pause_reason !== 'manual' &&
-    $ad->daily_budget &&
-    $ad->daily_spend >= $ad->daily_budget
-) {
-
-    $this->meta->updateAd(
-        $ad->meta_ad_id,
-        ['status' => 'PAUSED']
-    );
-
-    $ad->status = 'PAUSED';
-    $ad->pause_reason = 'budget_limit';
-
-    Log::info('AD_AUTO_PAUSED_BUDGET_LIMIT', [
-        'ad_id' => $ad->id,
-        'daily_spend' => $ad->daily_spend,
-        'daily_budget' => $ad->daily_budget
-    ]);
-}
-
-/*
-|--------------------------------------------------------------------------
-| CTR Calculation
-|--------------------------------------------------------------------------
-*/
-
-$ctr = $impressions > 0
-    ? round(($clicks / $impressions) * 100, 2)
-    : 0;
-
-/*
-|--------------------------------------------------------------------------
-| Update Local Ad
-|--------------------------------------------------------------------------
-*/
-
-$ad->update([
-
-    'status' => $ad->status ?? ($metaAd['status'] ?? $ad->status),
-
-    'pause_reason' => $ad->pause_reason,
-
-    'impressions' => $impressions,
-
-    'clicks' => $clicks,
-
-    'spend' => $currentSpend,
-
-    'ctr' => $ctr,
-
-    'daily_spend' => $ad->daily_spend,
-
-    'spend_date' => $ad->spend_date
-
-]);
-
-return back()->with('success','Ad synced with Meta.');
-
+        return back()->with('success','Ad metrics refreshed.');
 
     }
 

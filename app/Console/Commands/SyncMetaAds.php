@@ -100,7 +100,7 @@ class SyncMetaAds extends Command
 
                 $impressions = 0;
                 $clicks = 0;
-                $spend = 0;
+                $currentSpend = 0;
 
                 if (!empty($insights['data'][0])) {
 
@@ -108,34 +108,49 @@ class SyncMetaAds extends Command
 
                     $impressions = (int) ($row['impressions'] ?? 0);
                     $clicks = (int) ($row['clicks'] ?? 0);
-                    $spend = (float) ($row['spend'] ?? 0);
+                    $currentSpend = (float) ($row['spend'] ?? 0);
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | DAILY SPEND LOGIC (FIXED)
+                | Daily Spend Logic
                 |--------------------------------------------------------------------------
                 */
 
                 $today = now()->toDateString();
 
+                $previousSpend = (float) ($ad->spend ?? 0);
+                $dailySpend = (float) ($ad->daily_spend ?? 0);
+
+                /*
+                |--------------------------------------------------------------------------
+                | Reset daily spend if new day
+                |--------------------------------------------------------------------------
+                */
+
                 if (!$ad->spend_date || $ad->spend_date !== $today) {
 
-                    $ad->daily_spend = 0;
-                    $ad->spend_date = $today;
+                    $dailySpend = 0;
+
+                    Log::info('AD_DAILY_SPEND_RESET', [
+                        'ad_id' => $ad->id,
+                        'date' => $today
+                    ]);
                 }
 
-                $previousSpend = $ad->spend ?? 0;
+                /*
+                |--------------------------------------------------------------------------
+                | Calculate spend increment
+                |--------------------------------------------------------------------------
+                */
 
-                $increment = $spend - $previousSpend;
+                $increment = $currentSpend - $previousSpend;
 
                 if ($increment < 0) {
                     $increment = 0;
                 }
 
-                $ad->daily_spend += $increment;
-
-                $todaySpend = $ad->daily_spend;
+                $dailySpend += $increment;
 
                 /*
                 |--------------------------------------------------------------------------
@@ -143,11 +158,14 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
+                $status = $metaAd['status'] ?? $ad->status;
+                $pauseReason = $ad->pause_reason;
+
                 if (
-                    $ad->pause_reason !== 'manual' &&
+                    $pauseReason !== 'manual' &&
                     $ad->daily_budget &&
-                    $todaySpend >= $ad->daily_budget &&
-                    $ad->status !== 'PAUSED'
+                    $dailySpend >= $ad->daily_budget &&
+                    $status !== 'PAUSED'
                 ) {
 
                     $this->meta->updateAd(
@@ -155,13 +173,13 @@ class SyncMetaAds extends Command
                         ['status' => 'PAUSED']
                     );
 
-                    $ad->status = 'PAUSED';
-                    $ad->pause_reason = 'budget_limit';
+                    $status = 'PAUSED';
+                    $pauseReason = 'budget_limit';
 
                     Log::info('AD_AUTO_PAUSED_DAILY_BUDGET', [
 
                         'meta_ad_id' => $metaAdId,
-                        'daily_spend' => $todaySpend,
+                        'daily_spend' => $dailySpend,
                         'daily_budget' => $ad->daily_budget
 
                     ]);
@@ -173,26 +191,32 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
-                $ctr = 0;
-
-                if ($impressions > 0) {
-                    $ctr = round(($clicks / $impressions) * 100, 2);
-                }
+                $ctr = $impressions > 0
+                    ? round(($clicks / $impressions) * 100, 2)
+                    : 0;
 
                 /*
                 |--------------------------------------------------------------------------
-                | Update Metrics
+                | Update Ad Metrics
                 |--------------------------------------------------------------------------
                 */
 
                 $ad->update([
 
-                    'status' => $ad->status ?? ($metaAd['status'] ?? 'PAUSED'),
+                    'status' => $status,
+
+                    'pause_reason' => $pauseReason,
+
                     'impressions' => $impressions,
+
                     'clicks' => $clicks,
-                    'spend' => $spend,
+
+                    'spend' => $currentSpend,
+
                     'ctr' => $ctr,
-                    'daily_spend' => $ad->daily_spend,
+
+                    'daily_spend' => $dailySpend,
+
                     'spend_date' => $today
 
                 ]);
@@ -200,8 +224,8 @@ class SyncMetaAds extends Command
                 Log::info('META_AD_SYNCED', [
 
                     'meta_ad_id' => $metaAdId,
-                    'lifetime_spend' => $spend,
-                    'daily_spend' => $ad->daily_spend
+                    'lifetime_spend' => $currentSpend,
+                    'daily_spend' => $dailySpend
 
                 ]);
 
@@ -213,7 +237,9 @@ class SyncMetaAds extends Command
 
             return Command::SUCCESS;
 
-        } catch (\Throwable $e) {
+        }
+
+        catch (\Throwable $e) {
 
             Log::error('META_SYNC_FAILED', [
 

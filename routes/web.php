@@ -353,10 +353,12 @@ Route::prefix('ads')->name('ads.')->group(function () {
     Route::post('{ad}/sync', [AdController::class, 'sync'])
         ->name('sync');
 
-    // ADD THIS
     Route::post('{ad}/publish', [AdController::class, 'publish'])
         ->name('publish');
 
+    /* LIVE DASHBOARD ROUTE */
+    Route::get('live', [AdController::class,'live'])
+        ->name('live');
 });
 
         // Ad Set-specific Ad creation
@@ -552,5 +554,3 @@ Route::delete('/admin/inbox/{conversation}/delete', [InboxController::class,'del
     Route::get('/admin/inbox/{conversation}/messages', [InboxController::class, 'fetchMessages'])
     ->name('admin.inbox.messages');
 require __DIR__.'/auth.php';
-Route::get('/admin/ads/live', [AdController::class,'live'])
-    ->name('admin.ads.live');

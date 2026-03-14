@@ -854,38 +854,46 @@ public function publish(Ad $ad): RedirectResponse
         ]);
     }
 }
-public function live()
+public function live(): JsonResponse
 {
-    $ads = Ad::with([
-        'creative:id,name,image_url',
-        'adSet:id,name'
-    ])
-    ->select([
-        'id',
-        'name',
-        'meta_ad_id',
-        'status',
-        'impressions',
-        'clicks',
-        'ctr',
-        'spend',
-        'daily_spend',
-        'daily_budget',
-        'pause_reason'
-    ])
-    ->latest()
-    ->get();
+    $ads = Ad::query()
+        ->with([
+            'creative:id,name,image_url',
+            'adSet:id,name'
+        ])
+        ->select([
+            'id',
+            'name',
+            'adset_id',
+            'creative_id',
+            'meta_ad_id',
+            'status',
+            'impressions',
+            'clicks',
+            'ctr',
+            'spend',
+            'daily_spend',
+            'daily_budget',
+            'pause_reason'
+        ])
+        ->latest()
+        ->get();
 
     $metrics = [
+
         'total_ads' => $ads->count(),
+
         'active_ads' => $ads->where('status','ACTIVE')->count(),
+
         'total_spend' => $ads->sum('spend'),
+
         'total_clicks' => $ads->sum('clicks')
+
     ];
 
     return response()->json([
-        'metrics'=>$metrics,
-        'ads'=>$ads
+        'metrics' => $metrics,
+        'ads' => $ads
     ]);
 }
 }

@@ -22,31 +22,24 @@ class Kernel extends ConsoleKernel
         | Updates dashboard data used by AJAX live refresh.
         */
 
-        $schedule->command('meta:sync-ads')
-            ->everyMinute()
-            ->withoutOverlapping()
-            ->onOneServer()
-            ->runInBackground()
-            ->name('meta-ads-sync')
-            ->appendOutputTo(storage_path('logs/meta-sync.log'));
+    $schedule->command('meta:sync-ads')
+    ->everyMinute()
+    ->withoutOverlapping(120)
+    ->onOneServer()
+    ->runInBackground()
+    ->name('meta-sync')
+    ->appendOutputTo(storage_path('logs/meta-sync.log'));
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | DAILY BUDGET RESET
-        |--------------------------------------------------------------------------
-        | Resets "Today Spend" counters at midnight.
-        */
-
-        $schedule->command('ads:reset-daily-budget')
-            ->dailyAt('00:01')
-            ->withoutOverlapping()
-            ->onOneServer()
-            ->runInBackground()
-            ->name('ads-budget-reset')
-            ->appendOutputTo(storage_path('logs/ad-reset.log'));
-
-
+$schedule->command('ads:reset-daily-budget')
+    ->everyMinute()
+    ->withoutOverlapping(120)
+    ->onOneServer()
+    ->runInBackground()
+    ->name('ads-budget-reset')
+    ->appendOutputTo(storage_path('logs/ad-reset.log'))
+    ->after(function () {
+        Log::info('BUDGET_RESET_FINISHED');
+    });
         /*
         |--------------------------------------------------------------------------
         | MESSAGING AUTOMATION

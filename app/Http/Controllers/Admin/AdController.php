@@ -664,32 +664,41 @@ public function sync(Ad $ad): RedirectResponse
 
 /*
 |--------------------------------------------------------------------------
-| Reset daily spend if new day
+| Reset Daily Spend If New Day
 |--------------------------------------------------------------------------
 */
-if (!$ad->spend_date) {
 
-    $ad->spend_date = $today;
+$today = now()->toDateString();
 
-} elseif ($ad->spend_date != $today) {
+if (!$ad->spend_date || $ad->spend_date !== $today) {
 
     $ad->daily_spend = 0;
-
     $ad->spend_date = $today;
+
+    Log::info('AD_DAILY_SPEND_RESET', [
+        'ad_id' => $ad->id,
+        'date' => $today
+    ]);
 }
+
 /*
 |--------------------------------------------------------------------------
-| Calculate today's spend increment
+| Calculate Spend Increment
 |--------------------------------------------------------------------------
+| Meta returns lifetime spend. We calculate the difference from
+| the last stored value to determine today's increment.
 */
 
-$spentToday = $spend - $ad->spend;
+$previousSpend = (float) $ad->spend;
+$currentSpend  = (float) $spend;
 
-if ($spentToday < 0) {
-    $spentToday = 0;
+$increment = $currentSpend - $previousSpend;
+
+if ($increment < 0) {
+    $increment = 0;
 }
 
-$ad->daily_spend += $spentToday;
+$ad->daily_spend += $increment;
 
 /*
 |--------------------------------------------------------------------------
@@ -697,31 +706,42 @@ $ad->daily_spend += $spentToday;
 |--------------------------------------------------------------------------
 */
 
-if ($ad->pause_reason !== 'manual' && $ad->daily_spend >= $ad->daily_budget) {
+if (
+    $ad->pause_reason !== 'manual' &&
+    $ad->daily_budget &&
+    $ad->daily_spend >= $ad->daily_budget
+) {
 
     $this->meta->updateAd(
         $ad->meta_ad_id,
         ['status' => 'PAUSED']
     );
 
- $ad->status = 'PAUSED';
-$ad->pause_reason = 'budget_limit';
+    $ad->status = 'PAUSED';
+    $ad->pause_reason = 'budget_limit';
 
     Log::info('AD_AUTO_PAUSED_BUDGET_LIMIT', [
         'ad_id' => $ad->id,
-        'daily_spend' => $ad->daily_spend
+        'daily_spend' => $ad->daily_spend,
+        'daily_budget' => $ad->daily_budget
     ]);
 }
 
-        $ctr = $impressions > 0
-            ? ($clicks / $impressions) * 100
-            : 0;
+/*
+|--------------------------------------------------------------------------
+| CTR Calculation
+|--------------------------------------------------------------------------
+*/
 
-        /*
-        |----------------------------------------
-        | Update Local Ad
-        |----------------------------------------
-        */
+$ctr = $impressions > 0
+    ? round(($clicks / $impressions) * 100, 2)
+    : 0;
+
+/*
+|--------------------------------------------------------------------------
+| Update Local Ad
+|--------------------------------------------------------------------------
+*/
 
 $ad->update([
 
@@ -733,7 +753,7 @@ $ad->update([
 
     'clicks' => $clicks,
 
-    'spend' => $spend,
+    'spend' => $currentSpend,
 
     'ctr' => $ctr,
 
@@ -743,7 +763,8 @@ $ad->update([
 
 ]);
 
-        return back()->with('success','Ad synced with Meta.');
+return back()->with('success','Ad synced with Meta.');
+
 
     }
 

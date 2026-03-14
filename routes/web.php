@@ -352,7 +352,8 @@ Route::prefix('ads')->name('ads.')->group(function () {
 
     Route::post('{ad}/sync', [AdController::class, 'sync'])
         ->name('sync');
-
+Route::get('{ad}/preview', [AdController::class,'preview'])
+    ->name('preview');
     Route::post('{ad}/publish', [AdController::class, 'publish'])
         ->name('publish');
 
@@ -531,8 +532,7 @@ Route::get('/admin/meta/interests', [\App\Http\Controllers\Admin\MetaTargetingCo
     Route::patch('/profile',[ProfileController::class,'update'])->name('profile.update');
 
     Route::delete('/profile',[ProfileController::class,'destroy'])->name('profile.destroy');
-Route::get('/ads/{creative}/preview', [AdController::class, 'preview'])
-    ->name('admin.ads.preview');
+
 
 Route::get(
     '/admin/creatives/{creative}/preview',

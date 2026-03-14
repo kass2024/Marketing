@@ -367,24 +367,59 @@ $ad = Ad::create([
     |--------------------------------------------------------------------------
     */
 
-    public function preview(Ad $ad): JsonResponse
-    {
-        $creative = $ad->creative;
+   public function preview(Ad $ad): View
+{
+    $ad->load([
+        'creative',
+        'adSet',
+        'adSet.campaign'
+    ]);
 
-        return response()->json([
+    /*
+    |--------------------------------------------------------------------------
+    | Sync Insights From Meta
+    |--------------------------------------------------------------------------
+    */
 
-            'image_url' => $creative->image_url ?? null,
+    try {
 
-            'video_url' => $creative->video_url ?? null,
+        if ($ad->meta_ad_id) {
 
-            'headline' => $creative->headline ?? '',
+            $response = $this->meta->getInsights($ad->meta_ad_id);
 
-            'body' => $creative->body ?? '',
+            if (!empty($response['data'][0])) {
 
-            'call_to_action' => $creative->call_to_action ?? ''
+                $row = $response['data'][0];
 
+                $impressions = (int)($row['impressions'] ?? 0);
+                $clicks = (int)($row['clicks'] ?? 0);
+                $spend = (float)($row['spend'] ?? 0);
+
+                $ctr = $impressions > 0
+                    ? round(($clicks / $impressions) * 100, 2)
+                    : 0;
+
+                $ad->update([
+                    'impressions' => $impressions,
+                    'clicks' => $clicks,
+                    'spend' => $spend,
+                    'ctr' => $ctr
+                ]);
+            }
+        }
+
+    } catch (Throwable $e) {
+
+        Log::error('AD_PREVIEW_INSIGHTS_FAILED',[
+            'ad_id'=>$ad->id,
+            'error'=>$e->getMessage()
         ]);
     }
+
+    return view('admin.ads.preview',[
+        'ad'=>$ad
+    ]);
+}
 
 /*
 |--------------------------------------------------------------------------

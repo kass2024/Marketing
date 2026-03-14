@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+
 use App\Services\MetaAdsService;
 
 use App\Models\AdAccount;
@@ -66,12 +67,20 @@ class SyncMetaAds extends Command
 
                     [
                         'ad_account_id' => $account->id,
-                        'name' => $metaCampaign['name'] ?? 'Unnamed Campaign',
-                        'status' => $metaCampaign['status'] ?? 'PAUSED',
-                        'objective' => $metaCampaign['objective'] ?? null
+                        'name'        => $metaCampaign['name'] ?? 'Unnamed Campaign',
+                        'status'      => $metaCampaign['status'] ?? 'PAUSED',
+                        'objective'   => $metaCampaign['objective'] ?? null,
                     ]
                 );
             }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Build Campaign Map
+            |--------------------------------------------------------------------------
+            */
+
+            $campaignMap = Campaign::pluck('id', 'meta_id');
 
             /*
             |--------------------------------------------------------------------------
@@ -81,22 +90,19 @@ class SyncMetaAds extends Command
 
             $this->info('Syncing adsets...');
 
-            $adsets = $this->meta->getAdSets($accountId);
+            $metaAdsets = $this->meta->getAdSets($accountId);
 
-            foreach ($adsets['data'] ?? [] as $metaAdset) {
+            foreach ($metaAdsets['data'] ?? [] as $metaAdset) {
 
-                $campaign = Campaign::where(
-                    'meta_id',
-                    $metaAdset['campaign_id'] ?? null
-                )->first();
+                $campaignId = $campaignMap[$metaAdset['campaign_id'] ?? null] ?? null;
 
-                if (!$campaign) {
+                if (!$campaignId) {
                     continue;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Normalize Budget (Meta returns cents)
+                | Budget Conversion (Meta returns cents)
                 |--------------------------------------------------------------------------
                 */
 
@@ -108,30 +114,30 @@ class SyncMetaAds extends Command
 
                     Log::info('META_ADSET_BUDGET_RAW', [
                         'meta_adset_id' => $metaAdset['id'],
-                        'raw_budget' => $rawBudget
+                        'raw_budget'    => $rawBudget
                     ]);
 
-                    if ($rawBudget > 100) {
-                        $budget = $rawBudget / 100;
-                    } else {
-                        $budget = $rawBudget;
-                    }
+                    $budget = $rawBudget / 100;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | Prevent accidental budget corruption
+                | Protect DB budget if Meta returns suspicious value
                 |--------------------------------------------------------------------------
                 */
 
                 $existing = AdSet::where('meta_id', $metaAdset['id'])->first();
 
-                if ($existing && $existing->daily_budget && $budget && $budget < 0.1) {
-
+                if (
+                    $existing &&
+                    $existing->daily_budget &&
+                    $budget !== null &&
+                    $budget < 0.05
+                ) {
                     Log::warning('META_BUDGET_PROTECTED', [
-                        'meta_id' => $metaAdset['id'],
-                        'existing_budget' => $existing->daily_budget,
-                        'incoming_budget' => $budget
+                        'meta_id'        => $metaAdset['id'],
+                        'existing_budget'=> $existing->daily_budget,
+                        'incoming_budget'=> $budget
                     ]);
 
                     $budget = $existing->daily_budget;
@@ -142,13 +148,21 @@ class SyncMetaAds extends Command
                     ['meta_id' => $metaAdset['id']],
 
                     [
-                        'campaign_id' => $campaign->id,
-                        'name' => $metaAdset['name'] ?? 'Unnamed AdSet',
-                        'status' => $metaAdset['status'] ?? 'PAUSED',
-                        'daily_budget' => $budget
+                        'campaign_id' => $campaignId,
+                        'name'        => $metaAdset['name'] ?? 'Unnamed AdSet',
+                        'status'      => $metaAdset['status'] ?? 'PAUSED',
+                        'daily_budget'=> $budget
                     ]
                 );
             }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Build AdSet Map
+            |--------------------------------------------------------------------------
+            */
+
+            $adsetMap = AdSet::pluck('id', 'meta_id');
 
             /*
             |--------------------------------------------------------------------------
@@ -158,24 +172,16 @@ class SyncMetaAds extends Command
 
             $this->info('Syncing ads...');
 
-            $ads = $this->meta->getAds($accountId);
+            $metaAds = $this->meta->getAds($accountId);
 
             $count = 0;
 
-            foreach ($ads['data'] ?? [] as $metaAd) {
+            foreach ($metaAds['data'] ?? [] as $metaAd) {
 
                 $metaAdId = $metaAd['id'] ?? null;
+                $adsetId  = $adsetMap[$metaAd['adset_id'] ?? null] ?? null;
 
-                if (!$metaAdId) {
-                    continue;
-                }
-
-                $adset = AdSet::where(
-                    'meta_id',
-                    $metaAd['adset_id'] ?? null
-                )->first();
-
-                if (!$adset) {
+                if (!$metaAdId || !$adsetId) {
                     continue;
                 }
 
@@ -184,9 +190,9 @@ class SyncMetaAds extends Command
                     ['meta_ad_id' => $metaAdId],
 
                     [
-                        'adset_id' => $adset->id,
-                        'name' => $metaAd['name'] ?? 'Unnamed Ad',
-                        'status' => $metaAd['status'] ?? 'PAUSED'
+                        'adset_id' => $adsetId,
+                        'name'     => $metaAd['name'] ?? 'Unnamed Ad',
+                        'status'   => $metaAd['status'] ?? 'PAUSED'
                     ]
                 );
 
@@ -198,18 +204,9 @@ class SyncMetaAds extends Command
 
                 $insights = $this->meta->getInsights($metaAdId);
 
-                $impressions = 0;
-                $clicks = 0;
-                $currentSpend = 0;
-
-                if (!empty($insights['data'][0])) {
-
-                    $row = $insights['data'][0];
-
-                    $impressions = (int) ($row['impressions'] ?? 0);
-                    $clicks = (int) ($row['clicks'] ?? 0);
-                    $currentSpend = (float) ($row['spend'] ?? 0);
-                }
+                $impressions = (int) ($insights['data'][0]['impressions'] ?? 0);
+                $clicks      = (int) ($insights['data'][0]['clicks'] ?? 0);
+                $currentSpend= (float) ($insights['data'][0]['spend'] ?? 0);
 
                 /*
                 |--------------------------------------------------------------------------
@@ -219,8 +216,8 @@ class SyncMetaAds extends Command
 
                 $today = now()->toDateString();
 
-                $previousSpend = (float) ($ad->spend ?? 0);
-                $dailySpend = (float) ($ad->daily_spend ?? 0);
+                $previousSpend = (float) $ad->spend;
+                $dailySpend    = (float) $ad->daily_spend;
 
                 if (!$ad->spend_date || $ad->spend_date !== $today) {
 
@@ -228,22 +225,11 @@ class SyncMetaAds extends Command
 
                     Log::info('AD_DAILY_SPEND_RESET', [
                         'ad_id' => $ad->id,
-                        'date' => $today
+                        'date'  => $today
                     ]);
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Spend Increment
-                |--------------------------------------------------------------------------
-                */
-
-                $increment = $currentSpend - $previousSpend;
-
-                if ($increment < 0) {
-                    $increment = 0;
-                }
-
+                $increment = max(0, $currentSpend - $previousSpend);
                 $dailySpend += $increment;
 
                 /*
@@ -252,7 +238,7 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
-                $status = $metaAd['status'] ?? $ad->status;
+                $status      = $metaAd['status'] ?? $ad->status;
                 $pauseReason = $ad->pause_reason;
 
                 if (
@@ -271,15 +257,15 @@ class SyncMetaAds extends Command
                     $pauseReason = 'budget_limit';
 
                     Log::info('AD_AUTO_PAUSED_BUDGET_LIMIT', [
-                        'meta_ad_id' => $metaAdId,
+                        'meta_ad_id'  => $metaAdId,
                         'daily_spend' => $dailySpend,
-                        'daily_budget' => $ad->daily_budget
+                        'daily_budget'=> $ad->daily_budget
                     ]);
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | CTR
+                | CTR Calculation
                 |--------------------------------------------------------------------------
                 */
 
@@ -289,27 +275,27 @@ class SyncMetaAds extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | Update Ad
+                | Update Ad Metrics
                 |--------------------------------------------------------------------------
                 */
 
                 $ad->update([
 
-                    'status' => $status,
+                    'status'       => $status,
                     'pause_reason' => $pauseReason,
-                    'impressions' => $impressions,
-                    'clicks' => $clicks,
-                    'spend' => $currentSpend,
-                    'ctr' => $ctr,
-                    'daily_spend' => $dailySpend,
-                    'spend_date' => $today
+                    'impressions'  => $impressions,
+                    'clicks'       => $clicks,
+                    'spend'        => $currentSpend,
+                    'ctr'          => $ctr,
+                    'daily_spend'  => $dailySpend,
+                    'spend_date'   => $today
                 ]);
 
                 Log::info('META_AD_SYNCED', [
 
-                    'meta_ad_id' => $metaAdId,
-                    'lifetime_spend' => $currentSpend,
-                    'daily_spend' => $dailySpend
+                    'meta_ad_id'    => $metaAdId,
+                    'lifetime_spend'=> $currentSpend,
+                    'daily_spend'   => $dailySpend
                 ]);
 
                 $count++;
@@ -322,14 +308,12 @@ class SyncMetaAds extends Command
             ]);
 
             return Command::SUCCESS;
-        }
 
-        catch (\Throwable $e) {
+        } catch (\Throwable $e) {
 
             Log::error('META_SYNC_FAILED', [
-
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace'   => $e->getTraceAsString()
             ]);
 
             $this->error('Meta Ads sync failed: ' . $e->getMessage());

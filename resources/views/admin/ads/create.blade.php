@@ -118,11 +118,11 @@ required>
 @foreach($creatives as $creative)
 
 <option
-value="{{ $creative->meta_id }}"
+value="{{ $creative->id }}"
 data-headline="{{ $creative->headline }}"
 data-body="{{ $creative->body }}"
 data-image="{{ $creative->image_url }}"
-{{ old('creative_id') == $creative->meta_id ? 'selected' : '' }}
+{{ old('creative_id') == $creative->id ? 'selected' : '' }}
 >
 
 {{ $creative->name }}
@@ -132,6 +132,26 @@ data-image="{{ $creative->image_url }}"
 @endforeach
 
 </select>
+
+</div>
+
+
+
+{{-- DAILY BUDGET --}}
+<div class="mb-5">
+
+<label class="block text-sm font-medium mb-2">
+Daily Budget ($)
+</label>
+
+<input
+type="number"
+name="daily_budget"
+value="{{ old('daily_budget',2) }}"
+step="0.01"
+min="0.10"
+class="w-full border rounded-lg px-4 py-2"
+required>
 
 </div>
 
@@ -260,8 +280,6 @@ ${img}
 
 select.addEventListener('change', updatePreview);
 
-
-// Load preview if old value exists
 window.addEventListener('load', updatePreview);
 
 </script>

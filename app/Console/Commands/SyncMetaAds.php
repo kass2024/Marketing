@@ -162,7 +162,7 @@ class SyncMetaAds extends Command
                 |--------------------------------------------------------------------------
                 */
 
-                $lifetime = $this->meta->getInsights($metaAdId, 'lifetime');
+                $lifetime = $this->meta->getInsights($metaAdId, 'maximum');
 
                 $impressions = $lifetime['impressions'] ?? 0;
                 $clicks = $lifetime['clicks'] ?? 0;

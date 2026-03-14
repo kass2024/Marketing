@@ -155,7 +155,7 @@ class SyncMetaAds extends Command
 
                 $impressions = 0;
                 $clicks = 0;
-                $spend = 0;
+                $currentSpend = 0;
 
                 if (!empty($insights['data'][0])) {
 
@@ -163,7 +163,7 @@ class SyncMetaAds extends Command
 
                     $impressions = (int) ($row['impressions'] ?? 0);
                     $clicks = (int) ($row['clicks'] ?? 0);
-                    $spend = (float) ($row['spend'] ?? 0);
+                    $currentSpend = (float) ($row['spend'] ?? 0);
                 }
 
                 /*
@@ -187,15 +187,23 @@ class SyncMetaAds extends Command
                     ]);
                 }
 
-                $increment = $spend - $previousSpend;
+                /*
+                |--------------------------------------------------------------------------
+                | Spend Increment
+                |--------------------------------------------------------------------------
+                */
 
-                if ($increment < 0) $increment = 0;
+                $increment = $currentSpend - $previousSpend;
+
+                if ($increment < 0) {
+                    $increment = 0;
+                }
 
                 $dailySpend += $increment;
 
                 /*
                 |--------------------------------------------------------------------------
-                | Budget Guard
+                | Budget Guard (Per-Ad limit from DB)
                 |--------------------------------------------------------------------------
                 */
 
@@ -250,7 +258,7 @@ class SyncMetaAds extends Command
 
                     'clicks' => $clicks,
 
-                    'spend' => $spend,
+                    'spend' => $currentSpend,
 
                     'ctr' => $ctr,
 
@@ -260,11 +268,22 @@ class SyncMetaAds extends Command
 
                 ]);
 
+                Log::info('META_AD_SYNCED', [
+
+                    'meta_ad_id' => $metaAdId,
+                    'lifetime_spend' => $currentSpend,
+                    'daily_spend' => $dailySpend
+
+                ]);
+
                 $count++;
             }
 
             $this->info("Synced {$count} ads.");
-            Log::info('META_SYNC_COMPLETED', ['count' => $count]);
+
+            Log::info('META_SYNC_COMPLETED', [
+                'count' => $count
+            ]);
 
             return Command::SUCCESS;
 
@@ -273,8 +292,10 @@ class SyncMetaAds extends Command
         catch (\Throwable $e) {
 
             Log::error('META_SYNC_FAILED', [
+
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
+
             ]);
 
             $this->error('Meta Ads sync failed: ' . $e->getMessage());

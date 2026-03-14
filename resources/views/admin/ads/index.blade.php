@@ -348,8 +348,6 @@ Create Your First Ad
 
 </div>
 </div>
-
-
 {{-- =========================================================
 LIVE AJAX DASHBOARD UPDATE
 ========================================================= --}}
@@ -359,6 +357,51 @@ LIVE AJAX DASHBOARD UPDATE
 
 let running = false;
 
+/* =============================
+   FORMATTERS
+============================= */
+
+function money(v){
+    return '$' + Number(v || 0).toFixed(2);
+}
+
+function number(v){
+    return Number(v || 0).toLocaleString();
+}
+
+
+/* =============================
+   STATUS BADGE
+============================= */
+
+function renderStatus(status){
+
+    switch(status){
+
+        case 'ACTIVE':
+            return '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">Active</span>';
+
+        case 'PAUSED':
+            return '<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">Paused</span>';
+
+        case 'PENDING_REVIEW':
+            return '<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">In Review</span>';
+
+        case 'DISAPPROVED':
+            return '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">Disapproved</span>';
+
+        default:
+            return '<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Draft</span>';
+
+    }
+
+}
+
+
+/* =============================
+   MAIN REFRESH FUNCTION
+============================= */
+
 async function refreshAdsDashboard(){
 
     if(running) return;
@@ -367,32 +410,38 @@ async function refreshAdsDashboard(){
 
     try{
 
-        const response = await fetch("{{ route('admin.ads.live') }}");
+        const response = await fetch(
+            "{{ route('admin.ads.live') }}?t="+Date.now(),
+            {
+                headers:{
+                    'X-Requested-With':'XMLHttpRequest'
+                }
+            }
+        );
 
-        if(!response.ok) throw new Error("Network");
+        if(!response.ok){
+            throw new Error('Network response failed');
+        }
 
         const data = await response.json();
-
 
         /* =============================
            UPDATE METRICS
         ============================= */
 
-        document.getElementById('metric-total-ads').textContent =
-            data.metrics.total_ads;
+        const totalAds = document.getElementById('metric-total-ads');
+        const activeAds = document.getElementById('metric-active-ads');
+        const totalSpend = document.getElementById('metric-total-spend');
+        const totalClicks = document.getElementById('metric-total-clicks');
 
-        document.getElementById('metric-active-ads').textContent =
-            data.metrics.active_ads;
-
-        document.getElementById('metric-total-spend').textContent =
-            '$'+Number(data.metrics.total_spend).toFixed(2);
-
-        document.getElementById('metric-total-clicks').textContent =
-            Number(data.metrics.total_clicks).toLocaleString();
+        if(totalAds) totalAds.textContent = number(data.metrics.total_ads);
+        if(activeAds) activeAds.textContent = number(data.metrics.active_ads);
+        if(totalSpend) totalSpend.textContent = money(data.metrics.total_spend);
+        if(totalClicks) totalClicks.textContent = number(data.metrics.total_clicks);
 
 
         /* =============================
-           UPDATE TABLE
+           UPDATE TABLE ROWS
         ============================= */
 
         data.ads.forEach(ad => {
@@ -401,18 +450,25 @@ async function refreshAdsDashboard(){
             const clk = document.getElementById('clk-'+ad.id);
             const spn = document.getElementById('spend-'+ad.id);
             const tdy = document.getElementById('today-'+ad.id);
+            const sts = document.getElementById('status-'+ad.id);
 
-            if(imp) imp.textContent = Number(ad.impressions).toLocaleString();
-            if(clk) clk.textContent = Number(ad.clicks).toLocaleString();
-            if(spn) spn.textContent = '$'+Number(ad.spend).toFixed(2);
-            if(tdy) tdy.textContent = '$'+Number(ad.daily_spend).toFixed(2);
+            if(imp) imp.textContent = number(ad.impressions);
+            if(clk) clk.textContent = number(ad.clicks);
+            if(spn) spn.textContent = money(ad.spend);
+            if(tdy) tdy.textContent = money(ad.daily_spend);
+
+            if(sts){
+                sts.innerHTML = renderStatus(ad.status);
+            }
 
         });
+
+        console.log('Ads dashboard refreshed', data);
 
     }
     catch(e){
 
-        console.warn('Live dashboard update failed',e);
+        console.warn('Live dashboard update failed', e);
 
     }
 
@@ -422,19 +478,20 @@ async function refreshAdsDashboard(){
 
 
 /* =============================
-   RUN IMMEDIATELY
+   START
 ============================= */
 
 refreshAdsDashboard();
 
 
 /* =============================
-   AUTO REFRESH
+   AUTO REFRESH (5s)
 ============================= */
 
-setInterval(refreshAdsDashboard,10000);
+setInterval(refreshAdsDashboard, 5000);
+
 
 })();
-</script>
 
+</script>
 @endsection

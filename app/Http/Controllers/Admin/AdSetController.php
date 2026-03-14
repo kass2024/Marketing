@@ -163,17 +163,21 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $targeting = [
+          $targeting = [
 
-                'geo_locations' => [
-                    'countries' => array_values($data['countries'])
-                ],
+    'geo_locations' => [
+        'countries' => array_values($data['countries'])
+    ],
 
-                'age_min' => (int)$data['age_min'],
+    'age_min' => (int)$data['age_min'],
 
-                'age_max' => (int)$data['age_max']
-            ];
+    'age_max' => (int)$data['age_max'],
 
+    'targeting_automation' => [
+        'advantage_audience' => 0
+    ]
+
+];
             if (!empty($data['genders'])) {
 
                 $targeting['genders'] =
@@ -204,18 +208,19 @@ class AdSetController extends Controller
                 ];
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | LANGUAGES
-            |--------------------------------------------------------------------------
-            */
+       /*
+|--------------------------------------------------------------------------
+| LANGUAGES (store locally only - do NOT send to Meta)
+|--------------------------------------------------------------------------
+*/
 
-            if (!empty($data['languages'])) {
+$languages = [];
 
-                $targeting['locales'] =
-                    array_map('intval', $data['languages']);
-            }
+if (!empty($data['languages'])) {
 
+    $languages = array_map('intval', $data['languages']);
+
+}
             /*
             |--------------------------------------------------------------------------
             | PLACEMENTS
@@ -293,25 +298,28 @@ class AdSetController extends Controller
             | SAVE LOCAL
             |--------------------------------------------------------------------------
             */
+$adset = AdSet::create([
 
-            $adset = AdSet::create([
+    'campaign_id' => $campaign->id,
 
-                'campaign_id' => $campaign->id,
+    'meta_id' => $response['id'],
 
-                'meta_id' => $response['id'],
+    'name' => $data['name'],
 
-                'name' => $data['name'],
+    'daily_budget' => $payload['daily_budget'],
 
-                'daily_budget' => $payload['daily_budget'],
+    'billing_event' => $billingEvent,
 
-                'billing_event' => $billingEvent,
+    'optimization_goal' => $optimizationGoal,
 
-                'optimization_goal' => $optimizationGoal,
+    'targeting' => json_encode([
+        ...$targeting,
+        'locales' => $languages ?? []
+    ]),
 
-                'targeting' => json_encode($targeting),
+    'status' => 'PAUSED'
 
-                'status' => 'PAUSED'
-            ]);
+]);
 
             DB::commit();
 

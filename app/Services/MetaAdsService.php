@@ -273,20 +273,29 @@ protected function handleError($response, $endpoint, $payload = [])
 
 protected function buildTargeting(array $targeting): array
 {
-    if(
-        isset($targeting['geo_locations']['countries']) &&
-        count($targeting['geo_locations']['countries']) === 1
-    ){
-        unset($targeting['locales']);
-    }
+    /*
+    |--------------------------------------------------------------------------
+    | Remove locales (Meta rejects them)
+    |--------------------------------------------------------------------------
+    */
 
-    if(isset($targeting['flexible_spec'])){
+    unset($targeting['locales']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ensure Advantage Audience flag
+    |--------------------------------------------------------------------------
+    */
+
+    if (!isset($targeting['targeting_automation'])) {
+
         $targeting['targeting_automation'] = [
             'advantage_audience' => 0
         ];
+
     }
 
-    Log::info('META_TARGETING_FINAL',$targeting);
+    Log::info('META_TARGETING_FINAL', $targeting);
 
     return $targeting;
 }
@@ -350,6 +359,16 @@ public function createAdSet(string $accountId, array $data): array
     */
 
     $targeting = $this->buildTargeting($targeting);
+
+/*
+|--------------------------------------------------------------------------
+| Safety: ensure array
+|--------------------------------------------------------------------------
+*/
+
+if (!is_array($targeting)) {
+    throw new Exception('Invalid targeting structure');
+}
 
     /*
     |--------------------------------------------------------------------------

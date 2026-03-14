@@ -294,25 +294,24 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-       $adset = AdSet::create([
+            $adset = AdSet::create([
 
-    'campaign_id' => $campaign->id,
+                'campaign_id' => $campaign->id,
 
-    'meta_id' => $response['id'],
+                'meta_id' => $response['id'],
 
-    'name' => $data['name'],
+                'name' => $data['name'],
 
-    // store real dollar value
-    'daily_budget' => $data['daily_budget'],
+                'daily_budget' => $payload['daily_budget'],
 
-    'billing_event' => $billingEvent,
+                'billing_event' => $billingEvent,
 
-    'optimization_goal' => $optimizationGoal,
+                'optimization_goal' => $optimizationGoal,
 
-    'targeting' => json_encode($targeting),
+                'targeting' => json_encode($targeting),
 
-    'status' => 'PAUSED'
-]);
+                'status' => 'PAUSED'
+            ]);
 
             DB::commit();
 

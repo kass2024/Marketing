@@ -178,7 +178,7 @@ ID: {{ $adset->id }}
 
 @if($adset->daily_budget)
 
-${{ number_format($adset->daily_budget / 100,2) }}
+${{ number_format($adset->daily_budget, 2) }}
 
 <div class="text-xs text-gray-400">
 Daily Budget

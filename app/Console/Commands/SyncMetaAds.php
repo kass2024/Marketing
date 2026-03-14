@@ -46,14 +46,18 @@ class SyncMetaAds extends Command
 
             if (!$account) {
 
-                $this->error('No Meta Ad Account connected.');
-
                 Log::error('META_ACCOUNT_NOT_FOUND');
+
+                $this->error('No Meta Ad Account connected.');
 
                 return Command::FAILURE;
             }
 
             $accountId = $account->meta_id;
+
+            Log::info('META_ACCOUNT_RESOLVED', [
+                'account_id' => $accountId
+            ]);
 
             /*
             |--------------------------------------------------------------------------
@@ -79,6 +83,10 @@ class SyncMetaAds extends Command
             }
 
             $campaignMap = Campaign::pluck('id', 'meta_id');
+
+            Log::info('META_CAMPAIGNS_SYNCED', [
+                'count' => count($campaigns['data'] ?? [])
+            ]);
 
             /*
             |--------------------------------------------------------------------------
@@ -113,6 +121,10 @@ class SyncMetaAds extends Command
                 );
             }
 
+            Log::info('META_ADSETS_SYNCED', [
+                'count' => count($metaAdsets['data'] ?? [])
+            ]);
+
             /*
             |--------------------------------------------------------------------------
             | ADS
@@ -128,6 +140,7 @@ class SyncMetaAds extends Command
             foreach ($metaAds['data'] ?? [] as $metaAd) {
 
                 $metaAdId = $metaAd['id'] ?? null;
+
                 $adsetId = $adsetMap[$metaAd['adset_id'] ?? null] ?? null;
 
                 if (!$metaAdId || !$adsetId) continue;
@@ -151,11 +164,9 @@ class SyncMetaAds extends Command
 
                 $lifetime = $this->meta->getInsights($metaAdId, 'lifetime');
 
-                $lifetimeData = $lifetime['data'][0] ?? [];
-
-                $impressions = (int)($lifetimeData['impressions'] ?? 0);
-                $clicks = (int)($lifetimeData['clicks'] ?? 0);
-                $lifetimeSpend = (float)($lifetimeData['spend'] ?? 0);
+                $impressions = $lifetime['impressions'] ?? 0;
+                $clicks = $lifetime['clicks'] ?? 0;
+                $lifetimeSpend = $lifetime['spend'] ?? 0;
 
                 /*
                 |--------------------------------------------------------------------------
@@ -165,9 +176,20 @@ class SyncMetaAds extends Command
 
                 $todayInsights = $this->meta->getInsights($metaAdId, 'today');
 
-                $todayData = $todayInsights['data'][0] ?? [];
+                $todaySpend = $todayInsights['spend'] ?? 0;
 
-                $todaySpend = (float)($todayData['spend'] ?? 0);
+                Log::info('META_AD_INSIGHTS', [
+
+                    'meta_ad_id' => $metaAdId,
+
+                    'lifetime_spend' => $lifetimeSpend,
+
+                    'today_spend' => $todaySpend,
+
+                    'impressions' => $impressions,
+
+                    'clicks' => $clicks
+                ]);
 
                 /*
                 |--------------------------------------------------------------------------
@@ -186,6 +208,7 @@ class SyncMetaAds extends Command
                 */
 
                 $status = $metaAd['status'] ?? $ad->status;
+
                 $pauseReason = $ad->pause_reason;
 
                 if (
@@ -197,18 +220,21 @@ class SyncMetaAds extends Command
 
                 ) {
 
-                    $this->meta->updateAd($metaAdId, ['status' => 'PAUSED']);
-
-                    $status = 'PAUSED';
-                    $pauseReason = 'budget_limit';
-
-                    Log::warning('AD_PAUSED_DAILY_BUDGET', [
+                    Log::warning('AD_BUDGET_LIMIT_REACHED', [
 
                         'meta_ad_id' => $metaAdId,
+
                         'today_spend' => $todaySpend,
+
                         'daily_budget' => $ad->daily_budget
 
                     ]);
+
+                    $this->meta->updateAd($metaAdId, ['status' => 'PAUSED']);
+
+                    $status = 'PAUSED';
+
+                    $pauseReason = 'budget_limit';
                 }
 
                 /*
@@ -220,24 +246,41 @@ class SyncMetaAds extends Command
                 $ad->update([
 
                     'status' => $status,
+
                     'pause_reason' => $pauseReason,
 
                     'impressions' => $impressions,
+
                     'clicks' => $clicks,
+
                     'ctr' => $ctr,
 
                     'spend' => $lifetimeSpend,
+
                     'daily_spend' => $todaySpend,
 
                     'spend_date' => now()->toDateString()
 
                 ]);
 
+                Log::info('META_AD_DB_UPDATED', [
+
+                    'meta_ad_id' => $metaAdId,
+
+                    'daily_spend' => $todaySpend,
+
+                    'lifetime_spend' => $lifetimeSpend,
+
+                    'status' => $status
+                ]);
+
                 $count++;
             }
 
             Log::info('META_SYNC_COMPLETE', [
+
                 'ads_synced' => $count
+
             ]);
 
             $this->info("Synced {$count} ads.");

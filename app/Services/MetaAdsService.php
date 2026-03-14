@@ -670,25 +670,118 @@ public function getAd(string $adId): array
 | GET INSIGHTS
 |--------------------------------------------------------------------------
 */
-public function getInsights(string $objectId, string $preset = 'lifetime'): array
+public function getInsights(string $objectId, string $preset = 'lifetime', array $extra = []): array
 {
-    return $this->get("{$objectId}/insights", [
+    /*
+    |--------------------------------------------------------------------------
+    | Default Fields For Monitoring Dashboard
+    |--------------------------------------------------------------------------
+    */
 
-        'fields' => implode(',', [
+    $fields = implode(',', [
 
-            'impressions',
-            'clicks',
-            'spend',
-            'reach',
-            'ctr',
-            'cpm',
-            'cpc',
-            'actions'
+        'impressions',
+        'clicks',
+        'spend',
+        'reach',
 
-        ]),
+        'ctr',
+        'cpm',
+        'cpc',
 
-        'date_preset' => $preset
+        'frequency',
+        'inline_link_clicks',
+
+        'actions',
+        'action_values',
+
+        'video_p25_watched_actions',
+        'video_p50_watched_actions',
+        'video_p75_watched_actions',
+        'video_p100_watched_actions',
+
+        'date_start',
+        'date_stop'
+
     ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Query Parameters
+    |--------------------------------------------------------------------------
+    */
+
+    $params = array_merge([
+
+        'fields' => $fields,
+
+        'date_preset' => $preset,
+
+        'limit' => 1
+
+    ], $extra);
+
+    Log::info('META_INSIGHTS_REQUEST', [
+
+        'object_id' => $objectId,
+
+        'preset' => $preset,
+
+        'params' => $params
+
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Call Meta API
+    |--------------------------------------------------------------------------
+    */
+
+    $response = $this->get("{$objectId}/insights", $params);
+
+    $data = $response['data'][0] ?? [];
+
+    /*
+    |--------------------------------------------------------------------------
+    | Normalize Metrics
+    |--------------------------------------------------------------------------
+    */
+
+    return [
+
+        'impressions' => (int)($data['impressions'] ?? 0),
+
+        'clicks' => (int)($data['clicks'] ?? 0),
+
+        'spend' => (float)($data['spend'] ?? 0),
+
+        'reach' => (int)($data['reach'] ?? 0),
+
+        'ctr' => (float)($data['ctr'] ?? 0),
+
+        'cpm' => (float)($data['cpm'] ?? 0),
+
+        'cpc' => (float)($data['cpc'] ?? 0),
+
+        'frequency' => (float)($data['frequency'] ?? 0),
+
+        'inline_link_clicks' => (int)($data['inline_link_clicks'] ?? 0),
+
+        'actions' => $data['actions'] ?? [],
+
+        'action_values' => $data['action_values'] ?? [],
+
+        'video_25' => $data['video_p25_watched_actions'] ?? [],
+        'video_50' => $data['video_p50_watched_actions'] ?? [],
+        'video_75' => $data['video_p75_watched_actions'] ?? [],
+        'video_100' => $data['video_p100_watched_actions'] ?? [],
+
+        'date_start' => $data['date_start'] ?? null,
+        'date_stop' => $data['date_stop'] ?? null,
+
+        'raw' => $response
+
+    ];
 }
 /*
 |--------------------------------------------------------------------------

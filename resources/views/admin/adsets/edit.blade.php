@@ -83,10 +83,10 @@ required>
 
 <input
 type="number"
-name="daily_budget"
 step="0.01"
 min="5"
-value="{{ old('daily_budget',$adset->daily_budget ?? 10) }}"
+name="daily_budget"
+value="{{ old('daily_budget',$adset->daily_budget) }}"
 class="w-full border rounded-xl px-4 py-3"
 required>
 
@@ -106,11 +106,11 @@ Minimum recommended: $5/day
 <select name="status"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="ACTIVE" @selected($adset->status=='ACTIVE')>
+<option value="ACTIVE" @selected(old('status',$adset->status)=='ACTIVE')>
 Active
 </option>
 
-<option value="PAUSED" @selected($adset->status=='PAUSED')>
+<option value="PAUSED" @selected(old('status',$adset->status)=='PAUSED')>
 Paused
 </option>
 
@@ -136,7 +136,7 @@ required>
 
 <option
 value="{{ $page['id'] }}"
-@selected(old('page_id',$adset->page_id)==$page['id'])>
+@selected(old('page_id',$adset->page_id ?? '')==$page['id'])>
 
 {{ $page['name'] }}
 
@@ -164,7 +164,6 @@ max="65"
 value="{{ old('age_min',$adset->age_min ?? 18) }}"
 class="w-full border rounded-xl px-4 py-3">
 </div>
-
 
 <div>
 <label class="font-semibold block mb-2">Max Age</label>
@@ -194,12 +193,12 @@ id="gender-select"
 class="w-full border rounded-xl px-4 py-3">
 
 <option value="1"
-@selected(in_array(1,$adset->genders ?? []))>
+@selected(in_array(1,old('genders',$adset->genders ?? [])))>
 Male
 </option>
 
 <option value="2"
-@selected(in_array(2,$adset->genders ?? []))>
+@selected(in_array(2,old('genders',$adset->genders ?? [])))>
 Female
 </option>
 
@@ -225,7 +224,7 @@ required>
 
 <option
 value="{{ $code }}"
-@selected(in_array($code,$adset->countries ?? []))>
+@selected(in_array($code,old('countries',$adset->countries ?? [])))>
 
 {{ $country }}
 
@@ -254,7 +253,7 @@ class="w-full border rounded-xl px-4 py-3">
 
 <option
 value="{{ $id }}"
-@selected(in_array($id,$adset->languages ?? []))>
+@selected(in_array($id,old('languages',$adset->languages ?? [])))>
 
 {{ $language }}
 
@@ -283,7 +282,7 @@ class="w-full border rounded-xl px-4 py-3"></select>
 
 
 
-{{-- PLACEMENT --}}
+{{-- PLACEMENT STRATEGY --}}
 <div class="mb-6">
 
 <label class="font-semibold block mb-2">Placement Strategy</label>
@@ -294,12 +293,12 @@ id="placement-type"
 class="w-full border rounded-xl px-4 py-3">
 
 <option value="automatic"
-@selected($adset->placement_type=='automatic')>
+@selected(old('placement_type',$adset->placement_type)=='automatic')>
 Automatic
 </option>
 
 <option value="manual"
-@selected($adset->placement_type=='manual')>
+@selected(old('placement_type',$adset->placement_type)=='manual')>
 Manual
 </option>
 
@@ -311,7 +310,7 @@ Manual
 
 {{-- PLATFORMS --}}
 <div
-class="mb-6 {{ $adset->placement_type=='manual' ? '' : 'hidden' }}"
+class="mb-6 {{ old('placement_type',$adset->placement_type)=='manual' ? '' : 'hidden' }}"
 id="platform-section">
 
 <label class="font-semibold block mb-2">
@@ -324,25 +323,16 @@ multiple
 id="platform-select"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="facebook"
-@selected(in_array('facebook',$adset->publisher_platforms ?? []))>
-Facebook
+@foreach(['facebook','instagram','messenger','audience_network'] as $platform)
+
+<option value="{{ $platform }}"
+@selected(in_array($platform,old('publisher_platforms',$adset->publisher_platforms ?? [])))>
+
+{{ ucfirst(str_replace('_',' ',$platform)) }}
+
 </option>
 
-<option value="instagram"
-@selected(in_array('instagram',$adset->publisher_platforms ?? []))>
-Instagram
-</option>
-
-<option value="messenger"
-@selected(in_array('messenger',$adset->publisher_platforms ?? []))>
-Messenger
-</option>
-
-<option value="audience_network"
-@selected(in_array('audience_network',$adset->publisher_platforms ?? []))>
-Audience Network
-</option>
+@endforeach
 
 </select>
 
@@ -417,7 +407,6 @@ new TomSelect("#gender-select",{plugins:['remove_button']});
 new TomSelect("#language-select",{plugins:['remove_button']});
 new TomSelect("#platform-select",{plugins:['remove_button']});
 
-
 let interestSelect = new TomSelect("#interest-select",{
 
 plugins:['remove_button'],
@@ -438,8 +427,6 @@ fetch("/admin/meta/interests?q="+query)
 
 });
 
-
-// Prefill interests
 let existingInterests = @json($adset->interests ?? []);
 
 existingInterests.forEach(function(id){
@@ -448,8 +435,6 @@ interestSelect.addOption({id:id,name:id});
 interestSelect.addItem(id);
 
 });
-
-
 
 document.getElementById("placement-type")
 .addEventListener("change",function(){
@@ -460,23 +445,6 @@ if(this.value==="manual"){
 section.classList.remove("hidden");
 }else{
 section.classList.add("hidden");
-}
-
-});
-
-
-
-document.getElementById("adsetForm")
-.addEventListener("submit",function(e){
-
-let min=parseInt(document.querySelector("[name='age_min']").value);
-let max=parseInt(document.querySelector("[name='age_max']").value);
-
-if(min > max){
-
-e.preventDefault();
-alert("Minimum age cannot be greater than maximum age");
-
 }
 
 });

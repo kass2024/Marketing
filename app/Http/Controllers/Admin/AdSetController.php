@@ -487,96 +487,93 @@ public function sync(AdSet $adset)
 }
 public function edit(AdSet $adset)
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Load relations
-    |--------------------------------------------------------------------------
-    */
-
     $adset->load('campaign');
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | Campaigns
-    |--------------------------------------------------------------------------
-    */
-
     $campaigns = Campaign::latest()->get();
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Config
-    |--------------------------------------------------------------------------
-    */
 
     $countries = config('meta.countries', []);
     $languages = config('meta.languages', []);
 
-
     /*
     |--------------------------------------------------------------------------
-    | Meta Pages
+    | META PAGES
     |--------------------------------------------------------------------------
     */
-
-    $pages = [];
 
     try {
 
-        $response = app(\App\Services\MetaAdsService::class)->getPages();
-
-        $pages = $response['data'] ?? [];
+        $pages = $this->meta->getPages();
 
     } catch (\Throwable $e) {
 
-        \Log::error('META_PAGES_FETCH_FAILED', [
-            'error' => $e->getMessage()
+        Log::error('META_PAGES_FETCH_FAILED',[
+            'error'=>$e->getMessage()
         ]);
+
+        $pages = [];
     }
 
-
     /*
     |--------------------------------------------------------------------------
-    | Decode targeting JSON fields
+    | Decode Targeting JSON
     |--------------------------------------------------------------------------
     */
 
-    $adset->genders = is_array($adset->genders)
-        ? $adset->genders
-        : json_decode($adset->genders ?? '[]', true);
+    $targeting = json_decode($adset->targeting ?? '{}', true);
 
-    $adset->countries = is_array($adset->countries)
-        ? $adset->countries
-        : json_decode($adset->countries ?? '[]', true);
+    $adset->countries =
+        $targeting['geo_locations']['countries'] ?? [];
 
-    $adset->languages = is_array($adset->languages)
-        ? $adset->languages
-        : json_decode($adset->languages ?? '[]', true);
+    $adset->age_min =
+        $targeting['age_min'] ?? 18;
 
-    $adset->interests = is_array($adset->interests)
-        ? $adset->interests
-        : json_decode($adset->interests ?? '[]', true);
+    $adset->age_max =
+        $targeting['age_max'] ?? 65;
 
-    $adset->publisher_platforms = is_array($adset->publisher_platforms)
-        ? $adset->publisher_platforms
-        : json_decode($adset->publisher_platforms ?? '[]', true);
+    $adset->genders =
+        $targeting['genders'] ?? [];
 
+    $adset->languages =
+        $targeting['locales'] ?? [];
 
     /*
     |--------------------------------------------------------------------------
-    | View
+    | Interests
     |--------------------------------------------------------------------------
     */
 
-    return view('admin.adsets.edit', [
+    $adset->interests = [];
 
-        'adset' => $adset,
-        'campaigns' => $campaigns,
-        'countries' => $countries,
-        'languages' => $languages,
-        'pages' => $pages
+    if (!empty($targeting['flexible_spec'][0]['interests'])) {
+
+        foreach ($targeting['flexible_spec'][0]['interests'] as $interest) {
+
+            $adset->interests[] = $interest['id'];
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Placements
+    |--------------------------------------------------------------------------
+    */
+
+    $adset->publisher_platforms =
+        $targeting['publisher_platforms'] ?? [];
+
+    $adset->placement_type =
+        !empty($adset->publisher_platforms)
+        ? 'manual'
+        : 'automatic';
+
+
+    return view('admin.adsets.edit',[
+
+        'adset'=>$adset,
+        'campaigns'=>$campaigns,
+        'countries'=>$countries,
+        'languages'=>$languages,
+        'pages'=>$pages
 
     ]);
 }

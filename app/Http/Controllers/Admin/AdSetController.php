@@ -581,4 +581,163 @@ $adset->interests = $interests;
 
     ]);
 }
+public function update(Request $request, AdSet $adset)
+{
+    $data = $request->validate([
+
+        'name' => 'required|string|max:255',
+
+        'daily_budget' => 'required|numeric|min:5',
+
+        'status' => 'required|in:ACTIVE,PAUSED',
+
+        'page_id' => 'required|string',
+
+        'age_min' => 'required|integer|min:18|max:65',
+        'age_max' => 'required|integer|min:18|max:65',
+
+        'countries' => 'required|array|min:1',
+        'genders' => 'nullable|array',
+        'languages' => 'nullable|array',
+        'interests' => 'nullable|array|max:5',
+
+        'placement_type' => 'required|in:automatic,manual',
+        'publisher_platforms' => 'nullable|array'
+    ]);
+
+    if ($data['age_min'] >= $data['age_max']) {
+        return back()->withErrors([
+            'age' => 'Maximum age must be greater than minimum age'
+        ])->withInput();
+    }
+
+    try {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Rebuild targeting
+        |--------------------------------------------------------------------------
+        */
+
+        $targeting = [
+
+            'geo_locations' => [
+                'countries' => array_values($data['countries'])
+            ],
+
+            'age_min' => (int)$data['age_min'],
+            'age_max' => (int)$data['age_max']
+        ];
+
+        if (!empty($data['genders'])) {
+            $targeting['genders'] =
+                array_map('intval', $data['genders']);
+        }
+
+        if (!empty($data['languages'])) {
+            $targeting['locales'] =
+                array_map('intval', $data['languages']);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Interests
+        |--------------------------------------------------------------------------
+        */
+
+        if (!empty($data['interests'])) {
+
+            $interestList = [];
+
+            foreach ($data['interests'] as $interestId) {
+
+                $interestList[] = [
+                    'id' => (string)$interestId
+                ];
+            }
+
+            $targeting['flexible_spec'] = [
+                [
+                    'interests' => $interestList
+                ]
+            ];
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Placements
+        |--------------------------------------------------------------------------
+        */
+
+        if ($data['placement_type'] === 'manual') {
+
+            $targeting['publisher_platforms'] =
+                $data['publisher_platforms'] ?? [];
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update Meta
+        |--------------------------------------------------------------------------
+        */
+
+        if ($adset->meta_id) {
+
+            $payload = [
+
+                'name' => $data['name'],
+
+                'daily_budget' => (int)$data['daily_budget'] * 100,
+
+                'status' => $data['status'],
+
+                'targeting' => $targeting,
+
+                'promoted_object' => [
+                    'page_id' => $data['page_id']
+                ]
+            ];
+
+            $this->meta->updateAdSet(
+                $adset->meta_id,
+                $payload
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Update local DB
+        |--------------------------------------------------------------------------
+        */
+
+        $adset->update([
+
+            'name' => $data['name'],
+
+            'daily_budget' => $data['daily_budget'],
+
+            'status' => $data['status'],
+
+            'targeting' => json_encode($targeting)
+        ]);
+
+        return redirect()
+            ->route('admin.adsets.index')
+            ->with('success','Ad Set updated successfully');
+
+    }
+
+    catch (\Throwable $e) {
+
+        Log::error('ADSET_UPDATE_FAILED',[
+            'error'=>$e->getMessage()
+        ]);
+
+        return back()
+            ->withInput()
+            ->withErrors([
+                'meta'=>$e->getMessage()
+            ]);
+    }
+}
 }

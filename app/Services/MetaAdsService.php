@@ -670,7 +670,7 @@ public function getAd(string $adId): array
 | GET INSIGHTS
 |--------------------------------------------------------------------------
 */
-public function getInsights(string $objectId): array
+public function getInsights(string $objectId, string $preset = 'lifetime'): array
 {
     return $this->get("{$objectId}/insights", [
 
@@ -687,7 +687,7 @@ public function getInsights(string $objectId): array
 
         ]),
 
-        'date_preset' => 'maximum'
+        'date_preset' => $preset
     ]);
 }
 /*

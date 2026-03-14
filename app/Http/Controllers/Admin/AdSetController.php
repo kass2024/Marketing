@@ -542,15 +542,19 @@ public function edit(AdSet $adset)
     |--------------------------------------------------------------------------
     */
 
-    $adset->interests = [];
+  $interests = [];
 
-    if (!empty($targeting['flexible_spec'][0]['interests'])) {
+if (!empty($targeting['flexible_spec'][0]['interests'])) {
 
-        foreach ($targeting['flexible_spec'][0]['interests'] as $interest) {
+    foreach ($targeting['flexible_spec'][0]['interests'] as $interest) {
 
-            $adset->interests[] = $interest['id'];
-        }
+        $interests[] = $interest['id'];
+
     }
+
+}
+
+$adset->interests = $interests;
 
     /*
     |--------------------------------------------------------------------------

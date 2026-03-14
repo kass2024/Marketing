@@ -485,4 +485,85 @@ public function sync(AdSet $adset)
         ]);
     }
 }
+public function edit(AdSet $adset)
+{
+    /*
+    |--------------------------------------------------------------------------
+    | Load relations
+    |--------------------------------------------------------------------------
+    */
+
+    $adset->load('campaign');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Campaigns
+    |--------------------------------------------------------------------------
+    */
+
+    $campaigns = Campaign::latest()->get();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Config targeting
+    |--------------------------------------------------------------------------
+    */
+
+    $countries = config('meta.countries', []);
+    $languages = config('meta.languages', []);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Facebook pages (Meta API)
+    |--------------------------------------------------------------------------
+    */
+
+    $pages = [];
+
+    try {
+
+        $response = app(\App\Services\MetaAdsService::class)->getPages();
+
+        $pages = $response['data'] ?? [];
+
+    } catch (\Throwable $e) {
+
+        \Log::error('META_PAGES_FETCH_FAILED', [
+            'error' => $e->getMessage()
+        ]);
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Normalize targeting arrays
+    |--------------------------------------------------------------------------
+    */
+
+    $adset->genders = $adset->genders ?? [];
+    $adset->countries = $adset->countries ?? [];
+    $adset->languages = $adset->languages ?? [];
+    $adset->interests = $adset->interests ?? [];
+    $adset->publisher_platforms = $adset->publisher_platforms ?? [];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | View
+    |--------------------------------------------------------------------------
+    */
+
+    return view('admin.adsets.edit', [
+
+        'adset' => $adset,
+        'campaigns' => $campaigns,
+        'countries' => $countries,
+        'languages' => $languages,
+        'pages' => $pages
+
+    ]);
+}
 }

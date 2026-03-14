@@ -361,66 +361,80 @@ let running = false;
 
 async function refreshAdsDashboard(){
 
-if(running) return;
+    if(running) return;
 
-running = true;
+    running = true;
 
-try{
+    try{
 
-const response = await fetch("{{ route('admin.ads.live') }}");
+        const response = await fetch("{{ route('admin.ads.live') }}");
 
-if(!response.ok) throw new Error("Network");
+        if(!response.ok) throw new Error("Network");
 
-const data = await response.json();
-
-
-/* METRICS */
-
-document.getElementById('metric-total-ads').textContent =
-data.metrics.total_ads;
-
-document.getElementById('metric-active-ads').textContent =
-data.metrics.active_ads;
-
-document.getElementById('metric-total-spend').textContent =
-'$'+Number(data.metrics.total_spend).toFixed(2);
-
-document.getElementById('metric-total-clicks').textContent =
-Number(data.metrics.total_clicks).toLocaleString();
+        const data = await response.json();
 
 
-/* TABLE VALUES */
+        /* =============================
+           UPDATE METRICS
+        ============================= */
 
-data.ads.forEach(ad=>{
+        document.getElementById('metric-total-ads').textContent =
+            data.metrics.total_ads;
 
-const imp = document.getElementById('imp-'+ad.id);
-const clk = document.getElementById('clk-'+ad.id);
-const spn = document.getElementById('spend-'+ad.id);
-const tdy = document.getElementById('today-'+ad.id);
+        document.getElementById('metric-active-ads').textContent =
+            data.metrics.active_ads;
 
-if(imp) imp.textContent = Number(ad.impressions).toLocaleString();
-if(clk) clk.textContent = Number(ad.clicks).toLocaleString();
-if(spn) spn.textContent = '$'+Number(ad.spend).toFixed(2);
-if(tdy) tdy.textContent = '$'+Number(ad.daily_spend).toFixed(2);
+        document.getElementById('metric-total-spend').textContent =
+            '$'+Number(data.metrics.total_spend).toFixed(2);
 
-});
+        document.getElementById('metric-total-clicks').textContent =
+            Number(data.metrics.total_clicks).toLocaleString();
 
-}catch(e){
 
-console.warn('Live update failed',e);
+        /* =============================
+           UPDATE TABLE
+        ============================= */
+
+        data.ads.forEach(ad => {
+
+            const imp = document.getElementById('imp-'+ad.id);
+            const clk = document.getElementById('clk-'+ad.id);
+            const spn = document.getElementById('spend-'+ad.id);
+            const tdy = document.getElementById('today-'+ad.id);
+
+            if(imp) imp.textContent = Number(ad.impressions).toLocaleString();
+            if(clk) clk.textContent = Number(ad.clicks).toLocaleString();
+            if(spn) spn.textContent = '$'+Number(ad.spend).toFixed(2);
+            if(tdy) tdy.textContent = '$'+Number(ad.daily_spend).toFixed(2);
+
+        });
+
+    }
+    catch(e){
+
+        console.warn('Live dashboard update failed',e);
+
+    }
+
+    running = false;
 
 }
 
-running = false;
 
-}
+/* =============================
+   RUN IMMEDIATELY
+============================= */
 
-/* refresh every 15 seconds */
+refreshAdsDashboard();
 
-setInterval(refreshAdsDashboard,15000);
+
+/* =============================
+   AUTO REFRESH
+============================= */
+
+setInterval(refreshAdsDashboard,10000);
 
 })();
-
 </script>
 
 @endsection

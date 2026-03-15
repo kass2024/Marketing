@@ -686,43 +686,29 @@ public function getAd(string $adId): array
 }
 /*
 |--------------------------------------------------------------------------
-| GET INSIGHTS (Meta Production Version)
+| GET INSIGHTS
 |--------------------------------------------------------------------------
-|
-| Flexible insights retrieval supporting:
-| - breakdowns
-| - custom fields
-| - presets
-| - date ranges
-| - time increments
-|
 */
-
-public function getInsights(
-    string $objectId,
-    string $preset = 'lifetime',
-    array $extra = []
-): array {
-
+public function getInsights(string $objectId, string $preset = 'lifetime', array $extra = []): array
+{
     /*
     |--------------------------------------------------------------------------
-    | Default Fields (Meta Ads Analytics Standard)
+    | Default Fields For Monitoring Dashboard
     |--------------------------------------------------------------------------
     */
 
-    $defaultFields = [
+    $fields = implode(',', [
 
         'impressions',
-        'reach',
         'clicks',
         'spend',
+        'reach',
 
         'ctr',
         'cpm',
         'cpc',
 
         'frequency',
-
         'inline_link_clicks',
 
         'actions',
@@ -736,113 +722,86 @@ public function getInsights(
         'date_start',
         'date_stop'
 
-    ];
-
-    $fields = $extra['fields'] ?? implode(',', $defaultFields);
+    ]);
 
     /*
     |--------------------------------------------------------------------------
-    | Build Query Parameters
+    | Query Parameters
     |--------------------------------------------------------------------------
     */
 
-    $query = [
+    $params = array_merge([
 
         'fields' => $fields,
 
         'date_preset' => $preset,
 
-        'access_token' => $this->accessToken
+        'limit' => 1
+
+    ], $extra);
+
+    Log::info('META_INSIGHTS_REQUEST', [
+
+        'object_id' => $objectId,
+
+        'preset' => $preset,
+
+        'params' => $params
+
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Call Meta API
+    |--------------------------------------------------------------------------
+    */
+
+    $response = $this->get("{$objectId}/insights", $params);
+
+    $data = $response['data'][0] ?? [];
+
+    /*
+    |--------------------------------------------------------------------------
+    | Normalize Metrics
+    |--------------------------------------------------------------------------
+    */
+
+    return [
+
+        'impressions' => (int)($data['impressions'] ?? 0),
+
+        'clicks' => (int)($data['clicks'] ?? 0),
+
+        'spend' => (float)($data['spend'] ?? 0),
+
+        'reach' => (int)($data['reach'] ?? 0),
+
+        'ctr' => (float)($data['ctr'] ?? 0),
+
+        'cpm' => (float)($data['cpm'] ?? 0),
+
+        'cpc' => (float)($data['cpc'] ?? 0),
+
+        'frequency' => (float)($data['frequency'] ?? 0),
+
+        'inline_link_clicks' => (int)($data['inline_link_clicks'] ?? 0),
+
+        'actions' => $data['actions'] ?? [],
+
+        'action_values' => $data['action_values'] ?? [],
+
+        'video_25' => $data['video_p25_watched_actions'] ?? [],
+        'video_50' => $data['video_p50_watched_actions'] ?? [],
+        'video_75' => $data['video_p75_watched_actions'] ?? [],
+        'video_100' => $data['video_p100_watched_actions'] ?? [],
+
+        'date_start' => $data['date_start'] ?? null,
+        'date_stop' => $data['date_stop'] ?? null,
+
+        'raw' => $response
 
     ];
-
-    /*
-    |--------------------------------------------------------------------------
-    | Optional Parameters
-    |--------------------------------------------------------------------------
-    */
-
-    if (!empty($extra['breakdowns'])) {
-        $query['breakdowns'] = $extra['breakdowns'];
-    }
-
-    if (!empty($extra['time_increment'])) {
-        $query['time_increment'] = $extra['time_increment'];
-    }
-
-    if (!empty($extra['since']) && !empty($extra['until'])) {
-
-        $query['time_range'] = json_encode([
-            'since' => $extra['since'],
-            'until' => $extra['until']
-        ]);
-
-        unset($query['date_preset']);
-    }
-
-    if (!empty($extra['limit'])) {
-        $query['limit'] = $extra['limit'];
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Send Request To Meta
-    |--------------------------------------------------------------------------
-    */
-
-    try {
-
-        $response = Http::timeout(30)
-            ->get(
-                "{$this->baseUrl}/{$objectId}/insights",
-                $query
-            );
-
-        if ($response->failed()) {
-
-            Log::error('META_INSIGHTS_FAILED', [
-
-                'object_id' => $objectId,
-
-                'query' => $query,
-
-                'response' => $response->json()
-
-            ]);
-
-            return [];
-        }
-
-        return $response->json();
-
-    }
-
-    catch (\Throwable $e) {
-
-        Log::error('META_INSIGHTS_EXCEPTION', [
-
-            'object_id' => $objectId,
-
-            'error' => $e->getMessage()
-
-        ]);
-
-        return [];
-    }
 }
-/*
-|--------------------------------------------------------------------------
-| GET CREATIVE
-|--------------------------------------------------------------------------
-| Fetch a single Meta Ad Creative with review information
-*/
-
-/*
-|--------------------------------------------------------------------------
-| GET CREATIVE
-|--------------------------------------------------------------------------
-| Fetch a single Meta Ad Creative
-*/
 /*
 |--------------------------------------------------------------------------
 | GET CREATIVE

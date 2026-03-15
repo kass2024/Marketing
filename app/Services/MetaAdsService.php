@@ -721,7 +721,6 @@ public function getInsights(string $objectId, string $preset = 'lifetime', array
 
         'date_start',
         'date_stop'
-
     ]);
 
     /*
@@ -731,23 +730,15 @@ public function getInsights(string $objectId, string $preset = 'lifetime', array
     */
 
     $params = array_merge([
-
         'fields' => $fields,
-
         'date_preset' => $preset,
-
         'limit' => 1
-
     ], $extra);
 
     Log::info('META_INSIGHTS_REQUEST', [
-
         'object_id' => $objectId,
-
         'preset' => $preset,
-
         'params' => $params
-
     ]);
 
     /*
@@ -758,13 +749,23 @@ public function getInsights(string $objectId, string $preset = 'lifetime', array
 
     $response = $this->get("{$objectId}/insights", $params);
 
-    $data = $response['data'][0] ?? [];
+    /*
+    |--------------------------------------------------------------------------
+    | If breakdown requested → return raw rows (for audience/device tables)
+    |--------------------------------------------------------------------------
+    */
+
+    if (isset($extra['breakdowns'])) {
+        return $response['data'] ?? [];
+    }
 
     /*
     |--------------------------------------------------------------------------
-    | Normalize Metrics
+    | Normal Dashboard Metrics
     |--------------------------------------------------------------------------
     */
+
+    $data = $response['data'][0] ?? [];
 
     return [
 
@@ -799,7 +800,6 @@ public function getInsights(string $objectId, string $preset = 'lifetime', array
         'date_stop' => $data['date_stop'] ?? null,
 
         'raw' => $response
-
     ];
 }
 /*

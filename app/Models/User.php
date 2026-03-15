@@ -19,16 +19,15 @@ class User extends Authenticatable
     */
 
     public const ROLE_SUPER_ADMIN = 'super_admin';
-    public const ROLE_ADMIN       = 'admin';
+    public const ROLE_AGENT       = 'agent';
     public const ROLE_CLIENT      = 'client';
-    public const ROLE_SUPPORT     = 'support';
 
     public const ROLES = [
         self::ROLE_SUPER_ADMIN,
-        self::ROLE_ADMIN,
+        self::ROLE_AGENT,
         self::ROLE_CLIENT,
-        self::ROLE_SUPPORT,
     ];
+
 
     /*
     |--------------------------------------------------------------------------
@@ -44,9 +43,10 @@ class User extends Authenticatable
         self::STATUS_SUSPENDED,
     ];
 
+
     /*
     |--------------------------------------------------------------------------
-    | Mass Assignable
+    | MASS ASSIGNABLE
     |--------------------------------------------------------------------------
     */
 
@@ -54,13 +54,15 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'whatsapp_number',
         'role',
         'status',
     ];
 
+
     /*
     |--------------------------------------------------------------------------
-    | Hidden Attributes
+    | HIDDEN
     |--------------------------------------------------------------------------
     */
 
@@ -69,22 +71,22 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+
     /*
     |--------------------------------------------------------------------------
-    | Casts
+    | CASTS
     |--------------------------------------------------------------------------
     */
 
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
     ];
+
 
     /*
     |--------------------------------------------------------------------------
-    | Boot Logic (Auto Defaults)
+    | DEFAULT VALUES
     |--------------------------------------------------------------------------
     */
 
@@ -99,12 +101,14 @@ class User extends Authenticatable
             if (!$user->status) {
                 $user->status = self::STATUS_ACTIVE;
             }
+
         });
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Relationships
+    | RELATIONSHIPS
     |--------------------------------------------------------------------------
     */
 
@@ -113,9 +117,10 @@ class User extends Authenticatable
         return $this->hasOne(Client::class);
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Scopes
+    | SCOPES
     |--------------------------------------------------------------------------
     */
 
@@ -133,7 +138,7 @@ class User extends Authenticatable
     {
         return $query->whereIn('role', [
             self::ROLE_SUPER_ADMIN,
-            self::ROLE_ADMIN
+            self::ROLE_AGENT,
         ]);
     }
 
@@ -141,6 +146,7 @@ class User extends Authenticatable
     {
         return $query->where('role', self::ROLE_CLIENT);
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -162,8 +168,13 @@ class User extends Authenticatable
     {
         return in_array($this->role, [
             self::ROLE_SUPER_ADMIN,
-            self::ROLE_ADMIN
+            self::ROLE_AGENT,
         ]);
+    }
+
+    public function isAgent(): bool
+    {
+        return $this->role === self::ROLE_AGENT;
     }
 
     public function isClient(): bool
@@ -171,10 +182,6 @@ class User extends Authenticatable
         return $this->role === self::ROLE_CLIENT;
     }
 
-    public function isSupport(): bool
-    {
-        return $this->role === self::ROLE_SUPPORT;
-    }
 
     /*
     |--------------------------------------------------------------------------
@@ -191,6 +198,7 @@ class User extends Authenticatable
     {
         return $this->status === self::STATUS_SUSPENDED;
     }
+
 
     /*
     |--------------------------------------------------------------------------

@@ -11,35 +11,52 @@ class RoleMiddleware
     /**
      * Handle an incoming request.
      *
-     * Usage:
+     * Example usage:
      * ->middleware('role:admin')
+     * ->middleware('role:client')
      * ->middleware('role:admin,client')
      */
     public function handle(Request $request, Closure $next, ...$roles): Response
     {
-        // Get authenticated user
         $user = $request->user();
 
-        // If not authenticated
+        // Not logged in
         if (!$user) {
             return redirect()->route('login');
         }
 
-        // If no roles specified, allow access
-        if (empty($roles)) {
-            return $next($request);
-        }
-
-        // Super Admin always allowed
+        // Super admin bypass (full access)
         if ($user->role === 'super_admin') {
             return $next($request);
         }
 
-        // Normalize roles (remove spaces just in case)
+        // Normalize roles
         $roles = array_map('trim', $roles);
 
-        // Check if user role matches allowed roles
-        if (!in_array($user->role, $roles, true)) {
+        // Map system roles
+        $roleMap = [
+            'admin' => ['super_admin','agent'],
+            'client' => ['client'],
+        ];
+
+        // Build allowed roles list
+        $allowedRoles = [];
+
+        foreach ($roles as $role) {
+
+            if (isset($roleMap[$role])) {
+                $allowedRoles = array_merge($allowedRoles, $roleMap[$role]);
+            } else {
+                $allowedRoles[] = $role;
+            }
+
+        }
+
+        // Remove duplicates
+        $allowedRoles = array_unique($allowedRoles);
+
+        // Check permission
+        if (!in_array($user->role, $allowedRoles, true)) {
             abort(403, 'Unauthorized.');
         }
 

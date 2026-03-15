@@ -1,179 +1,225 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <title>Parrot Meta Suite</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- Bootstrap 5 -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-        }
+<title>Parrot Canada</title>
 
-        .hero {
-            background: linear-gradient(135deg, #0d6efd, #0a58ca);
-            color: white;
-            padding: 120px 0;
-        }
+<link rel="icon" href="{{ asset('img/logo.png') }}">
 
-        .hero h1 {
-            font-weight: 700;
-        }
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700&display=swap" rel="stylesheet"/>
 
-        .feature-card {
-            transition: 0.3s ease;
-        }
+@vite(['resources/css/app.css','resources/js/app.js'])
 
-        .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-        }
-
-        .pricing-card {
-            border-radius: 12px;
-            transition: 0.3s ease;
-        }
-
-        .pricing-card:hover {
-            transform: scale(1.03);
-        }
-
-        footer {
-            background: #111;
-            color: #aaa;
-            padding: 40px 0;
-        }
-
-        footer a {
-            color: #ccc;
-            text-decoration: none;
-        }
-
-        footer a:hover {
-            color: white;
-        }
-    </style>
 </head>
-<body>
+
+
+<body class="font-sans bg-gray-50 text-gray-800">
 
 <!-- NAVBAR -->
-<nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm fixed-top">
-    <div class="container">
-        <a class="navbar-brand fw-bold text-primary" href="#">Parrot Meta Suite</a>
-        <div class="ms-auto">
-            <a href="{{ route('login') }}" class="btn btn-outline-primary me-2">Login</a>
-            <a href="{{ route('register') }}" class="btn btn-primary">Register</a>
-        </div>
-    </div>
-</nav>
+<header class="bg-white border-b">
+
+<div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+
+<div class="flex items-center gap-3">
+
+<img src="{{ asset('img/logo.png') }}" class="w-8">
+
+<span class="font-semibold text-lg">
+Parrot Canada
+</span>
+
+</div>
+
+<a
+href="{{ route('login') }}"
+class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg font-medium transition">
+
+Login
+
+</a>
+
+</div>
+
+</header>
+
 
 <!-- HERO -->
-<section class="hero text-center">
-    <div class="container">
-        <h1 class="display-4 mb-4">
-            Manage Facebook Ads & WhatsApp Campaigns
-            <br>From One Powerful Dashboard
-        </h1>
-        <p class="lead mb-5">
-            Connect your Meta Business account, monitor ad performance,
-            and automate WhatsApp conversations with ease.
-        </p>
-        <a href="{{ route('register') }}" class="btn btn-light btn-lg me-3">Start Free Trial</a>
-        <a href="{{ route('login') }}" class="btn btn-outline-light btn-lg">Login</a>
-    </div>
+<section class="py-24">
+
+<div class="max-w-6xl mx-auto px-6 text-center">
+
+<h1 class="text-4xl md:text-5xl font-bold mb-6">
+
+AI Chatbot & Meta Ads Management  
+<span class="text-green-600">In One Powerful Dashboard</span>
+
+</h1>
+
+<p class="text-lg text-gray-600 max-w-2xl mx-auto mb-10">
+
+Automate WhatsApp conversations, manage Meta advertising campaigns,
+track performance, and grow your business with intelligent automation.
+
+</p>
+
+<a
+href="{{ route('login') }}"
+class="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-md transition">
+
+Access Dashboard
+
+</a>
+
+</div>
+
 </section>
+
 
 <!-- FEATURES -->
-<section class="py-5">
-    <div class="container text-center">
-        <h2 class="mb-5">Powerful Features</h2>
-        <div class="row g-4">
+<section class="py-20 bg-white">
 
-            <div class="col-md-4">
-                <div class="card feature-card p-4 h-100">
-                    <h5 class="fw-bold">Real-Time Analytics</h5>
-                    <p class="text-muted">
-                        Track ad spend, leads and WhatsApp conversations instantly.
-                    </p>
-                </div>
-            </div>
+<div class="max-w-6xl mx-auto px-6">
 
-            <div class="col-md-4">
-                <div class="card feature-card p-4 h-100">
-                    <h5 class="fw-bold">Secure Meta OAuth</h5>
-                    <p class="text-muted">
-                        Official Meta authentication for safe business connection.
-                    </p>
-                </div>
-            </div>
+<h2 class="text-3xl font-bold text-center mb-14">
+Platform Features
+</h2>
 
-            <div class="col-md-4">
-                <div class="card feature-card p-4 h-100">
-                    <h5 class="fw-bold">Business Automation</h5>
-                    <p class="text-muted">
-                        Manage campaigns and respond to customers easily.
-                    </p>
-                </div>
-            </div>
+<div class="grid md:grid-cols-3 gap-8">
 
-        </div>
-    </div>
+
+<!-- FEATURE -->
+<div class="bg-gray-50 p-8 rounded-xl border hover:shadow-lg transition">
+
+<h3 class="font-semibold text-lg mb-3">
+Meta Ads Management
+</h3>
+
+<p class="text-gray-600 text-sm">
+Create campaigns, manage ad sets, monitor performance and control budgets directly from your dashboard.
+</p>
+
+</div>
+
+
+<!-- FEATURE -->
+<div class="bg-gray-50 p-8 rounded-xl border hover:shadow-lg transition">
+
+<h3 class="font-semibold text-lg mb-3">
+AI Chatbot Automation
+</h3>
+
+<p class="text-gray-600 text-sm">
+Automatically reply to WhatsApp leads generated from your ads using intelligent chatbot automation.
+</p>
+
+</div>
+
+
+<!-- FEATURE -->
+<div class="bg-gray-50 p-8 rounded-xl border hover:shadow-lg transition">
+
+<h3 class="font-semibold text-lg mb-3">
+Real-Time Analytics
+</h3>
+
+<p class="text-gray-600 text-sm">
+Track ad spend, clicks, conversions and conversations with powerful performance insights.
+</p>
+
+</div>
+
+
+</div>
+
+</div>
+
 </section>
 
-<!-- PRICING -->
-<section class="bg-light py-5">
-    <div class="container text-center">
-        <h2 class="mb-5">Simple Pricing</h2>
 
-        <div class="row justify-content-center g-4">
+<!-- PLATFORM SECTION -->
+<section class="py-20">
 
-            <div class="col-md-4">
-                <div class="card pricing-card shadow-sm p-4">
-                    <h4 class="fw-bold">Free Plan</h4>
-                    <h2 class="my-3">$0</h2>
-                    <ul class="list-unstyled text-muted mb-4">
-                        <li>1 Business Connection</li>
-                        <li>Basic Analytics</li>
-                        <li>Email Support</li>
-                    </ul>
-                    <a href="{{ route('register') }}" class="btn btn-primary w-100">
-                        Get Started
-                    </a>
-                </div>
-            </div>
+<div class="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-12 items-center">
 
-            <div class="col-md-4">
-                <div class="card pricing-card shadow-lg border-primary p-4">
-                    <h4 class="fw-bold text-primary">Pro Plan</h4>
-                    <h2 class="my-3">$49 <small>/month</small></h2>
-                    <ul class="list-unstyled text-muted mb-4">
-                        <li>Unlimited Connections</li>
-                        <li>Advanced Analytics</li>
-                        <li>Priority Support</li>
-                    </ul>
-                    <a href="{{ route('register') }}" class="btn btn-primary w-100">
-                        Upgrade Now
-                    </a>
-                </div>
-            </div>
+<div>
 
-        </div>
-    </div>
+<h2 class="text-3xl font-bold mb-6">
+
+Everything Your Business Needs  
+To Scale Meta Advertising
+
+</h2>
+
+<p class="text-gray-600 mb-6">
+
+Parrot Canada combines AI chatbot automation with advanced Meta Ads
+management to help businesses capture, nurture and convert leads
+efficiently.
+
+</p>
+
+<ul class="space-y-3 text-gray-600">
+
+<li>✔ Campaign & Ad management</li>
+<li>✔ WhatsApp lead automation</li>
+<li>✔ Creative performance tracking</li>
+<li>✔ Budget monitoring & analytics</li>
+
+</ul>
+
+</div>
+
+
+<div class="bg-green-600 rounded-2xl p-10 text-white shadow-lg">
+
+<h3 class="text-2xl font-semibold mb-4">
+Start Managing Your Ads Smarter
+</h3>
+
+<p class="text-green-100 mb-6">
+Login to your dashboard and take full control of your advertising
+and chatbot automation platform.
+</p>
+
+<a
+href="{{ route('login') }}"
+class="bg-white text-green-700 px-6 py-3 rounded-lg font-semibold">
+
+Login Now
+
+</a>
+
+</div>
+
+</div>
+
 </section>
+
 
 <!-- FOOTER -->
-<footer class="text-center">
-    <div class="container">
-        <p>© {{ date('Y') }} Parrot Meta Suite. All rights reserved.</p>
-        <div class="mt-3">
-            <a href="/privacy-policy">Privacy Policy</a> |
-            <a href="/terms-of-service">Terms</a> |
-            <a href="/data-deletion">Data Deletion</a>
-        </div>
-    </div>
+<footer class="bg-gray-900 text-gray-400 py-10">
+
+<div class="max-w-6xl mx-auto px-6 text-center">
+
+<p class="mb-4">
+© {{ date('Y') }} Parrot Canada. All rights reserved.
+</p>
+
+<div class="space-x-6 text-sm">
+
+<a href="/privacy-policy" class="hover:text-white">Privacy Policy</a>
+<a href="/terms-of-service" class="hover:text-white">Terms</a>
+<a href="/data-deletion" class="hover:text-white">Data Deletion</a>
+
+</div>
+
+</div>
+
 </footer>
 
 </body>

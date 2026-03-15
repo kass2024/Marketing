@@ -13,6 +13,7 @@ use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\Admin\FaqController;
 use App\Http\Controllers\Admin\InboxController;
 use App\Http\Controllers\Admin\AdsManagerController;
+use App\Http\Controllers\Admin\UserController;
 
 /* CLIENT CONTROLLERS */
 
@@ -76,19 +77,21 @@ Route::prefix('auth')
 */
 
 Route::middleware(['auth','verified'])
-    ->get('/dashboard', function () {
+->get('/dashboard', function () {
 
-        return match (true) {
+    $user = auth()->user();
 
-            auth()->user()->isAdmin()  => redirect()->route('admin.dashboard'),
-            auth()->user()->isClient() => redirect()->route('client.dashboard'),
-            default => abort(403)
+    if ($user->isAdmin()) {
+        return redirect()->route('admin.dashboard');
+    }
 
-        };
+    if ($user->isClient()) {
+        return redirect()->route('client.dashboard');
+    }
 
-    })->name('dashboard');
+    abort(403);
 
-
+})->name('dashboard');
 /*
 |--------------------------------------------------------------------------
 | CLIENT PANEL
@@ -181,7 +184,13 @@ Route::middleware(['auth','verified','role:admin'])
     ->as('admin.')
     ->group(function () {
 
+/*
+|--------------------------------------------------------------------------
+| USER MANAGEMENT
+|--------------------------------------------------------------------------
+*/
 
+Route::resource('users', UserController::class)->names('users');
         /*
         |--------------------------------------------------------------------------
         | DASHBOARD
@@ -257,7 +266,20 @@ Route::middleware(['auth','verified','role:admin'])
                 Route::post('{conversation}/close','close')->name('close');
             });
 
+/*
+|--------------------------------------------------------------------------
+| AUTOMATION & CRM
+|--------------------------------------------------------------------------
+*/
 
+Route::resource('chatbots', \App\Http\Controllers\Admin\ChatbotController::class)
+    ->names('chatbots');
+
+Route::resource('templates', \App\Http\Controllers\Admin\TemplateController::class)
+    ->names('templates');
+
+Route::resource('leads', \App\Http\Controllers\Admin\LeadController::class)
+    ->names('leads');
         /*
         |--------------------------------------------------------------------------
         | META ADS SYSTEM

@@ -2,7 +2,7 @@
 
 @section('content')
 
-<div class="max-w-7xl mx-auto space-y-8">
+<div class="max-w-7xl mx-auto py-10 space-y-8">
 
 
 {{-- =========================================================
@@ -17,11 +17,27 @@ Campaigns
 </h1>
 
 <p class="text-sm text-gray-500 mt-1">
-Create campaigns first, then add AdSets, Creatives and Ads.
+Create campaigns first, then build AdSets, Creatives and Ads.
 </p>
 
 </div>
 
+
+<div class="flex gap-3">
+
+{{-- BACK TO DASHBOARD --}}
+<a
+href="{{ route('admin.dashboard') }}"
+class="inline-flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded-lg shadow hover:bg-gray-800 transition"
+>
+
+<span>←</span>
+<span>Dashboard</span>
+
+</a>
+
+
+{{-- CREATE CAMPAIGN --}}
 <a
 href="{{ route('admin.campaigns.create') }}"
 class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition"
@@ -34,6 +50,8 @@ class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-l
 
 </div>
 
+</div>
+
 
 
 {{-- =========================================================
@@ -41,52 +59,56 @@ METRICS
 ========================================================= --}}
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
+{{-- TOTAL --}}
 <div class="bg-white p-5 rounded-xl shadow border">
 
 <p class="text-sm text-gray-500">
 Total Campaigns
 </p>
 
-<p class="text-xl font-bold">
+<p class="text-2xl font-bold text-gray-900">
 {{ $campaigns->total() ?? 0 }}
 </p>
 
 </div>
 
 
+{{-- ACTIVE --}}
 <div class="bg-white p-5 rounded-xl shadow border">
 
 <p class="text-sm text-gray-500">
 Active
 </p>
 
-<p class="text-xl font-bold text-green-600">
+<p class="text-2xl font-bold text-green-600">
 {{ $campaigns->where('status','ACTIVE')->count() }}
 </p>
 
 </div>
 
 
+{{-- PAUSED --}}
 <div class="bg-white p-5 rounded-xl shadow border">
 
 <p class="text-sm text-gray-500">
 Paused
 </p>
 
-<p class="text-xl font-bold text-yellow-600">
+<p class="text-2xl font-bold text-yellow-600">
 {{ $campaigns->where('status','PAUSED')->count() }}
 </p>
 
 </div>
 
 
+{{-- ADSETS --}}
 <div class="bg-white p-5 rounded-xl shadow border">
 
 <p class="text-sm text-gray-500">
-Ad Sets
+Total AdSets
 </p>
 
-<p class="text-xl font-bold text-purple-600">
+<p class="text-2xl font-bold text-purple-600">
 {{ $totalAdSets ?? 0 }}
 </p>
 
@@ -99,27 +121,23 @@ Ad Sets
 {{-- =========================================================
 CAMPAIGNS TABLE
 ========================================================= --}}
-<div class="bg-white rounded-xl shadow overflow-hidden">
+<div class="bg-white border border-gray-200 rounded-2xl shadow overflow-hidden">
+
+<div class="overflow-x-auto">
 
 <table class="min-w-full text-sm">
 
-<thead class="bg-gray-50 text-gray-600">
+<thead class="bg-gray-50 text-gray-600 uppercase text-xs tracking-wider">
 
 <tr>
 
-<th class="px-6 py-3 text-left">Campaign</th>
-
-<th class="px-6 py-3 text-left">Objective</th>
-
-<th class="px-6 py-3 text-left">Budget</th>
-
-<th class="px-6 py-3 text-left">AdSets</th>
-
-<th class="px-6 py-3 text-left">Status</th>
-
-<th class="px-6 py-3 text-left">Created</th>
-
-<th class="px-6 py-3 text-right">Actions</th>
+<th class="px-6 py-4 text-left">Campaign</th>
+<th class="px-6 py-4 text-left">Objective</th>
+<th class="px-6 py-4 text-left">Budget</th>
+<th class="px-6 py-4 text-left">AdSets</th>
+<th class="px-6 py-4 text-left">Status</th>
+<th class="px-6 py-4 text-left">Created</th>
+<th class="px-6 py-4 text-right">Actions</th>
 
 </tr>
 
@@ -127,21 +145,21 @@ CAMPAIGNS TABLE
 
 
 
-<tbody class="divide-y">
+<tbody class="divide-y divide-gray-200">
 
 @forelse($campaigns as $campaign)
 
 <tr class="hover:bg-gray-50 transition">
 
-{{-- Campaign --}}
+
+{{-- CAMPAIGN --}}
 <td class="px-6 py-4">
 
-<div class="font-medium">
+<div class="font-medium text-gray-900">
 
 <a
 href="{{ route('admin.campaigns.show',$campaign) }}"
-class="hover:text-blue-600"
->
+class="hover:text-blue-600">
 
 {{ $campaign->name }}
 
@@ -152,9 +170,7 @@ class="hover:text-blue-600"
 @if(!empty($campaign->meta_id))
 
 <div class="text-xs text-gray-400 mt-1">
-
 Meta ID: {{ $campaign->meta_id }}
-
 </div>
 
 @endif
@@ -163,8 +179,8 @@ Meta ID: {{ $campaign->meta_id }}
 
 
 
-{{-- Objective --}}
-<td class="px-6 py-4">
+{{-- OBJECTIVE --}}
+<td class="px-6 py-4 text-gray-700">
 
 {{ $campaign->objective ?? 'Not set' }}
 
@@ -172,12 +188,16 @@ Meta ID: {{ $campaign->meta_id }}
 
 
 
-{{-- Budget --}}
+{{-- BUDGET --}}
 <td class="px-6 py-4">
 
 @if(!empty($campaign->daily_budget))
 
+<span class="font-medium text-gray-900">
+
 ${{ number_format(($campaign->daily_budget ?? 0) / 100,2) }}/day
+
+</span>
 
 @else
 
@@ -191,7 +211,7 @@ No budget
 
 
 
-{{-- AdSets --}}
+{{-- ADSETS --}}
 <td class="px-6 py-4">
 
 <a
@@ -207,24 +227,24 @@ class="text-purple-600 hover:text-purple-800 font-medium"
 
 
 
-{{-- Status --}}
+{{-- STATUS --}}
 <td class="px-6 py-4">
 
 @if($campaign->status == 'ACTIVE')
 
-<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-medium">
+<span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
 Active
 </span>
 
 @elseif($campaign->status == 'PAUSED')
 
-<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs font-medium">
+<span class="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
 Paused
 </span>
 
 @else
 
-<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-medium">
+<span class="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
 {{ $campaign->status ?? 'Draft' }}
 </span>
 
@@ -234,8 +254,8 @@ Paused
 
 
 
-{{-- Created --}}
-<td class="px-6 py-4 text-gray-500">
+{{-- CREATED --}}
+<td class="px-6 py-4 text-gray-500 text-sm">
 
 {{ optional($campaign->created_at)->format('d M Y') }}
 
@@ -246,41 +266,35 @@ Paused
 {{-- =========================================================
 ACTIONS
 ========================================================= --}}
-<td class="px-6 py-4 text-right space-x-3 whitespace-nowrap">
+<td class="px-6 py-4 text-right">
+
+<div class="flex justify-end gap-3 text-sm">
 
 <a
 href="{{ route('admin.campaigns.adsets.index',$campaign->id) }}"
-class="text-purple-600 hover:text-purple-800 font-medium"
->
+class="text-purple-600 hover:text-purple-800">
 AdSets
 </a>
 
-
 <a
 href="{{ route('admin.campaigns.adsets.create',$campaign->id) }}"
-class="text-blue-600 hover:text-blue-800"
->
-Add AdSet
+class="text-blue-600 hover:text-blue-800">
+Add
 </a>
-
 
 <a
 href="{{ route('admin.creatives.index',['campaign'=>$campaign->id]) }}"
-class="text-green-600 hover:text-green-800"
->
+class="text-green-600 hover:text-green-800">
 Creatives
 </a>
 
-
 <a
 href="{{ route('admin.ads.index',['campaign'=>$campaign->id]) }}"
-class="text-indigo-600 hover:text-indigo-800"
->
+class="text-indigo-600 hover:text-indigo-800">
 Ads
 </a>
 
 
-{{-- Activate --}}
 @if($campaign->status !== 'ACTIVE')
 
 <form
@@ -291,7 +305,7 @@ class="inline">
 @csrf
 @method('PATCH')
 
-<button class="text-green-600 hover:text-green-800 font-medium">
+<button class="text-green-600 hover:text-green-800">
 Activate
 </button>
 
@@ -300,8 +314,6 @@ Activate
 @endif
 
 
-
-{{-- Pause --}}
 @if($campaign->status === 'ACTIVE')
 
 <form
@@ -321,8 +333,6 @@ Pause
 @endif
 
 
-
-{{-- Sync --}}
 <form
 method="POST"
 action="{{ route('admin.campaigns.sync',$campaign->id) }}"
@@ -337,14 +347,11 @@ Sync
 </form>
 
 
-
 <a
 href="{{ route('admin.campaigns.edit',$campaign) }}"
-class="text-gray-600 hover:text-gray-900"
->
+class="text-gray-600 hover:text-gray-900">
 Edit
 </a>
-
 
 
 <form
@@ -356,15 +363,13 @@ onsubmit="return confirm('Delete this campaign?');">
 @csrf
 @method('DELETE')
 
-<button
-class="text-red-600 hover:text-red-800"
-type="submit">
-
+<button class="text-red-600 hover:text-red-800">
 Delete
-
 </button>
 
 </form>
+
+</div>
 
 </td>
 
@@ -373,22 +378,31 @@ Delete
 @empty
 
 
+
+{{-- EMPTY STATE --}}
 <tr>
 
-<td colspan="7" class="text-center py-16">
+<td colspan="7" class="px-6 py-20 text-center">
 
-<div class="text-gray-400 text-lg">
-No campaigns yet
+<div class="flex flex-col items-center gap-4 text-gray-400">
+
+<div class="text-5xl">
+📢
 </div>
+
+<p class="text-lg">
+No campaigns yet
+</p>
 
 <a
 href="{{ route('admin.campaigns.create') }}"
-class="mt-4 inline-block bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700"
->
+class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700">
 
 Create First Campaign
 
 </a>
+
+</div>
 
 </td>
 
@@ -400,18 +414,20 @@ Create First Campaign
 
 </table>
 
+</div>
 
 
+
+{{-- PAGINATION --}}
 @if($campaigns->hasPages())
 
-<div class="p-4 border-t">
+<div class="px-6 py-4 border-t bg-gray-50">
 
 {{ $campaigns->links() }}
 
 </div>
 
 @endif
-
 
 </div>
 
@@ -422,7 +438,7 @@ META WARNING
 ========================================================= --}}
 @if(!isset($hasAdAccount) || !$hasAdAccount)
 
-<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+<div class="bg-yellow-50 border-l-4 border-yellow-400 p-5 rounded-xl">
 
 <p class="text-sm text-yellow-700">
 
@@ -432,8 +448,7 @@ You can still create campaigns locally for testing.
 
 <a
 href="{{ route('admin.accounts.index') }}"
-class="underline ml-1"
->
+class="underline ml-1">
 
 Connect account →
 

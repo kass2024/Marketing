@@ -16,10 +16,19 @@ transition-transform duration-300">
 Inbox
 </h2>
 
+<div class="flex items-center gap-2">
+
+<a href="{{ route('admin.dashboard') }}"
+class="bg-gray-700 text-white text-xs px-3 py-1 rounded-md">
+Dashboard
+</a>
+
 <a href="/admin/bulk"
 class="bg-green-500 text-white text-xs px-3 py-1 rounded-md">
 Bulk Send
 </a>
+
+</div>
 
 </div>
 

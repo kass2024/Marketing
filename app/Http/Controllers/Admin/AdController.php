@@ -367,7 +367,7 @@ $ad = Ad::create([
     |--------------------------------------------------------------------------
     */
 
-   public function preview(Ad $ad): View
+ public function preview(Ad $ad): View
 {
     $ad->load([
         'creative',
@@ -386,132 +386,144 @@ $ad = Ad::create([
 
     try {
 
-        if ($ad->meta_ad_id) {
-
-            /*
-            |--------------------------------------------------------------------------
-            | BASIC INSIGHTS
-            |--------------------------------------------------------------------------
-            */
-
-            $base = $this->meta->getInsights($ad->meta_ad_id);
-
-            if (!empty($base['data'][0])) {
-
-                $row = $base['data'][0];
-
-                $impressions = (int)($row['impressions'] ?? 0);
-                $clicks = (int)($row['clicks'] ?? 0);
-                $spend = (float)($row['spend'] ?? 0);
-
-                $ctr = $impressions > 0
-                    ? round(($clicks / $impressions) * 100,2)
-                    : 0;
-
-                $ad->update([
-                    'impressions' => $impressions,
-                    'clicks' => $clicks,
-                    'spend' => $spend,
-                    'ctr' => $ctr
-                ]);
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | COUNTRY BREAKDOWN
-            |--------------------------------------------------------------------------
-            */
-
-            $countries = $this->meta->getInsights(
-                $ad->meta_ad_id,
-                ['breakdowns' => 'country']
-            );
-
-            foreach ($countries['data'] ?? [] as $row) {
-
-                $audience['countries'][] = [
-                    'country' => $row['country'] ?? 'Unknown',
-                    'impressions' => (int)($row['impressions'] ?? 0)
-                ];
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | AGE + GENDER
-            |--------------------------------------------------------------------------
-            */
-
-            $ages = $this->meta->getInsights(
-                $ad->meta_ad_id,
-                ['breakdowns' => 'age,gender']
-            );
-
-            foreach ($ages['data'] ?? [] as $row) {
-
-                $audience['age'][] = [
-                    'age' => $row['age'] ?? '-',
-                    'impressions' => (int)($row['impressions'] ?? 0)
-                ];
-
-                $audience['gender'][] = [
-                    'gender' => $row['gender'] ?? '-',
-                    'impressions' => (int)($row['impressions'] ?? 0)
-                ];
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | DEVICE
-            |--------------------------------------------------------------------------
-            */
-
-            $device = $this->meta->getInsights(
-                $ad->meta_ad_id,
-                ['breakdowns' => 'device_platform']
-            );
-
-            foreach ($device['data'] ?? [] as $row) {
-
-                $devices[] = [
-                    'device' => $row['device_platform'] ?? 'unknown',
-                    'impressions' => (int)($row['impressions'] ?? 0),
-                    'clicks' => (int)($row['clicks'] ?? 0)
-                ];
-            }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | PLACEMENT
-            |--------------------------------------------------------------------------
-            */
-
-            $placement = $this->meta->getInsights(
-                $ad->meta_ad_id,
-                ['breakdowns' => 'publisher_platform']
-            );
-
-            foreach ($placement['data'] ?? [] as $row) {
-
-                $placements[] = [
-                    'placement' => $row['publisher_platform'] ?? 'unknown',
-                    'impressions' => (int)($row['impressions'] ?? 0),
-                    'clicks' => (int)($row['clicks'] ?? 0)
-                ];
-            }
-
+        if (!$ad->meta_ad_id) {
+            throw new Exception('Ad not synced with Meta.');
         }
 
-    } catch (Throwable $e) {
+        /*
+        |--------------------------------------------------------------------------
+        | BASIC INSIGHTS (Normalized Metrics)
+        |--------------------------------------------------------------------------
+        */
 
-        Log::error('AD_INSIGHTS_BREAKDOWN_FAILED', [
+        $base = $this->meta->getInsights($ad->meta_ad_id);
+
+        if (!empty($base)) {
+
+            $impressions = (int)($base['impressions'] ?? 0);
+            $clicks = (int)($base['clicks'] ?? 0);
+            $spend = (float)($base['spend'] ?? 0);
+
+            $ctr = $impressions > 0
+                ? round(($clicks / $impressions) * 100, 2)
+                : 0;
+
+            $ad->update([
+                'impressions' => $impressions,
+                'clicks' => $clicks,
+                'spend' => $spend,
+                'ctr' => $ctr
+            ]);
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | COUNTRY BREAKDOWN
+        |--------------------------------------------------------------------------
+        */
+
+        $countries = $this->meta->getInsights(
+            $ad->meta_ad_id,
+            'lifetime',
+            ['breakdowns' => 'country']
+        );
+
+        foreach ($countries as $row) {
+
+            $audience['countries'][] = [
+                'country' => $row['country'] ?? 'Unknown',
+                'impressions' => (int)($row['impressions'] ?? 0)
+            ];
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | AGE + GENDER
+        |--------------------------------------------------------------------------
+        */
+
+        $ages = $this->meta->getInsights(
+            $ad->meta_ad_id,
+            'lifetime',
+            ['breakdowns' => 'age,gender']
+        );
+
+        foreach ($ages as $row) {
+
+            if (isset($row['age'])) {
+
+                $audience['age'][] = [
+                    'age' => $row['age'],
+                    'impressions' => (int)($row['impressions'] ?? 0)
+                ];
+            }
+
+            if (isset($row['gender'])) {
+
+                $audience['gender'][] = [
+                    'gender' => $row['gender'],
+                    'impressions' => (int)($row['impressions'] ?? 0)
+                ];
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | DEVICE BREAKDOWN
+        |--------------------------------------------------------------------------
+        */
+
+        $deviceRows = $this->meta->getInsights(
+            $ad->meta_ad_id,
+            'lifetime',
+            ['breakdowns' => 'device_platform']
+        );
+
+        foreach ($deviceRows as $row) {
+
+            $devices[] = [
+                'device' => $row['device_platform'] ?? 'Unknown',
+                'impressions' => (int)($row['impressions'] ?? 0),
+                'clicks' => (int)($row['clicks'] ?? 0)
+            ];
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | PLACEMENT BREAKDOWN
+        |--------------------------------------------------------------------------
+        */
+
+        $placementRows = $this->meta->getInsights(
+            $ad->meta_ad_id,
+            'lifetime',
+            ['breakdowns' => 'publisher_platform']
+        );
+
+        foreach ($placementRows as $row) {
+
+            $placements[] = [
+                'placement' => $row['publisher_platform'] ?? 'Unknown',
+                'impressions' => (int)($row['impressions'] ?? 0),
+                'clicks' => (int)($row['clicks'] ?? 0)
+            ];
+        }
+
+    }
+
+    catch (Throwable $e) {
+
+        Log::error('AD_INSIGHTS_PREVIEW_FAILED', [
+
             'ad_id' => $ad->id,
+            'meta_ad_id' => $ad->meta_ad_id,
             'error' => $e->getMessage()
-        ]);
 
+        ]);
     }
 
     return view('admin.ads.preview', [

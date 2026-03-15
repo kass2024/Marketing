@@ -883,4 +883,28 @@ public function getCreativeInsights(string $creativeId): array
         'date_preset' => 'maximum'
     ]);
 }
+public function getBillingInfo(string $accountId)
+{
+    $accountId = $this->formatAccount($accountId);
+
+    $response = Http::get("{$this->baseUrl}/{$accountId}",[
+        'fields' => implode(',',[
+            'id',
+            'name',
+            'account_status',
+            'currency',
+            'timezone_name',
+            'amount_spent',
+            'spend_cap',
+            'funding_source_details'
+        ]),
+        'access_token' => $this->accessToken
+    ]);
+
+    if(!$response->successful()){
+        $this->handleError($response,'billing_info');
+    }
+
+    return $response->json();
+}
 }

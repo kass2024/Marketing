@@ -536,6 +536,8 @@ Route::prefix('creatives')->name('creatives.')->group(function () {
             
             Route::delete('/team/{user}', [\App\Http\Controllers\Admin\TeamController::class, 'destroy'])
                 ->name('team.destroy');
+                Route::get('/billing', [\App\Http\Controllers\Admin\BillingController::class, 'index'])
+    ->name('billing');
         });
 
     });

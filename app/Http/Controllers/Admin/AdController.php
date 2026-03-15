@@ -366,8 +366,7 @@ $ad = Ad::create([
     | PREVIEW CREATIVE
     |--------------------------------------------------------------------------
     */
-
- public function preview(Ad $ad): View
+public function preview(Ad $ad): View
 {
     $ad->load([
         'creative',
@@ -392,17 +391,17 @@ $ad = Ad::create([
 
         /*
         |--------------------------------------------------------------------------
-        | BASIC INSIGHTS (Normalized Metrics)
+        | BASIC INSIGHTS
         |--------------------------------------------------------------------------
         */
 
-        $base = $this->meta->getInsights($ad->meta_ad_id);
+        $base = $this->meta->getInsights($ad->meta_ad_id,'maximum');
 
         if (!empty($base)) {
 
-            $impressions = (int)($base['impressions'] ?? 0);
-            $clicks = (int)($base['clicks'] ?? 0);
-            $spend = (float)($base['spend'] ?? 0);
+            $impressions = (int) ($base['impressions'] ?? 0);
+            $clicks      = (int) ($base['clicks'] ?? 0);
+            $spend       = (float) ($base['spend'] ?? 0);
 
             $ctr = $impressions > 0
                 ? round(($clicks / $impressions) * 100, 2)
@@ -410,9 +409,9 @@ $ad = Ad::create([
 
             $ad->update([
                 'impressions' => $impressions,
-                'clicks' => $clicks,
-                'spend' => $spend,
-                'ctr' => $ctr
+                'clicks'      => $clicks,
+                'spend'       => $spend,
+                'ctr'         => $ctr
             ]);
         }
 
@@ -425,47 +424,50 @@ $ad = Ad::create([
 
         $countries = $this->meta->getInsights(
             $ad->meta_ad_id,
-            'lifetime',
+            'maximum',
             ['breakdowns' => 'country']
         );
 
         foreach ($countries as $row) {
 
-            $audience['countries'][] = [
-                'country' => $row['country'] ?? 'Unknown',
-                'impressions' => (int)($row['impressions'] ?? 0)
-            ];
+            $country = $row['country'] ?? 'Unknown';
+
+            $audience['countries'][$country] =
+                ($audience['countries'][$country] ?? 0)
+                + (int)($row['impressions'] ?? 0);
         }
 
 
         /*
         |--------------------------------------------------------------------------
-        | AGE + GENDER
+        | AGE + GENDER BREAKDOWN
         |--------------------------------------------------------------------------
         */
 
         $ages = $this->meta->getInsights(
             $ad->meta_ad_id,
-            'lifetime',
+            'maximum',
             ['breakdowns' => 'age,gender']
         );
 
         foreach ($ages as $row) {
 
-            if (isset($row['age'])) {
+            if (!empty($row['age'])) {
 
-                $audience['age'][] = [
-                    'age' => $row['age'],
-                    'impressions' => (int)($row['impressions'] ?? 0)
-                ];
+                $age = $row['age'];
+
+                $audience['age'][$age] =
+                    ($audience['age'][$age] ?? 0)
+                    + (int)($row['impressions'] ?? 0);
             }
 
-            if (isset($row['gender'])) {
+            if (!empty($row['gender'])) {
 
-                $audience['gender'][] = [
-                    'gender' => $row['gender'],
-                    'impressions' => (int)($row['impressions'] ?? 0)
-                ];
+                $gender = $row['gender'];
+
+                $audience['gender'][$gender] =
+                    ($audience['gender'][$gender] ?? 0)
+                    + (int)($row['impressions'] ?? 0);
             }
         }
 
@@ -478,16 +480,25 @@ $ad = Ad::create([
 
         $deviceRows = $this->meta->getInsights(
             $ad->meta_ad_id,
-            'lifetime',
+            'maximum',
             ['breakdowns' => 'device_platform']
         );
 
         foreach ($deviceRows as $row) {
 
-            $devices[] = [
-                'device' => $row['device_platform'] ?? 'Unknown',
-                'impressions' => (int)($row['impressions'] ?? 0),
-                'clicks' => (int)($row['clicks'] ?? 0)
+            $device = $row['device_platform'] ?? 'Unknown';
+
+            $devices[$device] = [
+
+                'device' => $device,
+
+                'impressions' =>
+                    ($devices[$device]['impressions'] ?? 0)
+                    + (int)($row['impressions'] ?? 0),
+
+                'clicks' =>
+                    ($devices[$device]['clicks'] ?? 0)
+                    + (int)($row['clicks'] ?? 0)
             ];
         }
 
@@ -500,18 +511,38 @@ $ad = Ad::create([
 
         $placementRows = $this->meta->getInsights(
             $ad->meta_ad_id,
-            'lifetime',
+            'maximum',
             ['breakdowns' => 'publisher_platform']
         );
 
         foreach ($placementRows as $row) {
 
-            $placements[] = [
-                'placement' => $row['publisher_platform'] ?? 'Unknown',
-                'impressions' => (int)($row['impressions'] ?? 0),
-                'clicks' => (int)($row['clicks'] ?? 0)
+            $placement = $row['publisher_platform'] ?? 'Unknown';
+
+            $placements[$placement] = [
+
+                'placement' => $placement,
+
+                'impressions' =>
+                    ($placements[$placement]['impressions'] ?? 0)
+                    + (int)($row['impressions'] ?? 0),
+
+                'clicks' =>
+                    ($placements[$placement]['clicks'] ?? 0)
+                    + (int)($row['clicks'] ?? 0)
             ];
         }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | SORT DATA FOR DASHBOARD
+        |--------------------------------------------------------------------------
+        */
+
+        arsort($audience['countries']);
+        arsort($audience['age']);
+        arsort($audience['gender']);
 
     }
 
@@ -527,10 +558,15 @@ $ad = Ad::create([
     }
 
     return view('admin.ads.preview', [
+
         'ad' => $ad,
+
         'audience' => $audience,
-        'devices' => $devices,
-        'placements' => $placements
+
+        'devices' => array_values($devices),
+
+        'placements' => array_values($placements)
+
     ]);
 }
 /*

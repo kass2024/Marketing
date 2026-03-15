@@ -13,34 +13,24 @@ class AIEngine
     protected string $model;
 
     // Tunable thresholds
-    protected float $faqThreshold = 0.55; // Slightly lowered for better matching
+    protected float $faqThreshold = 0.50; // Balanced for good matching
     protected float $groundThreshold = 0.35;
-    protected int $candidateLimit = 10; // Increased for better coverage
+    protected int $candidateLimit = 15; // Increased for better coverage
     protected int $timeout = 30;
 
     // Disable in production
     protected bool $debug = true;
 
-    // Dynamic greeting patterns (can be moved to DB if needed)
+    // Greeting patterns
     protected array $greetings = [
         'hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening',
-        'morning', 'afternoon', 'evening', 'hi there', 'hello there', 'hey there'
+        'morning', 'afternoon', 'evening', 'hi there', 'hello there'
     ];
 
     // Human escalation keywords
     protected array $humanKeywords = [
         'human', 'agent', 'support', 'representative', 'talk to someone',
-        'call me', 'customer care', 'live agent', 'speak to human', 'real person'
-    ];
-
-    // Common stopwords for keyword extraction
-    protected array $stopwords = [
-        'the', 'and', 'for', 'with', 'from', 'this', 'that', 'what', 'how',
-        'can', 'you', 'your', 'have', 'has', 'visa', 'help', 'need', 'want',
-        'about', 'please', 'thanks', 'thank', 'would', 'could', 'should',
-        'tell', 'know', 'like', 'just', 'get', 'are', 'not', 'was', 'were',
-        'been', 'being', 'will', 'shall', 'may', 'might', 'must', 'here',
-        'there', 'where', 'why', 'when', 'who', 'whom', 'which', 'any'
+        'call me', 'customer care', 'live agent', 'speak to human'
     ];
 
     public function __construct()
@@ -50,7 +40,7 @@ class AIEngine
 
     /*
     |--------------------------------------------------------------------------
-    | MAIN ENTRY
+    | MAIN ENTRY - Prioritize FAQs Above All
     |--------------------------------------------------------------------------
     */
 
@@ -128,8 +118,8 @@ class AIEngine
             |--------------------------------------------------------------------------
             */
 
-            // Strategy A: Exact match with flexible normalization
-            $exactMatch = $this->findExactMatch($clientId, $normalized);
+            // Strategy 1: Exact match with normalization
+            $exactMatch = $this->findExactMatch($clientId, $normalized, $originalMessage);
             if ($exactMatch) {
                 $this->log('EXACT_MATCH_FOUND', [
                     'question' => $exactMatch->question,
@@ -140,7 +130,7 @@ class AIEngine
                 return $this->store($clientId, $hash, $response);
             }
 
-            // Strategy B: Contains match (question contains user message)
+            // Strategy 2: Contains match (FAQ question contains user message)
             $containsMatch = $this->findContainsMatch($clientId, $normalized);
             if ($containsMatch) {
                 $this->log('CONTAINS_MATCH_FOUND', [
@@ -152,7 +142,7 @@ class AIEngine
                 return $this->store($clientId, $hash, $response);
             }
 
-            // Strategy C: Keyword match (extract important terms)
+            // Strategy 3: Keyword match (user message contains FAQ keywords)
             $keywordMatch = $this->findKeywordMatch($clientId, $normalized);
             if ($keywordMatch && $keywordMatch['score'] >= 0.7) {
                 $this->log('KEYWORD_MATCH_FOUND', [
@@ -169,9 +159,25 @@ class AIEngine
                 return $this->store($clientId, $hash, $response);
             }
 
+            // Strategy 4: Question pattern match (remove "what is", "how to", etc.)
+            $patternMatch = $this->findPatternMatch($clientId, $normalized);
+            if ($patternMatch && $patternMatch['score'] >= 0.6) {
+                $this->log('PATTERN_MATCH_FOUND', [
+                    'question' => $patternMatch['knowledge']->question,
+                    'score' => $patternMatch['score']
+                ], $requestId);
+
+                $response = $this->formatFromKnowledge(
+                    $patternMatch['knowledge'],
+                    $patternMatch['score'],
+                    'pattern_match'
+                );
+                return $this->store($clientId, $hash, $response);
+            }
+
             /*
             |--------------------------------------------------------------------------
-            | CHECK CACHE (AFTER FAQ MATCHING)
+            | CHECK CACHE (After FAQ attempts)
             |--------------------------------------------------------------------------
             */
 
@@ -202,7 +208,7 @@ class AIEngine
 
                 /*
                 |--------------------------------------------------------------------------
-                | FAQ SEMANTIC (High Confidence)
+                | FAQ SEMANTIC (Good confidence)
                 |--------------------------------------------------------------------------
                 */
 
@@ -222,7 +228,7 @@ class AIEngine
 
                 /*
                 |--------------------------------------------------------------------------
-                | GROUNDED AI (Medium Confidence)
+                | GROUNDED AI (Lower confidence, use context)
                 |--------------------------------------------------------------------------
                 */
 
@@ -287,54 +293,56 @@ class AIEngine
 
     /*
     |--------------------------------------------------------------------------
-    | DYNAMIC FAQ MATCHING METHODS (NO HARDCODING)
+    | DYNAMIC FAQ MATCHING METHODS (ALL FROM DB - NO HARDCODING)
     |--------------------------------------------------------------------------
     */
 
     /**
      * Find exact match with flexible normalization
      */
-    protected function findExactMatch(int $clientId, string $normalized): ?KnowledgeBase
+    protected function findExactMatch(int $clientId, string $normalized, string $original): ?KnowledgeBase
     {
-        // Get all active FAQs
-        $faqs = KnowledgeBase::forClient($clientId)
+        // Try exact normalized match
+        $exact = KnowledgeBase::forClient($clientId)
             ->active()
+            ->whereRaw('LOWER(question) = ?', [$normalized])
             ->with('attachments')
-            ->get();
+            ->first();
 
-        $bestMatch = null;
-        $bestScore = 0;
+        if ($exact) {
+            return $exact;
+        }
 
-        foreach ($faqs as $faq) {
-            $question = Str::lower($faq->question);
-            
-            // Calculate similarity score
-            $score = 0;
-            
-            // Exact match
-            if ($question === $normalized) {
-                $score = 1.0;
-            }
-            // Question contains normalized message (for partial matches)
-            elseif (str_contains($question, $normalized) && strlen($normalized) > 5) {
-                $score = 0.9;
-            }
-            // Normalized message contains key parts of question
-            elseif (str_contains($normalized, $this->extractCorePhrase($question))) {
-                $score = 0.8;
-            }
-            
-            if ($score > $bestScore) {
-                $bestScore = $score;
-                $bestMatch = $faq;
+        // Try original message (with original case preserved for matching)
+        $originalMatch = KnowledgeBase::forClient($clientId)
+            ->active()
+            ->whereRaw('LOWER(question) = ?', [Str::lower($original)])
+            ->with('attachments')
+            ->first();
+
+        if ($originalMatch) {
+            return $originalMatch;
+        }
+
+        // Try without punctuation
+        $noPunct = preg_replace('/[^\p{L}\p{N}\s]/u', '', $normalized);
+        if ($noPunct !== $normalized) {
+            $noPunctMatch = KnowledgeBase::forClient($clientId)
+                ->active()
+                ->whereRaw('LOWER(question) = ?', [$noPunct])
+                ->with('attachments')
+                ->first();
+
+            if ($noPunctMatch) {
+                return $noPunctMatch;
             }
         }
 
-        return $bestScore >= 0.8 ? $bestMatch : null;
+        return null;
     }
 
     /**
-     * Find contains match (FAQ question contains user's message)
+     * Find contains match (FAQ question contains user message)
      */
     protected function findContainsMatch(int $clientId, string $message): ?KnowledgeBase
     {
@@ -350,7 +358,7 @@ class AIEngine
     }
 
     /**
-     * Find keyword-based match
+     * Find keyword-based match (user message contains important words from FAQ)
      */
     protected function findKeywordMatch(int $clientId, string $message): ?array
     {
@@ -384,7 +392,7 @@ class AIEngine
                 // Calculate score based on percentage of keywords matched
                 $keywordScore = $matches / count($keywords);
                 
-                // Boost score based on keyword importance (length)
+                // Boost score based on keyword importance (longer keywords are more important)
                 $totalLength = array_sum(array_map('strlen', $matchedKeywords));
                 $importanceBoost = min($totalLength / 100, 0.2);
                 
@@ -397,7 +405,7 @@ class AIEngine
             }
         }
 
-        if ($bestMatch && $bestScore > 0.3) {
+        if ($bestMatch) {
             return [
                 'knowledge' => $bestMatch,
                 'score' => $bestScore
@@ -408,16 +416,73 @@ class AIEngine
     }
 
     /**
-     * Extract core phrase from question (remove common words)
+     * Find pattern-based match (remove common question prefixes)
      */
-    protected function extractCorePhrase(string $question): string
+    protected function findPatternMatch(int $clientId, string $message): ?array
     {
-        $words = explode(' ', $question);
-        $coreWords = array_filter($words, function($word) {
-            return !in_array($word, $this->stopwords) && strlen($word) > 2;
-        });
-        
-        return implode(' ', array_slice($coreWords, 0, 3));
+        $patterns = [
+            'what is', 'what are', 'what\'s', 'how to', 'how do', 'how can',
+            'where is', 'where are', 'where can', 'when can', 'when will',
+            'why do', 'why is', 'can i', 'do you', 'does the', 'is it',
+            'tell me about', 'tell me', 'i want to know', 'i need to know',
+            'can you tell me', 'could you tell me', 'would you tell me'
+        ];
+
+        $cleanMessage = $message;
+
+        foreach ($patterns as $pattern) {
+            if (Str::startsWith($message, $pattern)) {
+                $cleanMessage = trim(substr($message, strlen($pattern)));
+                break;
+            }
+        }
+
+        // Remove question mark if present
+        $cleanMessage = str_replace('?', '', $cleanMessage);
+
+        // If after cleaning we have meaningful text, try to match
+        if (strlen($cleanMessage) > 3 && $cleanMessage !== $message) {
+            $keywords = $this->extractKeywords($cleanMessage);
+            
+            if (!empty($keywords)) {
+                $faqs = KnowledgeBase::forClient($clientId)
+                    ->active()
+                    ->with('attachments')
+                    ->get();
+
+                $bestMatch = null;
+                $bestScore = 0;
+
+                foreach ($faqs as $faq) {
+                    $question = Str::lower($faq->question);
+                    $matches = 0;
+
+                    foreach ($keywords as $keyword) {
+                        if (str_contains($question, $keyword)) {
+                            $matches++;
+                        }
+                    }
+
+                    if ($matches > 0) {
+                        $score = $matches / count($keywords);
+                        
+                        if ($score > $bestScore) {
+                            $bestScore = $score;
+                            $bestMatch = $faq;
+                        }
+                    }
+                }
+
+                if ($bestMatch) {
+                    return [
+                        'knowledge' => $bestMatch,
+                        'score' => $bestScore
+                    ];
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -425,11 +490,23 @@ class AIEngine
      */
     protected function extractKeywords(string $message): array
     {
+        $stopwords = [
+            'the', 'and', 'for', 'with', 'from', 'this', 'that', 'what', 'how',
+            'can', 'you', 'your', 'have', 'has', 'help', 'need', 'want', 'about',
+            'please', 'thanks', 'thank', 'would', 'could', 'should', 'tell',
+            'know', 'like', 'just', 'get', 'are', 'not', 'was', 'were', 'been',
+            'being', 'will', 'shall', 'may', 'might', 'must', 'here', 'there',
+            'where', 'why', 'when', 'who', 'whom', 'which', 'any', 'some',
+            'every', 'all', 'both', 'each', 'few', 'many', 'much', 'such',
+            'than', 'then', 'them', 'they', 'their', 'ours', 'yours', 'myself',
+            'visa', 'study', 'student', 'application', 'apply', 'document'
+        ];
+
         $words = explode(' ', $message);
         
-        return array_filter($words, function($word) {
+        return array_filter($words, function($word) use ($stopwords) {
             $word = trim($word);
-            return strlen($word) >= 3 && !in_array($word, $this->stopwords);
+            return strlen($word) >= 3 && !in_array($word, $stopwords);
         });
     }
 
@@ -468,7 +545,7 @@ class AIEngine
 
             /*
             |--------------------------------------------------------------------------
-            | DYNAMIC KEYWORD BOOST
+            | KEYWORD BOOST
             |--------------------------------------------------------------------------
             */
 
@@ -477,12 +554,12 @@ class AIEngine
 
             foreach ($keywords as $keyword) {
                 if (str_contains($questionText, $keyword)) {
-                    $boost += 0.06;
+                    $boost += 0.08; // Boost per keyword
                 }
             }
 
-            // Cap boost
-            $boost = min($boost, 0.25);
+            // Cap boost to avoid overpowering embeddings
+            $boost = min($boost, 0.30);
             $finalScore = $score + $boost;
 
             $this->log('SEMANTIC_SCORE', [
@@ -518,7 +595,7 @@ class AIEngine
 
     /*
     |--------------------------------------------------------------------------
-    | AI MODES
+    | AI MODES (Only used when NO FAQ matches)
     |--------------------------------------------------------------------------
     */
 
@@ -629,17 +706,17 @@ Provide the best possible helpful answer using the information above.
 
     /*
     |--------------------------------------------------------------------------
-    | HELPERS
+    | HELPER METHODS
     |--------------------------------------------------------------------------
     */
 
     protected function normalize(string $text): string
     {
-        // Remove extra spaces and normalize
+        // Remove extra spaces
         $text = preg_replace('/\s+/', ' ', trim($text));
         
         // Remove punctuation but keep important characters
-        $text = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text);
+        $text = preg_replace('/[^\p{L}\p{N}\s\?]/u', ' ', $text);
         
         // Remove multiple spaces
         $text = preg_replace('/\s+/', ' ', $text);
@@ -754,8 +831,9 @@ Provide the best possible helpful answer using the information above.
             }
         }
 
+        // Return EXACT answer from database - no modifications
         return [
-            'text'        => $knowledge->answer ?? '',
+            'text'        => $knowledge->answer,
             'attachments' => $attachments,
             'confidence'  => $confidence,
             'source'      => $source,

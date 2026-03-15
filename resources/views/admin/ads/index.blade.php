@@ -29,9 +29,9 @@ Create, publish and monitor ad delivery performance.
 
 <div class="flex gap-3">
 
-<a href="{{ route('admin.dashboard') }}"
+<a href="{{ route('admin.adsets.index') }}"
 class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
-Dashboard
+Back to Ad Sets
 </a>
 
 <a href="{{ route('admin.ads.create') }}"
@@ -42,7 +42,6 @@ class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-l
 
 </div>
 </div>
-
 
 {{-- =========================================================
 ALERTS

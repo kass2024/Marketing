@@ -19,19 +19,18 @@ Ad Sets
 Manage targeting, budgets and delivery settings.
 </p>
 </div>
-
 <div class="flex gap-3">
-
-<a
-href="{{ route('admin.dashboard') }}"
-class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition">
-Dashboard
-</a>
 
 <a
 href="{{ route('admin.campaigns.index') }}"
 class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition">
-Back to Campaigns
+← Back to Campaigns
+</a>
+
+<a
+href="{{ route('admin.adsets.create') }}"
+class="bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition">
++ Create Ad Set
 </a>
 
 </div>

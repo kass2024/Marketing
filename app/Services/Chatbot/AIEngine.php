@@ -10,10 +10,15 @@ use App\Models\AiCache;
 
 class AIEngine
 {
+
     protected string $model;
 
-    protected float $faqThreshold = 0.55;
-    protected float $groundThreshold = 0.35;
+    /* --------------------------------------------------------------------------
+       THRESHOLDS
+    -------------------------------------------------------------------------- */
+
+    protected float $faqThreshold = 0.45;
+    protected float $groundThreshold = 0.30;
 
     protected int $candidateLimit = 5;
     protected int $timeout = 30;
@@ -25,24 +30,34 @@ class AIEngine
         $this->model = config('services.openai.model', 'gpt-4.1-mini');
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | MAIN ENTRY
-    |--------------------------------------------------------------------------
-    */
+    /* --------------------------------------------------------------------------
+       MAIN ENTRY
+    -------------------------------------------------------------------------- */
 
     public function reply(int $clientId, string $message, $conversation = null): array
     {
+
         $requestId = Str::uuid()->toString();
+
         $normalized = $this->normalize($message);
+
         $hash = hash('sha256', $clientId.$normalized);
 
-        $this->log('MESSAGE_RECEIVED', [
-            'conversation_id'=>$conversation?->id,
-            'message'=>$normalized
+        $this->debug("MESSAGE_RECEIVED",[
+            'raw'=>$message,
+            'normalized'=>$normalized
         ],$requestId);
 
+        /* --------------------------------------------------------------
+           HUMAN MODE
+        -------------------------------------------------------------- */
+
         if ($conversation && $conversation->status === 'human') {
+
+            $this->debug("HUMAN_MODE_ACTIVE",[
+                'conversation'=>$conversation->id
+            ],$requestId);
+
             return [
                 'text'=>'',
                 'attachments'=>[],
@@ -51,41 +66,49 @@ class AIEngine
             ];
         }
 
-        try {
+        try{
 
-            if ($normalized === '') {
+            if($normalized===''){
                 return $this->fallback("How can we assist you today?");
             }
 
-            if ($this->needsHuman($normalized)) {
+            /* --------------------------------------------------------------
+               USER REQUESTED HUMAN
+            -------------------------------------------------------------- */
+
+            if($this->needsHuman($normalized)){
+
+                $this->debug("USER_REQUESTED_AGENT",[], $requestId);
+
                 return $this->handoverToHuman($conversation,$requestId);
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | CACHE
-            |--------------------------------------------------------------------------
-            */
+            /* --------------------------------------------------------------
+               CACHE
+            -------------------------------------------------------------- */
 
             $cached = AiCache::where('client_id',$clientId)
                 ->where('message_hash',$hash)
                 ->first();
 
             if($cached){
-                $decoded=json_decode($cached->response,true);
+
+                $decoded = json_decode($cached->response,true);
+
                 if(is_array($decoded)){
-                    $this->log('CACHE_HIT',[],$requestId);
+
+                    $this->debug("CACHE_HIT",[], $requestId);
+
                     return $decoded;
                 }
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | GREETING
-            |--------------------------------------------------------------------------
-            */
+            /* --------------------------------------------------------------
+               GREETING
+            -------------------------------------------------------------- */
 
             if($this->isGreeting($normalized)){
+
                 return $this->formatResponse(
                     "Hello 👋 How can we assist you?",
                     [],
@@ -94,11 +117,9 @@ class AIEngine
                 );
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | EXACT FAQ
-            |--------------------------------------------------------------------------
-            */
+            /* --------------------------------------------------------------
+               EXACT FAQ
+            -------------------------------------------------------------- */
 
             $exact = KnowledgeBase::forClient($clientId)
                 ->active()
@@ -108,7 +129,7 @@ class AIEngine
 
             if($exact){
 
-                $this->log('FAQ_EXACT_MATCH',[
+                $this->debug("FAQ_EXACT_MATCH",[
                     'question'=>$exact->question
                 ],$requestId);
 
@@ -119,24 +140,49 @@ class AIEngine
                 );
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | SEMANTIC SEARCH
-            |--------------------------------------------------------------------------
-            */
+            /* --------------------------------------------------------------
+               KEYWORD SEARCH
+            -------------------------------------------------------------- */
 
-            $candidates=$this->retrieveCandidates($clientId,$normalized,$requestId);
+            $keywordCandidates = $this->keywordCandidates($clientId,$normalized,$requestId);
+
+            if(!empty($keywordCandidates)){
+
+                $best = $keywordCandidates[0];
+
+                $this->debug("KEYWORD_MATCH",[
+                    'question'=>$best['knowledge']->question
+                ],$requestId);
+
+                return $this->store(
+                    $clientId,
+                    $hash,
+                    $this->formatFromKnowledge(
+                        $best['knowledge'],
+                        0.90,
+                        'faq_keyword'
+                    )
+                );
+            }
+
+            /* --------------------------------------------------------------
+               SEMANTIC SEARCH
+            -------------------------------------------------------------- */
+
+            $candidates = $this->retrieveCandidates($clientId,$normalized,$requestId);
 
             if(!empty($candidates)){
 
-                $best=$candidates[0];
+                $best = $candidates[0];
 
-                $this->log('TOP_CANDIDATE',[
+                $this->debug("SEMANTIC_TOP_MATCH",[
                     'score'=>$best['score'],
                     'question'=>$best['knowledge']->question
                 ],$requestId);
 
                 if($best['score'] >= $this->faqThreshold){
+
+                    $this->debug("FAQ_SEMANTIC_MODE",[], $requestId);
 
                     return $this->store(
                         $clientId,
@@ -151,6 +197,8 @@ class AIEngine
 
                 if($best['score'] >= $this->groundThreshold){
 
+                    $this->debug("GROUNDED_AI_MODE",[], $requestId);
+
                     return $this->handleGroundedAI(
                         $clientId,
                         $hash,
@@ -159,22 +207,24 @@ class AIEngine
                         $requestId
                     );
                 }
+
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | PURE AI
-            |--------------------------------------------------------------------------
-            */
+            /* --------------------------------------------------------------
+               PURE AI
+            -------------------------------------------------------------- */
 
-            $response=$this->handlePureAI(
+            $this->debug("PURE_AI_MODE",[], $requestId);
+
+            $response = $this->handlePureAI(
                 $clientId,
                 $hash,
                 $normalized,
                 $requestId
             );
 
-            if(($response['confidence'] ?? 1) < 0.35){
+            if(($response['confidence']??1)<0.35){
+
                 return $this->handoverToHuman($conversation,$requestId);
             }
 
@@ -182,7 +232,7 @@ class AIEngine
 
         }catch(\Throwable $e){
 
-            Log::error('AIENGINE_FATAL',[
+            Log::error("AIENGINE_FATAL",[
                 'error'=>$e->getMessage(),
                 'request_id'=>$requestId
             ]);
@@ -191,22 +241,58 @@ class AIEngine
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | RETRIEVAL
-    |--------------------------------------------------------------------------
-    */
+    /* --------------------------------------------------------------------------
+       KEYWORD SEARCH
+    -------------------------------------------------------------------------- */
+
+    protected function keywordCandidates(int $clientId,string $message,string $requestId):array
+    {
+
+        $words = explode(' ',$message);
+
+        $query = KnowledgeBase::forClient($clientId)->active();
+
+        foreach($words as $word){
+
+            if(strlen($word)<4) continue;
+
+            $query->orWhere('question','LIKE',"%$word%");
+            $query->orWhere('answer','LIKE',"%$word%");
+            $query->orWhere('tags','LIKE',"%$word%");
+        }
+
+        $items = $query->limit(3)->get();
+
+        $results=[];
+
+        foreach($items as $item){
+
+            $results[]=[
+                'knowledge'=>$item,
+                'score'=>0.55
+            ];
+        }
+
+        return $results;
+    }
+
+    /* --------------------------------------------------------------------------
+       SEMANTIC SEARCH
+    -------------------------------------------------------------------------- */
 
     protected function retrieveCandidates(int $clientId,string $message,string $requestId):array
     {
-        $vector=app(EmbeddingService::class)->generate($message);
+
+        $vector = app(EmbeddingService::class)->generate($message);
 
         if(!$vector){
-            $this->log('EMBEDDING_FAILED',[],$requestId);
+
+            $this->debug("EMBEDDING_FAILED",[], $requestId);
+
             return [];
         }
 
-        $items=KnowledgeBase::forClient($clientId)
+        $items = KnowledgeBase::forClient($clientId)
             ->active()
             ->whereNotNull('embedding')
             ->with('attachments')
@@ -216,45 +302,13 @@ class AIEngine
 
         foreach($items as $item){
 
-            $embedding=$item->embedding;
+            $embedding = is_array($item->embedding)
+                ? $item->embedding
+                : json_decode($item->embedding,true);
 
-            if(is_string($embedding)){
-                $embedding=json_decode($embedding,true);
-            }
+            if(!$embedding) continue;
 
-            if(!is_array($embedding)){
-                continue;
-            }
-
-            $score=$this->cosine($vector,$embedding);
-
-            /*
-            |--------------------------------------------------------------------------
-            | KEYWORD BOOST
-            |--------------------------------------------------------------------------
-            */
-
-            $question=Str::lower($item->question);
-            $words=explode(' ',$message);
-
-            $boost=0;
-
-            foreach($words as $w){
-
-                $w=trim($w);
-
-                if(strlen($w) < 4){
-                    continue;
-                }
-
-                if(str_contains($question,$w)){
-                    $boost += 0.05;
-                }
-            }
-
-            $boost=min($boost,0.25);
-
-            $score+=$boost;
+            $score = $this->cosine($vector,$embedding);
 
             $results[]=[
                 'knowledge'=>$item,
@@ -262,7 +316,7 @@ class AIEngine
             ];
         }
 
-        usort($results,fn($a,$b)=>$b['score'] <=> $a['score']);
+        usort($results,fn($a,$b)=>$b['score']<=>$a['score']);
 
         return array_slice($results,0,$this->candidateLimit);
     }
@@ -272,31 +326,36 @@ class AIEngine
         $dot=0;$na=0;$nb=0;
 
         foreach($a as $i=>$v){
-            $dot+=$v*($b[$i] ?? 0);
-            $na+=$v*$v;
-            $nb+=($b[$i] ?? 0)*($b[$i] ?? 0);
+
+            $dot += $v*($b[$i]??0);
+            $na += $v*$v;
+            $nb += ($b[$i]??0)*($b[$i]??0);
         }
 
         return $dot/(sqrt($na)*sqrt($nb)+1e-10);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | AI MODES
-    |--------------------------------------------------------------------------
-    */
+    /* --------------------------------------------------------------------------
+       AI MODES
+    -------------------------------------------------------------------------- */
 
     protected function handlePureAI(int $clientId,string $hash,string $message,string $requestId):array
     {
-        $prompt="You are a professional visa consultant assistant.\n\nUser: ".$message;
+
+        $prompt="You are a visa consultant assistant.\nUser: ".$message;
 
         $answer=$this->callOpenAI($prompt,$requestId);
+
+        if(!$answer || strlen($answer)<20){
+
+            return $this->fallback();
+        }
 
         return $this->store(
             $clientId,
             $hash,
             $this->formatResponse(
-                $answer ?? "Please contact support.",
+                $answer,
                 [],
                 0.5,
                 'ai'
@@ -313,19 +372,10 @@ class AIEngine
     ):array{
 
         $context=collect($candidates)
-        ->map(fn($c)=>"Question: {$c['knowledge']->question}\nAnswer: {$c['knowledge']->answer}")
-        ->implode("\n\n");
+            ->map(fn($c)=>"Q:{$c['knowledge']->question}\nA:{$c['knowledge']->answer}")
+            ->implode("\n\n");
 
-        $prompt="
-Use the knowledge base below to answer the user.
-
-$context
-
-User question:
-$message
-
-Provide a helpful answer using the knowledge above.
-";
+        $prompt="Use FAQ below to answer:\n".$context."\nUser:".$message;
 
         $answer=$this->callOpenAI($prompt,$requestId);
 
@@ -333,7 +383,7 @@ Provide a helpful answer using the knowledge above.
             $clientId,
             $hash,
             $this->formatResponse(
-                $answer ?? "Please contact support.",
+                $answer??"Please contact support.",
                 [],
                 0.65,
                 'grounded_ai'
@@ -341,33 +391,43 @@ Provide a helpful answer using the knowledge above.
         );
     }
 
+    /* --------------------------------------------------------------------------
+       OPENAI CALL
+    -------------------------------------------------------------------------- */
+
     protected function callOpenAI(string $prompt,string $requestId):?string
     {
+
         try{
 
             $response=Http::withToken(config('services.openai.key'))
                 ->timeout($this->timeout)
                 ->retry(2,500)
-                ->post('https://api.openai.com/v1/responses',[
-                    'model'=>$this->model,
-                    'input'=>$prompt
+                ->post("https://api.openai.com/v1/responses",[
+                    "model"=>$this->model,
+                    "input"=>$prompt
                 ]);
 
             if($response->failed()){
-                Log::error('OPENAI_FAILED',[
+
+                Log::error("OPENAI_FAILED",[
                     'status'=>$response->status(),
-                    'body'=>$response->body()
+                    'body'=>$response->body(),
+                    'request_id'=>$requestId
                 ]);
+
                 return null;
             }
 
             $json=$response->json();
 
-            return $json['output'][0]['content'][0]['text'] ?? null;
+            return $json['output'][0]['content'][0]['text']
+                ?? $json['output_text']
+                ?? null;
 
         }catch(\Throwable $e){
 
-            Log::error('OPENAI_ERROR',[
+            Log::error("OPENAI_ERROR",[
                 'error'=>$e->getMessage()
             ]);
 
@@ -375,44 +435,47 @@ Provide a helpful answer using the knowledge above.
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | HELPERS
-    |--------------------------------------------------------------------------
-    */
+    /* --------------------------------------------------------------------------
+       HELPERS
+    -------------------------------------------------------------------------- */
 
     protected function normalize(string $text):string
     {
-        $text=Str::lower($text);
-        $text=preg_replace('/[^\w\s]/','',$text);
-        return trim(preg_replace('/\s+/',' ',$text));
+
+        $text = Str::lower($text);
+
+        $text = preg_replace('/[^a-z0-9\s]/','',$text);
+
+        $text = preg_replace('/\s+/',' ',$text);
+
+        return trim($text);
     }
 
     protected function isGreeting(string $msg):bool
     {
-        return in_array($msg,['hi','hello','hey','good morning','good evening']);
+        return preg_match('/\b(hi|hello|hey|good morning|good afternoon)\b/',$msg);
     }
 
     protected function needsHuman(string $message,?float $confidence=null):bool
     {
+
         $keywords=['human','agent','support','representative'];
 
         foreach($keywords as $word){
-            if(str_contains($message,$word)){
-                return true;
-            }
+
+            if(str_contains($message,$word)) return true;
         }
 
-        if($confidence !== null && $confidence < 0.35){
-            return true;
-        }
+        if($confidence!==null && $confidence<0.35) return true;
 
         return false;
     }
 
     protected function handoverToHuman($conversation,string $requestId):array
     {
+
         if($conversation){
+
             $conversation->update([
                 'status'=>'human',
                 'escalation_reason'=>'ai_escalation',
@@ -455,6 +518,7 @@ Provide a helpful answer using the knowledge above.
 
     protected function store(int $clientId,string $hash,array $response):array
     {
+
         AiCache::updateOrCreate(
             ['client_id'=>$clientId,'message_hash'=>$hash],
             ['response'=>json_encode($response)]
@@ -463,12 +527,16 @@ Provide a helpful answer using the knowledge above.
         return $response;
     }
 
-    protected function log(string $title,array $data,string $requestId):void
+    protected function debug(string $stage,array $data,string $requestId):void
     {
-        if($this->debug){
-            Log::info("AIEngine ".$title,array_merge([
-                'request_id'=>$requestId
-            ],$data));
-        }
+
+        if(!$this->debug) return;
+
+        Log::info("AIENGINE_DEBUG",[
+            'stage'=>$stage,
+            'request_id'=>$requestId,
+            'data'=>$data
+        ]);
     }
+
 }

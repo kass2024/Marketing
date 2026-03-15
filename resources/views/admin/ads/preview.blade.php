@@ -216,11 +216,11 @@ Audience Insights
 
 <h3 class="text-sm font-semibold mb-2">Top Countries</h3>
 
-@forelse($audience['countries'] ?? [] as $country)
+@forelse($audience['countries'] ?? [] as $country => $impressions)
 
 <div class="flex justify-between text-sm">
-<span>{{ $country['country'] }}</span>
-<span>{{ number_format($country['impressions']) }}</span>
+    <span>{{ $country }}</span>
+    <span>{{ number_format($impressions) }}</span>
 </div>
 
 @empty
@@ -234,16 +234,14 @@ Audience Insights
 
 <h3 class="text-sm font-semibold mb-2">Age Groups</h3>
 
-@forelse($audience['age'] ?? [] as $age)
+@foreach($audience['age'] ?? [] as $age => $impressions)
 
 <div class="flex justify-between text-sm">
-<span>{{ $age['age'] }}</span>
-<span>{{ number_format($age['impressions']) }}</span>
+    <span>{{ $age }}</span>
+    <span>{{ number_format($impressions) }}</span>
 </div>
 
-@empty
-<p class="text-sm text-gray-400">No data</p>
-@endforelse
+@endforeach
 
 </div>
 
@@ -252,16 +250,14 @@ Audience Insights
 
 <h3 class="text-sm font-semibold mb-2">Gender</h3>
 
-@forelse($audience['gender'] ?? [] as $gender)
+@foreach($audience['gender'] ?? [] as $gender => $impressions)
 
 <div class="flex justify-between text-sm">
-<span>{{ $gender['gender'] }}</span>
-<span>{{ number_format($gender['impressions']) }}</span>
+    <span>{{ ucfirst($gender) }}</span>
+    <span>{{ number_format($impressions) }}</span>
 </div>
 
-@empty
-<p class="text-sm text-gray-400">No data</p>
-@endforelse
+@endforeach
 
 </div>
 

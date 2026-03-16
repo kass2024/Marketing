@@ -95,65 +95,16 @@ class MetaWebhookController extends Controller
             return;
         }
 
-        // $platform = PlatformMetaConnection::where(
-        //     'whatsapp_phone_number_id',
-        //     $phoneNumberId
-        // )->first();
-
-        // if (!$platform) {
-        //     Log::warning('Platform not found', ['phone_number_id' => $phoneNumberId]);
-        //     return;
-        // }
         $platform = PlatformMetaConnection::where(
-    'whatsapp_phone_number_id',
-    $phoneNumberId
-)->first();
+            'whatsapp_phone_number_id',
+            $phoneNumberId
+        )->first();
 
-$clientConnection = MetaConnection::where(
-    'phone_number_id',
-    $phoneNumberId
-)->first();
+        if (!$platform) {
+            Log::warning('Platform not found', ['phone_number_id' => $phoneNumberId]);
+            return;
+        }
 
-/*
-|--------------------------------------------------------------------------
-| PLATFORM NUMBER
-|--------------------------------------------------------------------------
-*/
-
-if ($platform) {
-
-    $clientId = $this->resolveClientId($platform);
-
-}
-
-/*
-|--------------------------------------------------------------------------
-| CLIENT NUMBER
-|--------------------------------------------------------------------------
-*/
-
-elseif ($clientConnection) {
-
-    $clientId = $clientConnection->client_id;
-
-    $platform = $clientConnection; // unify dispatcher usage
-
-}
-
-/*
-|--------------------------------------------------------------------------
-| UNKNOWN NUMBER
-|--------------------------------------------------------------------------
-*/
-
-else {
-
-    Log::warning('Phone number not registered', [
-        'phone_number_id' => $phoneNumberId
-    ]);
-
-    return;
-}
         $clientId = $this->resolveClientId($platform);
         if (!$clientId) {
             return;

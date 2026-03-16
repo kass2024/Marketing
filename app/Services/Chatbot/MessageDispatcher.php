@@ -241,7 +241,7 @@ class MessageDispatcher
 
     /*
     |--------------------------------------------------------------------------
-    | HELPERS
+    | HELPERS Good
     |--------------------------------------------------------------------------
     */
   protected function decryptToken(PlatformMetaConnection $platform): ?string

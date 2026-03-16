@@ -244,20 +244,30 @@ class MessageDispatcher
     | HELPERS
     |--------------------------------------------------------------------------
     */
-    protected function decryptToken(PlatformMetaConnection $platform): ?string
-    {
-        try {
-            return decrypt($platform->access_token);
-        } catch (\Throwable $e) {
-
-            Log::critical('Access token decryption failed', [
-                'platform_id' => $platform->id,
-                'error'       => $e->getMessage(),
-            ]);
-
-            return null;
-        }
+  protected function decryptToken(PlatformMetaConnection $platform): ?string
+{
+    if (!$platform->access_token) {
+        Log::error('Access token missing', [
+            'platform_id' => $platform->id
+        ]);
+        return null;
     }
+
+    try {
+
+        // Try decrypting first (for encrypted tokens)
+        return decrypt($platform->access_token);
+
+    } catch (\Throwable $e) {
+
+        // Token is probably stored as plain text
+        Log::warning('Access token not encrypted, using raw token', [
+            'platform_id' => $platform->id
+        ]);
+
+        return $platform->access_token;
+    }
+}
 
     protected function buildEndpoint(PlatformMetaConnection $platform): string
     {

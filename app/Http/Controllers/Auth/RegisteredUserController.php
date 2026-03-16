@@ -5,13 +5,13 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Client;
-use App\Providers\RouteServiceProvider;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rules;
 use Illuminate\View\View;
 
@@ -30,49 +30,121 @@ class RegisteredUserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
-            'name'     => ['required', 'string', 'max:255'],
-            'email'    => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+        /*
+        |--------------------------------------------------------------------------
+        | Validate Input
+        |--------------------------------------------------------------------------
+        */
+
+        $validated = $request->validate([
+
+            'name'     => ['required','string','max:255'],
+
+            'email'    => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                'unique:users,email'
+            ],
+
+            'password' => [
+                'required',
+                'confirmed',
+                Rules\Password::defaults()
+            ],
+
+            // optional fields
+            'company_name' => ['nullable','string','max:255'],
+            'phone'        => ['nullable','string','max:255'],
+
         ]);
 
         DB::beginTransaction();
 
         try {
 
-            // Create User
+            /*
+            |--------------------------------------------------------------------------
+            | Create User
+            |--------------------------------------------------------------------------
+            */
+
             $user = User::create([
-                'name'     => $request->name,
-                'email'    => $request->email,
-                'password' => Hash::make($request->password),
+                'name'     => $validated['name'],
+                'email'    => $validated['email'],
+                'password' => Hash::make($validated['password']),
                 'role'     => User::ROLE_CLIENT,
                 'status'   => User::STATUS_ACTIVE,
             ]);
 
-            // Create Client (Business Profile)
+
+            /*
+            |--------------------------------------------------------------------------
+            | Create Client Profile
+            |--------------------------------------------------------------------------
+            */
+
             Client::create([
-                'user_id'            => $user->id,
-                'company_name'       => $user->name . "'s Company",
-                'business_email'     => $user->email,
-                'subscription_plan'  => Client::PLAN_FREE,
-                'subscription_status'=> Client::STATUS_ACTIVE,
+
+                'user_id' => $user->id,
+
+                'company_name' =>
+                    $validated['company_name']
+                    ?? ($user->name . "'s Company"),
+
+                'business_email' => $user->email,
+
+                'phone' =>
+                    $validated['phone'] ?? null,
+
+                'subscription_plan'   => Client::PLAN_FREE,
+                'subscription_status' => Client::STATUS_ACTIVE,
+
             ]);
+
 
             DB::commit();
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
 
             DB::rollBack();
 
-            return back()->withErrors([
-                'registration_error' => 'Something went wrong. Please try again.',
+            Log::error('CLIENT_REGISTRATION_FAILED',[
+                'error' => $e->getMessage()
             ]);
+
+            return back()->withErrors([
+                'registration_error' =>
+                'Registration failed. Please try again.'
+            ])->withInput();
         }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Fire Registered Event
+        |--------------------------------------------------------------------------
+        */
 
         event(new Registered($user));
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | Login User
+        |--------------------------------------------------------------------------
+        */
+
         Auth::login($user);
 
-        return redirect(RouteServiceProvider::HOME);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Redirect Client
+        |--------------------------------------------------------------------------
+        */
+
+        return redirect()->route('client.dashboard');
     }
 }

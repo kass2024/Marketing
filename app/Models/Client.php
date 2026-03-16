@@ -29,7 +29,7 @@ class Client extends Model
     */
 
     public const STATUS_ACTIVE    = 'active';
-    public const STATUS_SUSPENDED = 'suspended';
+    public const STATUS_INACTIVE  = 'inactive';
     public const STATUS_CANCELLED = 'cancelled';
 
     /*
@@ -45,8 +45,6 @@ class Client extends Model
         'phone',
         'subscription_plan',
         'subscription_status',
-        'stripe_customer_id',
-        'trial_ends_at',
     ];
 
     /*
@@ -56,9 +54,8 @@ class Client extends Model
     */
 
     protected $casts = [
-        'created_at'     => 'datetime',
-        'updated_at'     => 'datetime',
-        'trial_ends_at'  => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     /*
@@ -68,7 +65,7 @@ class Client extends Model
     */
 
     /**
-     * Client Owner
+     * Client owner user
      */
     public function user(): BelongsTo
     {
@@ -76,7 +73,7 @@ class Client extends Model
     }
 
     /**
-     * Meta Connection (WhatsApp / Ads)
+     * Meta connection (ads + whatsapp)
      */
     public function metaConnection(): HasOne
     {
@@ -100,7 +97,7 @@ class Client extends Model
     }
 
     /**
-     * WhatsApp Templates
+     * WhatsApp templates
      */
     public function templates(): HasMany
     {
@@ -137,9 +134,9 @@ class Client extends Model
         return $this->subscription_status === self::STATUS_ACTIVE;
     }
 
-    public function isSuspended(): bool
+    public function isInactive(): bool
     {
-        return $this->subscription_status === self::STATUS_SUSPENDED;
+        return $this->subscription_status === self::STATUS_INACTIVE;
     }
 
     public function isCancelled(): bool
@@ -164,7 +161,7 @@ class Client extends Model
 
     /*
     |--------------------------------------------------------------------------
-    | PLAN LIMITS (Enterprise Ready)
+    | PLAN LIMITS
     |--------------------------------------------------------------------------
     */
 
@@ -236,14 +233,5 @@ class Client extends Model
     public function hasMetaConnected(): bool
     {
         return $this->metaConnection()->exists();
-    }
-
-    public function isTrialExpired(): bool
-    {
-        if (!$this->trial_ends_at) {
-            return false;
-        }
-
-        return now()->greaterThan($this->trial_ends_at);
     }
 }

@@ -271,4 +271,8 @@ class Campaign extends Model
             'spend'       => $ads->sum('spend'),
         ]);
     }
+    public function client()
+{
+    return $this->belongsTo(\App\Models\Client::class);
+}
 }

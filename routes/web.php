@@ -103,21 +103,53 @@ Route::middleware(['auth','verified','role:client'])
     ->as('client.')
     ->group(function () {
 
-        Route::get('/dashboard',[DashboardController::class,'index'])
+        /*
+        |--------------------------------------------------------------------------
+        | DASHBOARD
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/dashboard', [DashboardController::class,'index'])
             ->name('dashboard');
 
-        Route::resource('campaigns',CampaignController::class);
 
-        Route::patch('campaigns/{campaign}/activate',
-            [CampaignController::class,'activate'])
-            ->name('campaigns.activate');
+        /*
+        |--------------------------------------------------------------------------
+        | CAMPAIGNS
+        |--------------------------------------------------------------------------
+        */
 
-        Route::patch('campaigns/{campaign}/pause',
-            [CampaignController::class,'pause'])
-            ->name('campaigns.pause');
+        Route::resource('campaigns', CampaignController::class);
 
-        Route::resource('chatbots',ChatbotController::class);
-        Route::resource('templates',TemplateController::class);
+        Route::prefix('campaigns')->name('campaigns.')->group(function () {
+
+            Route::patch('{campaign}/activate',
+                [CampaignController::class,'activate'])
+                ->name('activate');
+
+            Route::patch('{campaign}/pause',
+                [CampaignController::class,'pause'])
+                ->name('pause');
+
+        });
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | CHATBOTS
+        |--------------------------------------------------------------------------
+        */
+
+        Route::resource('chatbots', ChatbotController::class);
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | WHATSAPP TEMPLATES
+        |--------------------------------------------------------------------------
+        */
+
+        Route::resource('templates', TemplateController::class);
 
 
         /*
@@ -126,14 +158,21 @@ Route::middleware(['auth','verified','role:client'])
         |--------------------------------------------------------------------------
         */
 
-        Route::prefix('inbox')->as('inbox.')->group(function () {
+        Route::prefix('inbox')
+            ->as('inbox.')
+            ->group(function () {
 
-            Route::get('/',[ConversationController::class,'index'])->name('index');
+                Route::get('/',
+                    [ConversationController::class,'index'])
+                    ->name('index');
 
-            Route::get('/{conversation}',[ConversationController::class,'show'])->name('show');
+                Route::get('/{conversation}',
+                    [ConversationController::class,'show'])
+                    ->name('show');
 
-            Route::post('/{conversation}/send',
-                [ConversationController::class,'send'])->name('send');
+                Route::post('/{conversation}/send',
+                    [ConversationController::class,'send'])
+                    ->name('send');
         });
 
 
@@ -143,13 +182,22 @@ Route::middleware(['auth','verified','role:client'])
         |--------------------------------------------------------------------------
         */
 
-        Route::prefix('billing')->as('billing.')->group(function () {
+        Route::prefix('billing')
+            ->as('billing.')
+            ->group(function () {
 
-            Route::get('/',[BillingController::class,'index'])->name('index');
+                Route::get('/',
+                    [BillingController::class,'index'])
+                    ->name('index');
 
-            Route::post('/checkout',[BillingController::class,'checkout'])->name('checkout');
+                Route::post('/checkout',
+                    [BillingController::class,'checkout'])
+                    ->name('checkout');
 
-            Route::post('/cancel',[BillingController::class,'cancel'])->name('cancel');
+                Route::post('/cancel',
+                    [BillingController::class,'cancel'])
+                    ->name('cancel');
+
         });
 
 
@@ -159,19 +207,29 @@ Route::middleware(['auth','verified','role:client'])
         |--------------------------------------------------------------------------
         */
 
-        Route::prefix('meta')->as('meta.')->group(function () {
+        Route::prefix('meta')
+            ->as('meta.')
+            ->group(function () {
 
-            Route::get('/',fn() => view('client.meta.index'))->name('index');
+                Route::get('/',
+                    fn() => view('client.meta.index'))
+                    ->name('index');
 
-            Route::get('/connect',[MetaConnectionController::class,'connect'])->name('connect');
+                Route::get('/connect',
+                    [MetaConnectionController::class,'connect'])
+                    ->name('connect');
 
-            Route::get('/callback',[MetaConnectionController::class,'callback'])->name('callback');
+                Route::get('/callback',
+                    [MetaConnectionController::class,'callback'])
+                    ->name('callback');
 
-            Route::post('/disconnect',[MetaConnectionController::class,'disconnect'])->name('disconnect');
+                Route::post('/disconnect',
+                    [MetaConnectionController::class,'disconnect'])
+                    ->name('disconnect');
+
         });
-    });
 
-
+});
 
 /*
 |--------------------------------------------------------------------------

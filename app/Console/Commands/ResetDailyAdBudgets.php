@@ -6,12 +6,13 @@ use Illuminate\Console\Command;
 use App\Models\Ad;
 use App\Services\MetaAdsService;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class ResetDailyAdBudgets extends Command
 {
     protected $signature = 'ads:reset-daily-budget';
 
-    protected $description = 'Resume ads paused by budget when budget increases or new day begins';
+    protected $description = 'Auto resume paused ads (manual or budget) when budget allows or a new day begins';
 
     protected MetaAdsService $meta;
 
@@ -23,10 +24,16 @@ class ResetDailyAdBudgets extends Command
 
     public function handle()
     {
-        $today = now()->toDateString();
+        $today = Carbon::today()->toDateString();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get ALL paused ads
+        |--------------------------------------------------------------------------
+        */
 
         $ads = Ad::where('status', 'PAUSED')
-            ->where('pause_reason', 'budget_limit')
+            ->whereNotNull('meta_ad_id')
             ->get();
 
         $count = 0;
@@ -39,39 +46,38 @@ class ResetDailyAdBudgets extends Command
 
                 /*
                 |--------------------------------------------------------------------------
-                | CASE 1 — Budget Increased
+                | CASE 1 — New Day Reset
                 |--------------------------------------------------------------------------
                 */
 
-                if ($ad->daily_budget > $ad->daily_spend) {
+                if (!$ad->spend_date || $ad->spend_date < $today) {
 
-                    Log::info('AD_RESUME_BUDGET_INCREASE', [
+                    Log::info('AD_NEW_DAY_RESET', [
                         'ad_id' => $ad->id,
-                        'daily_spend' => $ad->daily_spend,
-                        'new_budget' => $ad->daily_budget
+                        'previous_spend' => $ad->daily_spend
                     ]);
+
+                    $ad->daily_spend = 0;
+                    $ad->spend_date = $today;
 
                     $resume = true;
                 }
 
                 /*
                 |--------------------------------------------------------------------------
-                | CASE 2 — New Day
+                | CASE 2 — Budget Available
                 |--------------------------------------------------------------------------
                 */
 
-                if ($ad->spend_date && $ad->spend_date < $today) {
+                if ($ad->daily_budget > $ad->daily_spend) {
 
-                    Log::info('AD_RESUME_NEW_DAY', [
+                    Log::info('AD_BUDGET_AVAILABLE', [
                         'ad_id' => $ad->id,
-                        'yesterday_spend' => $ad->daily_spend
+                        'daily_budget' => $ad->daily_budget,
+                        'daily_spend' => $ad->daily_spend
                     ]);
 
                     $resume = true;
-
-                    // reset daily spend
-                    $ad->daily_spend = 0;
-                    $ad->spend_date = $today;
                 }
 
                 /*
@@ -82,14 +88,10 @@ class ResetDailyAdBudgets extends Command
 
                 if ($resume) {
 
-                    if ($ad->meta_ad_id) {
-
-                        $this->meta->updateAd(
-                            $ad->meta_ad_id,
-                            ['status' => 'ACTIVE']
-                        );
-
-                    }
+                    $this->meta->updateAd(
+                        $ad->meta_ad_id,
+                        ['status' => 'ACTIVE']
+                    );
 
                     $ad->status = 'ACTIVE';
                     $ad->pause_reason = null;
@@ -97,22 +99,28 @@ class ResetDailyAdBudgets extends Command
                     $ad->save();
 
                     $count++;
+
+                    Log::info('AD_RESUMED', [
+                        'ad_id' => $ad->id,
+                        'meta_ad_id' => $ad->meta_ad_id
+                    ]);
                 }
 
             } catch (\Throwable $e) {
 
                 Log::error('AD_RESET_FAILED', [
                     'ad_id' => $ad->id,
+                    'meta_ad_id' => $ad->meta_ad_id,
                     'error' => $e->getMessage()
                 ]);
-
             }
         }
 
         $this->info("Resumed {$count} ads");
 
         Log::info('DAILY_AD_RESET_COMPLETED', [
-            'ads_resumed' => $count
+            'ads_resumed' => $count,
+            'checked_ads' => $ads->count()
         ]);
     }
 }

@@ -234,4 +234,5 @@ class Client extends Model
     {
         return $this->metaConnection()->exists();
     }
+
 }

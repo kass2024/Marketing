@@ -96,39 +96,39 @@ class Kernel extends HttpKernel
 
     protected $middlewareAliases = [
 
-        /* Authentication */
-        'auth' => \App\Http\Middleware\Authenticate::class,
-        'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
-        'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
+    /* Authentication */
+    'auth' => \App\Http\Middleware\Authenticate::class,
+    'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
+    'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
 
-        /* Authorization */
-        'can' => \Illuminate\Auth\Middleware\Authorize::class,
+    /* Authorization */
+    'can' => \Illuminate\Auth\Middleware\Authorize::class,
 
-        /* Guest Redirect */
-        'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
+    /* Guest Redirect */
+    'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
 
-        /* Password Confirmation */
-        'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
+    /* Password Confirmation */
+    'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
 
-        /* Signed Routes */
-        'signed' => \App\Http\Middleware\ValidateSignature::class,
+    /* Signed Routes */
+    'signed' => \App\Http\Middleware\ValidateSignature::class,
 
-        /* Email Verification */
-        'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+    /* Email Verification */
+    'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
 
-        /* Throttling */
-        'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+    /* Throttling */
+    'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
 
-        /* Cache Headers */
-        'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
+    /* Cache Headers */
+    'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
 
-        /* Precognition (Live validation) */
-        'precognitive' => \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
+    /* Precognition */
+    'precognitive' => \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
 
-        /* Role Middleware (SaaS) */
-        'role' => \App\Http\Middleware\RoleMiddleware::class,
+    /* Role Middleware (SaaS) */
+    'role' => \App\Http\Middleware\RoleMiddleware::class,
 
-        /* Optional Future Permission Middleware */
-        // 'permission' => \App\Http\Middleware\PermissionMiddleware::class,
-    ];
+    /* Meta Connection Middleware */
+    'meta.connected' => \App\Http\Middleware\EnsureMetaConnected::class,
+];
 }

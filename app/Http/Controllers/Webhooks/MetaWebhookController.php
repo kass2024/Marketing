@@ -87,205 +87,109 @@ class MetaWebhookController extends Controller
     |--------------------------------------------------------------------------
     */
     protected function handleIncomingMessages(array $value): void
-{
-    $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
+    {
+        $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
 
-    Log::info('Webhook message received', [
-        'phone_number_id' => $phoneNumberId
-    ]);
+        if (!$phoneNumberId) {
+            Log::warning('Missing phone_number_id in webhook');
+            return;
+        }
 
-    if (!$phoneNumberId) {
-        Log::warning('Missing phone_number_id in webhook');
-        return;
-    }
+        $platform = PlatformMetaConnection::where(
+            'whatsapp_phone_number_id',
+            $phoneNumberId
+        )->first();
 
-    /*
-    |--------------------------------------------------------------------------
-    | PLATFORM CONNECTION (ALWAYS PRIORITY)
-    |--------------------------------------------------------------------------
-    | Platform is hardcoded to connected_by = 6
-    */
-
-    $platform = PlatformMetaConnection::where(
-        'whatsapp_phone_number_id',
-        $phoneNumberId
-    )
-    ->where('connected_by', 6)
-    ->first();
-
-    /*
-    |--------------------------------------------------------------------------
-    | CLIENT CONNECTION
-    |--------------------------------------------------------------------------
-    */
-
-    $clientConnection = \App\Models\MetaConnection::where(
-        'phone_number_id',
-        $phoneNumberId
-    )->first();
-
-    Log::info('Webhook routing decision', [
-        'platform_found' => $platform ? true : false,
-        'client_found'   => $clientConnection ? true : false
-    ]);
-
-    /*
-    |--------------------------------------------------------------------------
-    | ROUTE TO PLATFORM BOT
-    |--------------------------------------------------------------------------
-    */
-
-    if ($platform) {
-
-        Log::info('Routing to PLATFORM chatbot', [
-            'platform_id' => $platform->id
-        ]);
+        if (!$platform) {
+            Log::warning('Platform not found', ['phone_number_id' => $phoneNumberId]);
+            return;
+        }
 
         $clientId = $this->resolveClientId($platform);
-
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | ROUTE TO CLIENT BOT
-    |--------------------------------------------------------------------------
-    */
-
-    elseif ($clientConnection) {
-
-        Log::info('Routing to CLIENT chatbot', [
-            'client_id' => $clientConnection->client_id
-        ]);
-
-        $clientId = $clientConnection->client_id;
-
-        // Dispatcher compatibility
-        $platform = $clientConnection;
-
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | UNKNOWN NUMBER
-    |--------------------------------------------------------------------------
-    */
-
-    else {
-
-        Log::warning('Phone number not registered', [
-            'phone_number_id' => $phoneNumberId
-        ]);
-
-        return;
-    }
-
-    if (!$clientId) {
-
-        Log::error('Client resolution failed', [
-            'phone_number_id' => $phoneNumberId
-        ]);
-
-        return;
-    }
-
-    foreach ($value['messages'] ?? [] as $incoming) {
-
-        $from      = $incoming['from'] ?? null;
-        $messageId = $incoming['id'] ?? null;
-
-        if (!$from || !$messageId) {
-            Log::warning('Invalid incoming message payload');
-            continue;
+        if (!$clientId) {
+            return;
         }
 
-        if ($this->isDuplicate($messageId)) {
+        foreach ($value['messages'] as $incoming) {
 
-            Log::info('Duplicate message skipped', [
-                'message_id' => $messageId
-            ]);
+            $from      = $incoming['from'] ?? null;
+            $messageId = $incoming['id'] ?? null;
 
-            continue;
-        }
-
-        $text = $this->extractMessageText($incoming);
-
-        if (!$text) {
-            Log::info('Unsupported message type received');
-            continue;
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | AD ATTRIBUTION
-        |--------------------------------------------------------------------------
-        */
-
-        $referral = $incoming['referral'] ?? null;
-
-        $metaCampaignId = null;
-        $metaAdsetId    = null;
-        $metaAdId       = null;
-        $source         = 'organic';
-
-        if ($referral) {
-
-            $metaCampaignId = $referral['campaign_id'] ?? null;
-            $metaAdsetId    = $referral['adset_id'] ?? null;
-            $metaAdId       = $referral['ad_id'] ?? null;
-            $source         = 'paid';
-
-            Log::info('Ad referral detected', [
-                'campaign_id' => $metaCampaignId,
-                'adset_id'    => $metaAdsetId,
-                'ad_id'       => $metaAdId,
-            ]);
-        }
-
-        try {
-
-            Log::info('Sending payload to ChatbotProcessor', [
-                'client_id' => $clientId
-            ]);
-
-            $aiResponse = $this->processor->process([
-                'from'              => $from,
-                'text'              => $text,
-                'client_id'         => $clientId,
-                'message_id'        => $messageId,
-                'meta_campaign_id'  => $metaCampaignId,
-                'meta_adset_id'     => $metaAdsetId,
-                'meta_ad_id'        => $metaAdId,
-                'source'            => $source,
-            ]);
-
-            if (empty($aiResponse) || empty($aiResponse['text'])) {
-
-                Log::warning('AI returned empty response');
-
+            if (!$from || !$messageId) {
                 continue;
             }
 
-            Log::info('Dispatching WhatsApp message', [
-                'to' => $from
-            ]);
+            if ($this->isDuplicate($messageId)) {
+                continue;
+            }
 
-            $results = $this->dispatcher->send(
-                platform: $platform,
-                to: $from,
-                payload: $aiResponse
-            );
+            $text = $this->extractMessageText($incoming);
 
-            $this->storeExternalIds($results);
+            if (!$text) {
+                Log::info('Unsupported message type received');
+                continue;
+            }
 
-        } catch (\Throwable $e) {
+            /*
+            |--------------------------------------------------------------------------
+            | Ad Attribution Detection (Enterprise Upgrade)
+            |--------------------------------------------------------------------------
+            */
+            $referral = $incoming['referral'] ?? null;
 
-            Log::error('Incoming message processing failed', [
-                'error' => $e->getMessage(),
-                'from'  => $from,
-            ]);
+            $metaCampaignId = null;
+            $metaAdsetId    = null;
+            $metaAdId       = null;
+            $source         = 'organic';
+
+            if ($referral) {
+                $metaCampaignId = $referral['campaign_id'] ?? null;
+                $metaAdsetId    = $referral['adset_id'] ?? null;
+                $metaAdId       = $referral['ad_id'] ?? null;
+                $source         = 'paid';
+
+                Log::info('Ad referral detected', [
+                    'campaign_id' => $metaCampaignId,
+                    'adset_id'    => $metaAdsetId,
+                    'ad_id'       => $metaAdId,
+                ]);
+            }
+
+            try {
+
+                $aiResponse = $this->processor->process([
+                    'from'              => $from,
+                    'text'              => $text,
+                    'client_id'         => $clientId,
+                    'message_id'        => $messageId,
+                    'meta_campaign_id'  => $metaCampaignId,
+                    'meta_adset_id'     => $metaAdsetId,
+                    'meta_ad_id'        => $metaAdId,
+                    'source'            => $source,
+                ]);
+
+                if (empty($aiResponse) || empty($aiResponse['text'])) {
+                    return;
+                }
+
+                $results = $this->dispatcher->send(
+                    platform: $platform,
+                    to: $from,
+                    payload: $aiResponse
+                );
+
+                $this->storeExternalIds($results);
+
+            } catch (\Throwable $e) {
+
+                Log::error('Incoming message processing failed', [
+                    'error' => $e->getMessage(),
+                    'from'  => $from,
+                ]);
+            }
         }
     }
-}
+
     /*
     |--------------------------------------------------------------------------
     | Handle Delivery Status Updates

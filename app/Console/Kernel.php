@@ -16,31 +16,54 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
-        | META ADS SYNC (FAST, SAFE)
+        | META ADS SYNC (CORE ENGINE)
         |--------------------------------------------------------------------------
         */
+
+        // 🔥 ADS (REAL-TIME PERFORMANCE)
         $schedule->command('meta:sync-ads')
             ->everyMinute()
-            ->withoutOverlapping(10) // 🔥 reduced lock time
+            ->withoutOverlapping(2)
             ->runInBackground()
-            ->name('meta-sync')
-            ->appendOutputTo(storage_path('logs/meta-sync.log'));
+            ->name('meta-sync-ads')
+            ->appendOutputTo(storage_path('logs/meta-ads.log'));
+
+        // 🔥 CAMPAIGNS (LESS FREQUENT)
+        $schedule->command('meta:sync-campaigns')
+            ->everyFiveMinutes()
+            ->withoutOverlapping(5)
+            ->runInBackground()
+            ->name('meta-sync-campaigns')
+            ->appendOutputTo(storage_path('logs/meta-campaigns.log'));
+
+        // 🔥 ACCOUNTS (RARELY CHANGES)
+        $schedule->command('meta:sync-accounts')
+            ->hourly()
+            ->withoutOverlapping(10)
+            ->runInBackground()
+            ->name('meta-sync-accounts')
+            ->appendOutputTo(storage_path('logs/meta-accounts.log'));
+
 
 
         /*
         |--------------------------------------------------------------------------
-        | 🔥 BUDGET RESET (CRITICAL FIXED)
+        | 🔥 BUDGET RESET (CRITICAL)
         |--------------------------------------------------------------------------
         */
         $schedule->command('ads:reset-daily-budget')
             ->everyMinute()
-            ->withoutOverlapping(10) // 🔥 FIX: was blocking for 120s
+            ->withoutOverlapping(2)
             ->runInBackground()
             ->name('ads-budget-reset')
             ->appendOutputTo(storage_path('logs/ad-reset.log'))
-            ->after(function () {
-                Log::info('BUDGET_RESET_FINISHED');
+            ->onSuccess(function () {
+                Log::info('BUDGET_RESET_SUCCESS');
+            })
+            ->onFailure(function () {
+                Log::error('BUDGET_RESET_FAILED');
             });
+
 
 
         /*
@@ -50,23 +73,11 @@ class Kernel extends ConsoleKernel
         */
         $schedule->command('report:unread-messages')
             ->everyFiveMinutes()
-            ->withoutOverlapping(10)
+            ->withoutOverlapping(5)
             ->runInBackground()
             ->name('messaging-unread-report')
-            ->appendOutputTo(storage_path('logs/scheduler.log'));
+            ->appendOutputTo(storage_path('logs/messaging.log'));
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | META MARKETING ENGINE
-        |--------------------------------------------------------------------------
-        */
-        $schedule->command('meta:sync')
-            ->everyThirtyMinutes()
-            ->withoutOverlapping(10)
-            ->runInBackground()
-            ->name('meta-sync-engine')
-            ->appendOutputTo(storage_path('logs/meta-sync.log'));
 
 
         /*
@@ -76,23 +87,26 @@ class Kernel extends ConsoleKernel
         */
         $schedule->command('agents:monitor')
             ->everyMinute()
-            ->withoutOverlapping(10)
+            ->withoutOverlapping(2)
             ->runInBackground()
-            ->name('agent-escalation-monitor')
+            ->name('agent-monitor')
             ->appendOutputTo(storage_path('logs/agent-monitor.log'));
+
 
 
         /*
         |--------------------------------------------------------------------------
-        | QUEUE WORKER (IMPORTANT NOTE BELOW)
+        | QUEUE WORKER (⚠️ NOTE BELOW)
         |--------------------------------------------------------------------------
         */
-        $schedule->command('queue:work --tries=3 --timeout=90')
+        // ⚠️ RECOMMENDED: move this to Supervisor instead of scheduler
+        $schedule->command('queue:work --tries=3 --timeout=90 --sleep=3')
             ->everyMinute()
             ->runInBackground()
-            ->withoutOverlapping(10)
-            ->name('chatbot-queue-worker')
-            ->appendOutputTo(storage_path('logs/queue-worker.log'));
+            ->withoutOverlapping(1)
+            ->name('queue-worker')
+            ->appendOutputTo(storage_path('logs/queue.log'));
+
 
 
         /*
@@ -102,15 +116,14 @@ class Kernel extends ConsoleKernel
         */
         $schedule->call(function () {
 
-            Log::info('SYSTEM_SCHEDULER_HEARTBEAT', [
-                'timestamp' => now()->toDateTimeString(),
-                'environment' => app()->environment(),
+            Log::info('SYSTEM_HEARTBEAT', [
+                'time' => now()->toDateTimeString(),
+                'env' => app()->environment(),
             ]);
 
         })
         ->hourly()
-        ->withoutOverlapping(10)
-        ->name('scheduler-heartbeat');
+        ->name('heartbeat');
     }
 
     /**
@@ -119,7 +132,6 @@ class Kernel extends ConsoleKernel
     protected function commands(): void
     {
         $this->load(__DIR__.'/Commands');
-
         require base_path('routes/console.php');
     }
 }

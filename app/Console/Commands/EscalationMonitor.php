@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 class EscalationMonitor extends Command
 {
     protected $signature = 'agents:monitor';
-    protected $description = 'Monitor escalated conversations and handle reassignment + fallback to bot';
+    protected $description = 'Monitor escalations, assign agents, reassign if needed, and fallback to bot';
 
     public function handle()
     {
@@ -21,9 +21,8 @@ class EscalationMonitor extends Command
 
         Log::info('=== ESCALATION MONITOR STARTED ===');
 
-        $conversations = Conversation::where('status', 'human')
-            ->whereNotNull('assigned_agent_id')
-            ->get();
+        // 🔥 IMPORTANT: DO NOT FILTER BY assigned_agent_id
+        $conversations = Conversation::where('status', 'human')->get();
 
         Log::info('Conversations fetched', [
             'count' => $conversations->count()
@@ -31,100 +30,148 @@ class EscalationMonitor extends Command
 
         foreach ($conversations as $conversation) {
 
-            $secondsSinceEscalation = $conversation->escalation_started_at
-                ? now()->diffInSeconds($conversation->escalation_started_at)
-                : 0;
+            try {
 
-            $secondsSinceLastMessage = $conversation->last_message_at
-                ? now()->diffInSeconds($conversation->last_message_at)
-                : $secondsSinceEscalation;
+                /*
+                |--------------------------------------------------------------------------
+                | 0️⃣ AUTO ASSIGN AGENT IF MISSING
+                |--------------------------------------------------------------------------
+                */
+                if (!$conversation->assigned_agent_id) {
 
-            Log::info('Checking conversation', [
-                'conversation_id' => $conversation->id,
-                'status' => $conversation->status,
-                'assigned_agent_id' => $conversation->assigned_agent_id,
-                'last_message_at' => $conversation->last_message_at,
-                'escalation_started_at' => $conversation->escalation_started_at,
-                'seconds_since_escalation' => $secondsSinceEscalation,
-                'seconds_since_last_message' => $secondsSinceLastMessage
-            ]);
-
-            /*
-            |--------------------------------------------------------------------------
-            | 1️⃣ AGENT REASSIGNMENT
-            |--------------------------------------------------------------------------
-            */
-            if ($secondsSinceEscalation > $agentTimeout) {
-
-                Log::warning('Agent timeout reached → reassigning', [
-                    'conversation_id' => $conversation->id
-                ]);
-
-                $router = app(AgentRouter::class);
-                $newAgent = $router->assign($conversation);
-
-                if ($newAgent) {
-
-                    Log::info('New agent assigned', [
-                        'conversation_id' => $conversation->id,
-                        'agent_id' => $newAgent->id
-                    ]);
-
-                    app(AgentNotifier::class)
-                        ->notify($conversation, $newAgent);
-
-                    $conversation->update([
-                        'assigned_agent_id' => $newAgent->id,
-                        'escalation_started_at' => now()
-                    ]);
-                } else {
-                    Log::warning('No agent available for reassignment', [
+                    Log::warning('No agent assigned → assigning...', [
                         'conversation_id' => $conversation->id
                     ]);
+
+                    $agent = app(AgentRouter::class)->assign($conversation);
+
+                    if ($agent) {
+
+                        $conversation->update([
+                            'assigned_agent_id' => $agent->id,
+                            'escalation_started_at' => now()
+                        ]);
+
+                        Log::info('Agent assigned', [
+                            'conversation_id' => $conversation->id,
+                            'agent_id' => $agent->id
+                        ]);
+
+                    } else {
+
+                        Log::warning('No agents available → skipping', [
+                            'conversation_id' => $conversation->id
+                        ]);
+
+                        continue;
+                    }
                 }
-            }
 
-            /*
-            |--------------------------------------------------------------------------
-            | 2️⃣ AUTO FALLBACK TO BOT
-            |--------------------------------------------------------------------------
-            */
-            if ($secondsSinceLastMessage > $botFallbackTimeout) {
+                /*
+                |--------------------------------------------------------------------------
+                | TIME CALCULATIONS
+                |--------------------------------------------------------------------------
+                */
+                $secondsSinceEscalation = $conversation->escalation_started_at
+                    ? now()->diffInSeconds($conversation->escalation_started_at)
+                    : 0;
 
-                Log::warning('Bot fallback triggered', [
-                    'conversation_id' => $conversation->id
+                $secondsSinceLastMessage = $conversation->last_message_at
+                    ? now()->diffInSeconds($conversation->last_message_at)
+                    : $secondsSinceEscalation;
+
+                Log::info('Conversation check', [
+                    'id' => $conversation->id,
+                    'agent_id' => $conversation->assigned_agent_id,
+                    'since_escalation' => $secondsSinceEscalation,
+                    'since_last_message' => $secondsSinceLastMessage
                 ]);
 
-                $conversation->update([
-                    'status' => 'bot',
-                    'assigned_agent_id' => null,
-                    'escalation_started_at' => null
-                ]);
+                /*
+                |--------------------------------------------------------------------------
+                | 1️⃣ AGENT REASSIGNMENT
+                |--------------------------------------------------------------------------
+                */
+                if ($secondsSinceEscalation > $agentTimeout) {
 
-                try {
+                    Log::warning('Agent timeout → reassigning', [
+                        'conversation_id' => $conversation->id
+                    ]);
 
-                    if ($conversation->platform && $conversation->user_identifier) {
+                    $newAgent = app(AgentRouter::class)->assign($conversation);
 
-                        app(MessageDispatcher::class)->send(
-                            $conversation->platform,
-                            $conversation->user_identifier,
-                            [
-                                'text' => "🤖 No agent responded in time. I'm back to assist you!"
-                            ]
-                        );
+                    if ($newAgent) {
 
-                        Log::info('Fallback message sent to user', [
+                        $conversation->update([
+                            'assigned_agent_id' => $newAgent->id,
+                            'escalation_started_at' => now()
+                        ]);
+
+                        app(AgentNotifier::class)
+                            ->notify($conversation, $newAgent);
+
+                        Log::info('Reassigned to new agent', [
+                            'conversation_id' => $conversation->id,
+                            'agent_id' => $newAgent->id
+                        ]);
+
+                    } else {
+
+                        Log::warning('Reassignment failed (no agent)', [
                             'conversation_id' => $conversation->id
                         ]);
                     }
-
-                } catch (\Throwable $e) {
-
-                    Log::error('Fallback message failed', [
-                        'conversation_id' => $conversation->id,
-                        'error' => $e->getMessage()
-                    ]);
                 }
+
+                /*
+                |--------------------------------------------------------------------------
+                | 2️⃣ AUTO FALLBACK TO BOT
+                |--------------------------------------------------------------------------
+                */
+                if ($secondsSinceLastMessage > $botFallbackTimeout) {
+
+                    Log::warning('Fallback to bot triggered', [
+                        'conversation_id' => $conversation->id
+                    ]);
+
+                    $conversation->update([
+                        'status' => 'bot',
+                        'assigned_agent_id' => null,
+                        'escalation_started_at' => null
+                    ]);
+
+                    try {
+
+                        if ($conversation->platform && $conversation->user_identifier) {
+
+                            app(MessageDispatcher::class)->send(
+                                $conversation->platform,
+                                $conversation->user_identifier,
+                                [
+                                    'text' => "🤖 No agent responded in time. I'm back to assist you!"
+                                ]
+                            );
+
+                            Log::info('User notified of fallback', [
+                                'conversation_id' => $conversation->id
+                            ]);
+                        }
+
+                    } catch (\Throwable $e) {
+
+                        Log::error('Fallback message failed', [
+                            'conversation_id' => $conversation->id,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+
+            } catch (\Throwable $e) {
+
+                Log::error('Escalation monitor error', [
+                    'conversation_id' => $conversation->id ?? null,
+                    'error' => $e->getMessage()
+                ]);
             }
         }
 

@@ -12,7 +12,7 @@ class ResetDailyAdBudgets extends Command
 {
     protected $signature = 'ads:reset-daily-budget';
 
-    protected $description = 'Auto resume ONLY budget-limited ads when budget allows or new day starts';
+    protected $description = 'Auto resume paused ads when budget allows or new day starts (excluding manual pauses)';
 
     protected MetaAdsService $meta;
 
@@ -28,14 +28,14 @@ class ResetDailyAdBudgets extends Command
 
         /*
         |------------------------------------------------------------------
-        | Get ONLY paused ads with meta ID
+        | Fetch paused ads
         |------------------------------------------------------------------
         */
         $ads = Ad::where('status', 'PAUSED')
             ->whereNotNull('meta_ad_id')
             ->get();
 
-        $count = 0;
+        $resumedCount = 0;
 
         foreach ($ads as $ad) {
 
@@ -43,7 +43,7 @@ class ResetDailyAdBudgets extends Command
 
                 /*
                 |------------------------------------------------------------------
-                | 🚫 NEVER RESUME MANUAL PAUSED ADS
+                | 🚫 Skip manually paused ads
                 |------------------------------------------------------------------
                 */
                 if ($ad->pause_reason === 'manual') {
@@ -55,61 +55,48 @@ class ResetDailyAdBudgets extends Command
                     continue;
                 }
 
-                /*
-                |------------------------------------------------------------------
-                | ✅ ONLY HANDLE BUDGET LIMITED ADS
-                |------------------------------------------------------------------
-                */
-                if ($ad->pause_reason !== 'budget_limit') {
-
-                    Log::info('AD_SKIPPED_NOT_BUDGET', [
-                        'ad_id' => $ad->id,
-                        'reason' => $ad->pause_reason
-                    ]);
-
-                    continue;
-                }
-
-                $resume = false;
+                $shouldResume = false;
 
                 /*
                 |------------------------------------------------------------------
-                | CASE 1 — New Day → Reset spend
+                | Case 1: New day → reset spend
                 |------------------------------------------------------------------
                 */
                 if (!$ad->spend_date || $ad->spend_date < $today) {
 
+                    Log::info('AD_NEW_DAY_RESET', [
+                        'ad_id' => $ad->id,
+                        'previous_spend' => $ad->daily_spend
+                    ]);
+
                     $ad->daily_spend = 0;
                     $ad->spend_date = $today;
 
-                    $resume = true;
-
-                    Log::info('AD_NEW_DAY_RESET', [
-                        'ad_id' => $ad->id
-                    ]);
+                    $shouldResume = true;
                 }
 
                 /*
                 |------------------------------------------------------------------
-                | CASE 2 — Budget available
+                | Case 2: Budget still available
                 |------------------------------------------------------------------
-                elseif ($ad->daily_budget > $ad->daily_spend) {
-
-                    $resume = true;
+                */
+                if ($ad->daily_budget > $ad->daily_spend) {
 
                     Log::info('AD_BUDGET_AVAILABLE', [
                         'ad_id' => $ad->id,
                         'daily_budget' => $ad->daily_budget,
                         'daily_spend' => $ad->daily_spend
                     ]);
+
+                    $shouldResume = true;
                 }
 
                 /*
                 |------------------------------------------------------------------
-                | RESUME AD
+                | Resume ad if eligible
                 |------------------------------------------------------------------
                 */
-                if ($resume) {
+                if ($shouldResume) {
 
                     $this->meta->updateAd(
                         $ad->meta_ad_id,
@@ -121,7 +108,7 @@ class ResetDailyAdBudgets extends Command
 
                     $ad->save();
 
-                    $count++;
+                    $resumedCount++;
 
                     Log::info('AD_RESUMED', [
                         'ad_id' => $ad->id,
@@ -139,10 +126,15 @@ class ResetDailyAdBudgets extends Command
             }
         }
 
-        $this->info("Resumed {$count} ads");
+        /*
+        |------------------------------------------------------------------
+        | Summary
+        |------------------------------------------------------------------
+        */
+        $this->info("Resumed {$resumedCount} ads");
 
         Log::info('DAILY_AD_RESET_COMPLETED', [
-            'ads_resumed' => $count,
+            'ads_resumed' => $resumedCount,
             'checked_ads' => $ads->count()
         ]);
     }

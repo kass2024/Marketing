@@ -582,6 +582,11 @@ public function updateStatus(Request $request, Ad $ad): RedirectResponse
 
     try {
 
+        /*
+        |------------------------------------------------------------------
+        | Update on Meta (if synced)
+        |------------------------------------------------------------------
+        */
         if ($ad->meta_ad_id) {
 
             $this->meta->updateAd(
@@ -590,26 +595,48 @@ public function updateStatus(Request $request, Ad $ad): RedirectResponse
                     'status' => $data['status']
                 ]
             );
-
         }
 
-        $pauseReason = null;
+        /*
+        |------------------------------------------------------------------
+        | Determine pause reason
+        |------------------------------------------------------------------
+        */
+        $pauseReason = $ad->pause_reason; // keep existing by default
 
         if ($data['status'] === 'PAUSED') {
+
+            // Manual pause
             $pauseReason = 'manual';
+
+        } elseif ($data['status'] === 'ACTIVE') {
+
+            // Reset pause reason when activating
+            $pauseReason = null;
+
+        } elseif ($data['status'] === 'ARCHIVED') {
+
+            // Archived = no pause logic needed
+            $pauseReason = null;
         }
 
+        /*
+        |------------------------------------------------------------------
+        | Update local DB
+        |------------------------------------------------------------------
+        */
         $ad->update([
             'status' => $data['status'],
             'pause_reason' => $pauseReason
         ]);
 
-        return back()->with('success','Ad status updated.');
+        return back()->with('success', 'Ad status updated.');
 
     } catch (\Throwable $e) {
 
         Log::error('AD_STATUS_UPDATE_FAILED', [
             'ad_id' => $ad->id,
+            'status' => $data['status'] ?? null,
             'error' => $e->getMessage()
         ]);
 
@@ -879,157 +906,106 @@ public function bulkStatusUpdate(Request $request): RedirectResponse
 
     return back()->with('success','Ads updated.');
 }
+/*
+|--------------------------------------------------------------------------
+| PUBLISH AD
+|--------------------------------------------------------------------------
+*/
 public function publish(Ad $ad): RedirectResponse
 {
     try {
 
         /*
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
         | Load Required Relations
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
         */
-
         $ad->load([
             'creative',
-            'adSet',
             'adSet.campaign.adAccount'
         ]);
 
         /*
-        |--------------------------------------------------------------------------
-        | Validate Local Data
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
+        | Validate Required Data
+        |------------------------------------------------------------------
         */
-
         if (!$ad->meta_ad_id) {
             throw new Exception('Ad is not synced with Meta.');
         }
 
-        if (!$ad->adSet) {
-            throw new Exception('AdSet relation missing.');
-        }
-
-        if (!$ad->creative) {
-            throw new Exception('Creative relation missing.');
-        }
-
-        if (!$ad->adSet->meta_id) {
+        if (!$ad->adSet || !$ad->adSet->meta_id) {
             throw new Exception('AdSet not synced with Meta.');
         }
 
-        if (!$ad->creative->meta_id) {
+        if (!$ad->creative || !$ad->creative->meta_id) {
             throw new Exception('Creative not synced with Meta.');
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Prepare Payload (Meta only requires status change)
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
+        | Prepare Payload
+        |------------------------------------------------------------------
         */
-
         $payload = [
             'status' => 'ACTIVE'
         ];
 
         /*
-        |--------------------------------------------------------------------------
-        | Log Publish Request
-        |--------------------------------------------------------------------------
-        */
-
-        Log::info('META_AD_PUBLISH_REQUEST', [
-
-            'local_ad_id' => $ad->id,
-
-            'meta_ad_id' => $ad->meta_ad_id,
-
-            'adset_meta_id' => $ad->adSet->meta_id,
-
-            'creative_meta_id' => $ad->creative->meta_id,
-
-            'payload' => $payload
-
-        ]);
-
-        /*
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
         | Send Request To Meta
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
         */
+        Log::info('META_AD_PUBLISH_REQUEST', [
+            'ad_id' => $ad->id,
+            'meta_ad_id' => $ad->meta_ad_id,
+            'payload' => $payload
+        ]);
 
         $response = $this->meta->updateAd(
             $ad->meta_ad_id,
             $payload
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Log Meta Response
-        |--------------------------------------------------------------------------
-        */
-
         Log::info('META_AD_PUBLISH_RESPONSE', [
-
-            'local_ad_id' => $ad->id,
-
-            'meta_response' => $response
-
+            'ad_id' => $ad->id,
+            'response' => $response
         ]);
 
         /*
-        |--------------------------------------------------------------------------
-        | Detect Meta API Errors
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
+        | Handle Meta Errors
+        |------------------------------------------------------------------
         */
-
         if (isset($response['error'])) {
-
-            $message = $response['error']['message']
-                ?? 'Unknown Meta API error';
-
-            throw new Exception($message);
+            throw new Exception(
+                $response['error']['message'] ?? 'Meta API error'
+            );
         }
 
         /*
-        |--------------------------------------------------------------------------
-        | Update Local Ad
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
+        | Update Local Ad (IMPORTANT FIX)
+        |------------------------------------------------------------------
         */
-
         $ad->update([
-            'status' => 'ACTIVE'
+            'status' => 'ACTIVE',
+            'pause_reason' => null // ✅ CRITICAL FIX
         ]);
 
-        Log::info('META_AD_PUBLISHED', [
-
-            'local_ad_id' => $ad->id,
-
+        Log::info('AD_PUBLISHED_SUCCESS', [
+            'ad_id' => $ad->id,
             'meta_ad_id' => $ad->meta_ad_id
-
         ]);
 
         return back()->with('success', 'Ad successfully published.');
 
-    }
-
-    catch (Throwable $e) {
-
-        /*
-        |--------------------------------------------------------------------------
-        | Log Failure
-        |--------------------------------------------------------------------------
-        */
+    } catch (Throwable $e) {
 
         Log::error('AD_PUBLISH_FAILED', [
-
-            'local_ad_id' => $ad->id ?? null,
-
+            'ad_id' => $ad->id ?? null,
             'meta_ad_id' => $ad->meta_ad_id ?? null,
-
-            'error' => $e->getMessage(),
-
-            'trace' => $e->getTraceAsString()
-
+            'error' => $e->getMessage()
         ]);
 
         return back()->withErrors([

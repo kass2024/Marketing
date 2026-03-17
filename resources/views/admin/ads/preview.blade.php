@@ -372,35 +372,39 @@ No placement data
 </table>
 
 </div>
-
-
-
 {{-- CREATIVE PREVIEW --}}
 @if($ad->creative)
 
 <div class="bg-white border rounded-2xl shadow p-6">
 
-<h2 class="text-lg font-semibold mb-4">
-Creative Preview
-</h2>
+<h2 class="text-lg font-semibold mb-6">🎨 Creative Preview</h2>
 
-<div class="max-w-md border rounded-lg overflow-hidden">
+<div class="max-w-md mx-auto bg-gray-50 border rounded-2xl overflow-hidden shadow-sm">
 
-@if($ad->creative->image_url)
+@php
+$image = $ad->creative->image_url;
 
-<img
-src="{{ str_starts_with($ad->creative->image_url,'http') 
-? $ad->creative->image_url 
-: asset('storage/'.$ad->creative->image_url) }}"
-class="w-full"
-/>
+if ($image && !str_starts_with($image, 'http')) {
+    $image = asset('storage/creatives/' . basename($image));
+}
+@endphp
 
+@if($image)
+<img 
+    src="{{ $image }}" 
+    class="w-full h-64 object-cover"
+    onerror="this.src='https://via.placeholder.com/400x300?text=No+Image'"
+>
+@else
+<div class="h-64 flex items-center justify-center text-gray-400">
+No image available
+</div>
 @endif
 
-<div class="p-4 space-y-2">
+<div class="p-5 space-y-3">
 
 @if($ad->creative->headline)
-<p class="font-semibold">
+<p class="font-semibold text-gray-900 text-lg">
 {{ $ad->creative->headline }}
 </p>
 @endif
@@ -411,6 +415,10 @@ class="w-full"
 </p>
 @endif
 
+<button class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">
+Learn More
+</button>
+
 </div>
 
 </div>
@@ -418,8 +426,6 @@ class="w-full"
 </div>
 
 @endif
-
-
 
 </div>
 

@@ -921,4 +921,21 @@ public function getInsightsBatch(string $accountId): array
         'limit' => 500
     ]);
 }
+public function getAccountStatus($accountId)
+{
+    $accountId = str_starts_with($accountId, 'act_')
+        ? $accountId
+        : "act_{$accountId}";
+
+    $response = Http::get("{$this->baseUrl}/{$accountId}", [
+        'fields' => 'account_status',
+        'access_token' => $this->accessToken
+    ]);
+
+    if (!$response->successful()) {
+        throw new \Exception($response->body());
+    }
+
+    return $response->json();
+}
 }

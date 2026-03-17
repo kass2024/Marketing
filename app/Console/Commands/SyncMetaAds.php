@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 use App\Services\MetaAdsService;
 use App\Models\AdAccount;
@@ -14,10 +15,13 @@ use App\Models\Ad;
 class SyncMetaAds extends Command
 {
     protected $signature = 'meta:sync-ads';
-
-    protected $description = 'Synchronize Meta campaigns, adsets, ads and performance metrics';
+    protected $description = 'Meta sync with batch insights + smart rate limiting';
 
     protected MetaAdsService $meta;
+
+    // 🔥 GLOBAL THROTTLE SETTINGS
+    protected int $delayBetweenCalls = 300000; // 0.3 sec
+    protected int $maxRetries = 3;
 
     public function __construct(MetaAdsService $meta)
     {
@@ -27,182 +31,246 @@ class SyncMetaAds extends Command
 
     public function handle()
     {
-        $this->info('Starting Meta Ads Sync...');
+        $this->info('🚀 Starting Meta Ads Sync...');
 
         try {
 
             $account = AdAccount::first();
 
             if (!$account) {
-                $this->error('No Meta Ad Account connected.');
+                $this->error('No Meta account connected');
                 return Command::FAILURE;
             }
 
             $accountId = $account->meta_id;
 
             /*
-            |--------------------------------------------------------------------------
-            | Campaign Sync
-            |--------------------------------------------------------------------------
+            |----------------------------------------------------------
+            | 1️⃣ CAMPAIGNS
+            |----------------------------------------------------------
             */
+            $campaigns = $this->safeMetaCall(fn() =>
+                $this->meta->getCampaigns($accountId)
+            );
 
-            $campaigns = $this->meta->getCampaigns($accountId);
-
-            foreach ($campaigns['data'] ?? [] as $metaCampaign) {
+            foreach ($campaigns['data'] ?? [] as $c) {
 
                 Campaign::updateOrCreate(
-                    ['meta_id' => $metaCampaign['id']],
+                    ['meta_id' => $c['id']],
                     [
                         'ad_account_id' => $account->id,
-                        'name' => $metaCampaign['name'],
-                        'status' => $metaCampaign['status'],
-                        'objective' => $metaCampaign['objective'] ?? null
+                        'name' => $c['name'],
+                        'status' => $c['status'],
+                        'objective' => $c['objective'] ?? null
                     ]
                 );
             }
 
-            $campaignMap = Campaign::pluck('id','meta_id');
+            $campaignMap = Campaign::pluck('id', 'meta_id');
 
             /*
-            |--------------------------------------------------------------------------
-            | AdSet Sync
-            |--------------------------------------------------------------------------
+            |----------------------------------------------------------
+            | 2️⃣ ADSETS
+            |----------------------------------------------------------
             */
+            $metaAdsets = $this->safeMetaCall(fn() =>
+                $this->meta->getAdSets($accountId)
+            );
 
-            $metaAdsets = $this->meta->getAdSets($accountId);
+            foreach ($metaAdsets['data'] ?? [] as $a) {
 
-            foreach ($metaAdsets['data'] ?? [] as $metaAdset) {
-
-                $campaignId = $campaignMap[$metaAdset['campaign_id']] ?? null;
-
+                $campaignId = $campaignMap[$a['campaign_id']] ?? null;
                 if (!$campaignId) continue;
 
-                $budget = isset($metaAdset['daily_budget'])
-                    ? ((int)$metaAdset['daily_budget']) / 100
+                $budget = isset($a['daily_budget'])
+                    ? ((int)$a['daily_budget']) / 100
                     : null;
 
                 AdSet::updateOrCreate(
-                    ['meta_id'=>$metaAdset['id']],
+                    ['meta_id' => $a['id']],
                     [
-                        'campaign_id'=>$campaignId,
-                        'name'=>$metaAdset['name'],
-                        'status'=>$metaAdset['status'],
-                        'daily_budget'=>$budget
+                        'campaign_id' => $campaignId,
+                        'name' => $a['name'],
+                        'status' => $a['status'],
+                        'daily_budget' => $budget
                     ]
                 );
             }
 
+            $adsetMap = AdSet::pluck('id', 'meta_id');
+
             /*
-            |--------------------------------------------------------------------------
-            | Ads Sync
-            |--------------------------------------------------------------------------
+            |----------------------------------------------------------
+            | 3️⃣ ADS
+            |----------------------------------------------------------
             */
+            $metaAds = $this->safeMetaCall(fn() =>
+                $this->meta->getAds($accountId)
+            );
 
-            $adsetMap = AdSet::pluck('id','meta_id');
+            /*
+            |----------------------------------------------------------
+            | 4️⃣ BATCH INSIGHTS (ONE CALL ONLY ✅)
+            |----------------------------------------------------------
+            */
+            $insights = $this->safeMetaCall(fn() =>
+                $this->meta->getInsightsBatch($accountId)
+            );
 
-            $metaAds = $this->meta->getAds($accountId);
+            $insightMap = collect($insights['data'] ?? [])
+                ->keyBy('ad_id');
 
             foreach ($metaAds['data'] ?? [] as $metaAd) {
 
-                $metaAdId = $metaAd['id'];
-                $adsetId = $adsetMap[$metaAd['adset_id']] ?? null;
+                try {
 
-                if (!$adsetId) continue;
+                    $metaAdId = $metaAd['id'];
+                    $adsetId = $adsetMap[$metaAd['adset_id']] ?? null;
 
-                $ad = Ad::updateOrCreate(
-                    ['meta_ad_id'=>$metaAdId],
-                    [
-                        'adset_id'=>$adsetId,
-                        'name'=>$metaAd['name'],
-                        'status'=>$metaAd['status']
-                    ]
-                );
+                    if (!$adsetId) continue;
 
-                /*
-                |--------------------------------------------------------------------------
-                | Insights
-                |--------------------------------------------------------------------------
-                */
+                    $ad = Ad::firstOrCreate(
+                        ['meta_ad_id' => $metaAdId],
+                        [
+                            'adset_id' => $adsetId,
+                            'name' => $metaAd['name'],
+                            'status' => 'ACTIVE'
+                        ]
+                    );
 
-                $lifetime = $this->meta->getInsights($metaAdId,'maximum');
-                $today = $this->meta->getInsights($metaAdId,'today');
+                    $insight = $insightMap[$metaAdId] ?? [];
 
-                $impressions = $lifetime['impressions'] ?? 0;
-                $clicks = $lifetime['clicks'] ?? 0;
-                $lifetimeSpend = $lifetime['spend'] ?? 0;
-                $todaySpend = $today['spend'] ?? 0;
+                    $todaySpend = (float)($insight['spend'] ?? 0);
+                    $impressions = (int)($insight['impressions'] ?? 0);
+                    $clicks = (int)($insight['clicks'] ?? 0);
 
-                $ctr = $impressions > 0
-                    ? round(($clicks/$impressions)*100,2)
-                    : 0;
+                    $ctr = $impressions > 0
+                        ? round(($clicks / $impressions) * 100, 2)
+                        : 0;
 
-                /*
-                |--------------------------------------------------------------------------
-                | Budget Guard
-                |--------------------------------------------------------------------------
-                */
-
-                $status = $metaAd['status'];
-
-                if (
-                    $ad->daily_budget &&
-                    $todaySpend >= $ad->daily_budget &&
-                    $status !== 'PAUSED'
-                ) {
-
-                    Log::warning('AUTO_PAUSING_AD',[
-                        'ad'=>$metaAdId,
-                        'today_spend'=>$todaySpend,
-                        'budget'=>$ad->daily_budget
-                    ]);
-
-                    $this->meta->updateAd($metaAdId,[
-                        'status'=>'PAUSED'
-                    ]);
-
-                    $status = 'PAUSED';
-
-                    $pauseReason = 'budget_limit';
-
-                } else {
-
+                    /*
+                    |--------------------------------------------------
+                    | 🔥 SMART BUDGET CONTROL
+                    |--------------------------------------------------
+                    */
+                    $status = $ad->status;
                     $pauseReason = $ad->pause_reason;
+
+                    if ($ad->daily_budget) {
+
+                        if ($todaySpend >= $ad->daily_budget) {
+
+                            if ($pauseReason !== 'budget') {
+
+                                Log::warning('AUTO_PAUSE', ['ad' => $metaAdId]);
+
+                                $this->safeMetaCall(fn() =>
+                                    $this->meta->updateAd($metaAdId, [
+                                        'status' => 'PAUSED'
+                                    ])
+                                );
+
+                                $status = 'PAUSED';
+                                $pauseReason = 'budget';
+                            }
+
+                        } else {
+
+                            if ($pauseReason === 'budget') {
+
+                                Log::info('AUTO_RESUME', ['ad' => $metaAdId]);
+
+                                $this->safeMetaCall(fn() =>
+                                    $this->meta->updateAd($metaAdId, [
+                                        'status' => 'ACTIVE'
+                                    ])
+                                );
+
+                                $status = 'ACTIVE';
+                                $pauseReason = null;
+                            }
+                        }
+                    }
+
+                    /*
+                    |--------------------------------------------------
+                    | SAVE
+                    |--------------------------------------------------
+                    */
+                    $ad->update([
+                        'status' => $status,
+                        'pause_reason' => $pauseReason,
+                        'impressions' => $impressions,
+                        'clicks' => $clicks,
+                        'ctr' => $ctr,
+                        'daily_spend' => $todaySpend,
+                        'spend_date' => Carbon::today()->toDateString()
+                    ]);
+
+                } catch (\Throwable $e) {
+
+                    Log::error('AD_SYNC_FAILED', [
+                        'ad_id' => $metaAd['id'] ?? null,
+                        'error' => $e->getMessage()
+                    ]);
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Save Metrics
-                |--------------------------------------------------------------------------
-                */
-
-                $ad->update([
-
-                    'status'=>$status,
-                    'pause_reason'=>$pauseReason,
-
-                    'impressions'=>$impressions,
-                    'clicks'=>$clicks,
-                    'ctr'=>$ctr,
-
-                    'spend'=>$lifetimeSpend,
-                    'daily_spend'=>$todaySpend,
-                    'spend_date'=>now()->toDateString()
-                ]);
+                // 🔒 GLOBAL THROTTLE
+                usleep($this->delayBetweenCalls);
             }
 
-            $this->info('Sync complete.');
-
+            $this->info('✅ Sync completed successfully');
             return Command::SUCCESS;
 
         } catch (\Throwable $e) {
 
-            Log::error('META_SYNC_FAILED',[
-                'error'=>$e->getMessage()
+            Log::error('META_SYNC_FATAL', [
+                'error' => $e->getMessage()
             ]);
 
             $this->error($e->getMessage());
-
             return Command::FAILURE;
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------
+    | 🔥 SAFE META CALL WITH RETRY + BACKOFF
+    |--------------------------------------------------------------
+    */
+    private function safeMetaCall(callable $callback)
+    {
+        $attempt = 0;
+
+        start:
+
+        try {
+            return $callback();
+
+        } catch (\Throwable $e) {
+
+            $attempt++;
+
+            $message = $e->getMessage();
+
+            // 🔴 RATE LIMIT HANDLING
+            if (str_contains($message, 'limit') || str_contains($message, 'code":17')) {
+
+                if ($attempt <= $this->maxRetries) {
+
+                    $delay = pow(2, $attempt); // exponential backoff
+
+                    Log::warning("RATE LIMIT HIT - RETRY {$attempt} in {$delay}s");
+
+                    sleep($delay);
+
+                    goto start;
+                }
+
+                Log::error('MAX RETRIES REACHED (RATE LIMIT)');
+            }
+
+            throw $e;
         }
     }
 }

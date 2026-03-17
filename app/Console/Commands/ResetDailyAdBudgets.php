@@ -12,7 +12,7 @@ class ResetDailyAdBudgets extends Command
 {
     protected $signature = 'ads:reset-daily-budget';
 
-    protected $description = 'Auto resume paused ads (manual or budget) when budget allows or a new day begins';
+    protected $description = 'Auto resume ONLY budget-limited ads when budget allows or new day starts';
 
     protected MetaAdsService $meta;
 
@@ -27,11 +27,10 @@ class ResetDailyAdBudgets extends Command
         $today = Carbon::today()->toDateString();
 
         /*
-        |--------------------------------------------------------------------------
-        | Get ALL paused ads
-        |--------------------------------------------------------------------------
+        |------------------------------------------------------------------
+        | Get ONLY paused ads with meta ID
+        |------------------------------------------------------------------
         */
-
         $ads = Ad::where('status', 'PAUSED')
             ->whereNotNull('meta_ad_id')
             ->get();
@@ -42,50 +41,74 @@ class ResetDailyAdBudgets extends Command
 
             try {
 
+                /*
+                |------------------------------------------------------------------
+                | 🚫 NEVER RESUME MANUAL PAUSED ADS
+                |------------------------------------------------------------------
+                */
+                if ($ad->pause_reason === 'manual') {
+
+                    Log::info('AD_SKIPPED_MANUAL', [
+                        'ad_id' => $ad->id
+                    ]);
+
+                    continue;
+                }
+
+                /*
+                |------------------------------------------------------------------
+                | ✅ ONLY HANDLE BUDGET LIMITED ADS
+                |------------------------------------------------------------------
+                */
+                if ($ad->pause_reason !== 'budget_limit') {
+
+                    Log::info('AD_SKIPPED_NOT_BUDGET', [
+                        'ad_id' => $ad->id,
+                        'reason' => $ad->pause_reason
+                    ]);
+
+                    continue;
+                }
+
                 $resume = false;
 
                 /*
-                |--------------------------------------------------------------------------
-                | CASE 1 — New Day Reset
-                |--------------------------------------------------------------------------
+                |------------------------------------------------------------------
+                | CASE 1 — New Day → Reset spend
+                |------------------------------------------------------------------
                 */
-
                 if (!$ad->spend_date || $ad->spend_date < $today) {
-
-                    Log::info('AD_NEW_DAY_RESET', [
-                        'ad_id' => $ad->id,
-                        'previous_spend' => $ad->daily_spend
-                    ]);
 
                     $ad->daily_spend = 0;
                     $ad->spend_date = $today;
 
                     $resume = true;
+
+                    Log::info('AD_NEW_DAY_RESET', [
+                        'ad_id' => $ad->id
+                    ]);
                 }
 
                 /*
-                |--------------------------------------------------------------------------
-                | CASE 2 — Budget Available
-                |--------------------------------------------------------------------------
-                */
+                |------------------------------------------------------------------
+                | CASE 2 — Budget available
+                |------------------------------------------------------------------
+                elseif ($ad->daily_budget > $ad->daily_spend) {
 
-                if ($ad->daily_budget > $ad->daily_spend) {
+                    $resume = true;
 
                     Log::info('AD_BUDGET_AVAILABLE', [
                         'ad_id' => $ad->id,
                         'daily_budget' => $ad->daily_budget,
                         'daily_spend' => $ad->daily_spend
                     ]);
-
-                    $resume = true;
                 }
 
                 /*
-                |--------------------------------------------------------------------------
-                | Resume Ad
-                |--------------------------------------------------------------------------
+                |------------------------------------------------------------------
+                | RESUME AD
+                |------------------------------------------------------------------
                 */
-
                 if ($resume) {
 
                     $this->meta->updateAd(

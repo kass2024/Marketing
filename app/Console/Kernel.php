@@ -8,27 +8,45 @@ use Illuminate\Support\Facades\Log;
 
 class Kernel extends ConsoleKernel
 {
-    /**
-     * Define the application's command schedule.
-     */
     protected function schedule(Schedule $schedule): void
     {
 
         /*
         |--------------------------------------------------------------------------
-        | META ADS SYNC (CORE ENGINE)
+        | 🔥 META ADS SYNC (SMART REAL-TIME ENGINE)
         |--------------------------------------------------------------------------
         */
 
-        // 🔥 ADS (REAL-TIME PERFORMANCE)
         $schedule->command('meta:sync-ads')
             ->everyMinute()
-            ->withoutOverlapping(2)
+            ->withoutOverlapping(3) // ⛔ prevent stacking
             ->runInBackground()
             ->name('meta-sync-ads')
+            ->before(function () {
+                Log::info('META_SYNC_START', [
+                    'time' => now()->toDateTimeString()
+                ]);
+            })
+            ->after(function () {
+                Log::info('META_SYNC_FINISHED', [
+                    'time' => now()->toDateTimeString()
+                ]);
+            })
+            ->onFailure(function () {
+                Log::error('META_SYNC_FAILED', [
+                    'time' => now()->toDateTimeString()
+                ]);
+            })
             ->appendOutputTo(storage_path('logs/meta-ads.log'));
 
-        // 🔥 CAMPAIGNS (LESS FREQUENT)
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | 🔥 CAMPAIGNS (LESS FREQUENT)
+        |--------------------------------------------------------------------------
+        */
+
         $schedule->command('meta:sync-campaigns')
             ->everyFiveMinutes()
             ->withoutOverlapping(5)
@@ -36,9 +54,16 @@ class Kernel extends ConsoleKernel
             ->name('meta-sync-campaigns')
             ->appendOutputTo(storage_path('logs/meta-campaigns.log'));
 
-        // 🔥 ACCOUNTS (RARELY CHANGES)
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | 🔥 ACCOUNTS CHECK (IMPORTANT FOR BILLING STATUS)
+        |--------------------------------------------------------------------------
+        */
+
         $schedule->command('meta:sync-accounts')
-            ->hourly()
+            ->everyFifteenMinutes()
             ->withoutOverlapping(10)
             ->runInBackground()
             ->name('meta-sync-accounts')
@@ -48,29 +73,28 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
-        | 🔥 BUDGET RESET (CRITICAL)
+        | 🔥 DAILY BUDGET RESET (CRITICAL ENGINE)
         |--------------------------------------------------------------------------
         */
+
         $schedule->command('ads:reset-daily-budget')
             ->everyMinute()
             ->withoutOverlapping(2)
             ->runInBackground()
             ->name('ads-budget-reset')
-            ->appendOutputTo(storage_path('logs/ad-reset.log'))
-            ->onSuccess(function () {
-                Log::info('BUDGET_RESET_SUCCESS');
-            })
-            ->onFailure(function () {
-                Log::error('BUDGET_RESET_FAILED');
-            });
+            ->before(fn () => Log::info('BUDGET_RESET_START'))
+            ->after(fn () => Log::info('BUDGET_RESET_DONE'))
+            ->onFailure(fn () => Log::error('BUDGET_RESET_FAILED'))
+            ->appendOutputTo(storage_path('logs/ad-reset.log'));
 
 
 
         /*
         |--------------------------------------------------------------------------
-        | MESSAGING AUTOMATION
+        | 📩 MESSAGING AUTOMATION
         |--------------------------------------------------------------------------
         */
+
         $schedule->command('report:unread-messages')
             ->everyFiveMinutes()
             ->withoutOverlapping(5)
@@ -82,9 +106,10 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
-        | AGENT ESCALATION MONITOR
+        | 🧠 AGENT ESCALATION MONITOR
         |--------------------------------------------------------------------------
         */
+
         $schedule->command('agents:monitor')
             ->everyMinute()
             ->withoutOverlapping(2)
@@ -96,14 +121,14 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
-        | QUEUE WORKER (⚠️ NOTE BELOW)
+        | ⚙️ QUEUE WORKER (TEMP - MOVE TO SUPERVISOR)
         |--------------------------------------------------------------------------
         */
-        // ⚠️ RECOMMENDED: move this to Supervisor instead of scheduler
+
         $schedule->command('queue:work --tries=3 --timeout=90 --sleep=3')
             ->everyMinute()
-            ->runInBackground()
             ->withoutOverlapping(1)
+            ->runInBackground()
             ->name('queue-worker')
             ->appendOutputTo(storage_path('logs/queue.log'));
 
@@ -111,24 +136,23 @@ class Kernel extends ConsoleKernel
 
         /*
         |--------------------------------------------------------------------------
-        | SYSTEM HEARTBEAT
+        | ❤️ SYSTEM HEARTBEAT (HEALTH CHECK)
         |--------------------------------------------------------------------------
         */
+
         $schedule->call(function () {
 
             Log::info('SYSTEM_HEARTBEAT', [
                 'time' => now()->toDateTimeString(),
+                'memory_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
                 'env' => app()->environment(),
             ]);
 
         })
         ->hourly()
-        ->name('heartbeat');
+        ->name('system-heartbeat');
     }
 
-    /**
-     * Register the commands for the application.
-     */
     protected function commands(): void
     {
         $this->load(__DIR__.'/Commands');

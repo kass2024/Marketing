@@ -15,12 +15,10 @@ use App\Models\Ad;
 class SyncMetaAds extends Command
 {
     protected $signature = 'meta:sync-ads';
-    protected $description = 'Meta sync with batch insights + smart rate limiting';
+    protected $description = 'Smart Meta sync (rate-limit safe + billing aware)';
 
     protected MetaAdsService $meta;
 
-    // 🔥 GLOBAL THROTTLE SETTINGS
-    protected int $delayBetweenCalls = 300000; // 0.3 sec
     protected int $maxRetries = 3;
 
     public function __construct(MetaAdsService $meta)
@@ -43,6 +41,26 @@ class SyncMetaAds extends Command
             }
 
             $accountId = $account->meta_id;
+
+            /*
+            |----------------------------------------------------------
+            | 🔴 CHECK ACCOUNT STATUS (CRITICAL)
+            |----------------------------------------------------------
+            */
+            $status = $this->safeMetaCall(fn() =>
+                $this->meta->getAccountStatus($accountId)
+            );
+
+            if (($status['account_status'] ?? 0) != 1) {
+
+                Log::warning('META_ACCOUNT_DISABLED', [
+                    'account_id' => $accountId,
+                    'status' => $status['account_status'] ?? null
+                ]);
+
+                $this->error('Account disabled (billing issue)');
+                return Command::FAILURE;
+            }
 
             /*
             |----------------------------------------------------------
@@ -110,7 +128,7 @@ class SyncMetaAds extends Command
 
             /*
             |----------------------------------------------------------
-            | 4️⃣ BATCH INSIGHTS (ONE CALL ONLY ✅)
+            | 4️⃣ INSIGHTS (BATCH)
             |----------------------------------------------------------
             */
             $insights = $this->safeMetaCall(fn() =>
@@ -129,12 +147,17 @@ class SyncMetaAds extends Command
 
                     if (!$adsetId) continue;
 
-                    $ad = Ad::firstOrCreate(
+                    /*
+                    |----------------------------------------------
+                    | 🔥 ALWAYS UPDATE (NO STALE DATA)
+                    |----------------------------------------------
+                    */
+                    $ad = Ad::updateOrCreate(
                         ['meta_ad_id' => $metaAdId],
                         [
                             'adset_id' => $adsetId,
                             'name' => $metaAd['name'],
-                            'status' => 'ACTIVE'
+                            'status' => $metaAd['status'] ?? 'ACTIVE'
                         ]
                     );
 
@@ -149,9 +172,9 @@ class SyncMetaAds extends Command
                         : 0;
 
                     /*
-                    |--------------------------------------------------
+                    |----------------------------------------------
                     | 🔥 SMART BUDGET CONTROL
-                    |--------------------------------------------------
+                    |----------------------------------------------
                     */
                     $status = $ad->status;
                     $pauseReason = $ad->pause_reason;
@@ -193,9 +216,9 @@ class SyncMetaAds extends Command
                     }
 
                     /*
-                    |--------------------------------------------------
-                    | SAVE
-                    |--------------------------------------------------
+                    |----------------------------------------------
+                    | SAVE METRICS
+                    |----------------------------------------------
                     */
                     $ad->update([
                         'status' => $status,
@@ -215,8 +238,12 @@ class SyncMetaAds extends Command
                     ]);
                 }
 
-                // 🔒 GLOBAL THROTTLE
-                usleep($this->delayBetweenCalls);
+                /*
+                |----------------------------------------------
+                | 🔒 SMART THROTTLE (RANDOM)
+                |----------------------------------------------
+                */
+                usleep(rand(700000, 1200000));
             }
 
             $this->info('✅ Sync completed successfully');
@@ -253,21 +280,24 @@ class SyncMetaAds extends Command
 
             $message = $e->getMessage();
 
-            // 🔴 RATE LIMIT HANDLING
-            if (str_contains($message, 'limit') || str_contains($message, 'code":17')) {
+            if (
+                str_contains($message, '"code":17') ||
+                str_contains($message, 'rate limit') ||
+                str_contains($message, 'User request limit')
+            ) {
 
                 if ($attempt <= $this->maxRetries) {
 
-                    $delay = pow(2, $attempt); // exponential backoff
+                    $delay = pow(2, $attempt);
 
-                    Log::warning("RATE LIMIT HIT - RETRY {$attempt} in {$delay}s");
+                    Log::warning("RATE LIMIT - RETRY {$attempt} in {$delay}s");
 
                     sleep($delay);
 
                     goto start;
                 }
 
-                Log::error('MAX RETRIES REACHED (RATE LIMIT)');
+                Log::error('MAX RETRIES REACHED');
             }
 
             throw $e;

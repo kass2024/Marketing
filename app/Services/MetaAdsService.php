@@ -894,4 +894,31 @@ public function getBillingInfo(string $accountId)
 
     return $response->json();
 }
+/*
+|--------------------------------------------------------------------------
+| 🔥 GET INSIGHTS BATCH (CRITICAL FOR SYNC)
+|--------------------------------------------------------------------------
+| Fetch all ads insights in ONE request (avoids rate limit)
+*/
+
+public function getInsightsBatch(string $accountId): array
+{
+    $accountId = $this->formatAccount($accountId);
+
+    return $this->get("{$accountId}/insights", [
+
+        'level' => 'ad',
+
+        'fields' => implode(',', [
+            'ad_id',
+            'impressions',
+            'clicks',
+            'spend'
+        ]),
+
+        'date_preset' => 'today',
+
+        'limit' => 500
+    ]);
+}
 }

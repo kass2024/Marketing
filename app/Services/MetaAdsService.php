@@ -765,86 +765,42 @@ public function getInsights(string $objectId, string $preset = 'lifetime', array
     |--------------------------------------------------------------------------
     */
 
-   $data = $response['data'][0] ?? null;
-
-/*
-|--------------------------------------------------------------------------
-| HANDLE EMPTY RESPONSE (CRITICAL)
-|--------------------------------------------------------------------------
-*/
-if (!$data) {
-
-    Log::warning('META_INSIGHTS_EMPTY', [
-        'response' => $response
-    ]);
+    $data = $response['data'][0] ?? [];
 
     return [
-        'impressions' => 0,
-        'clicks' => 0,
-        'spend' => 0,
-        'reach' => 0,
-        'ctr' => 0,
-        'cpm' => 0,
-        'cpc' => 0,
-        'frequency' => 0,
-        'inline_link_clicks' => 0,
-        'actions' => [],
-        'action_values' => [],
-        'video_25' => [],
-        'video_50' => [],
-        'video_75' => [],
-        'video_100' => [],
-        'date_start' => null,
-        'date_stop' => null,
+
+        'impressions' => (int)($data['impressions'] ?? 0),
+
+        'clicks' => (int)($data['clicks'] ?? 0),
+
+        'spend' => (float)($data['spend'] ?? 0),
+
+        'reach' => (int)($data['reach'] ?? 0),
+
+        'ctr' => (float)($data['ctr'] ?? 0),
+
+        'cpm' => (float)($data['cpm'] ?? 0),
+
+        'cpc' => (float)($data['cpc'] ?? 0),
+
+        'frequency' => (float)($data['frequency'] ?? 0),
+
+        'inline_link_clicks' => (int)($data['inline_link_clicks'] ?? 0),
+
+        'actions' => $data['actions'] ?? [],
+
+        'action_values' => $data['action_values'] ?? [],
+
+        'video_25' => $data['video_p25_watched_actions'] ?? [],
+        'video_50' => $data['video_p50_watched_actions'] ?? [],
+        'video_75' => $data['video_p75_watched_actions'] ?? [],
+        'video_100' => $data['video_p100_watched_actions'] ?? [],
+
+        'date_start' => $data['date_start'] ?? null,
+        'date_stop' => $data['date_stop'] ?? null,
+
         'raw' => $response
     ];
-}
-
-/*
-|--------------------------------------------------------------------------
-| SAFE NORMALIZATION
-|--------------------------------------------------------------------------
-*/
-return [
-
-    'impressions' => isset($data['impressions']) ? (int)$data['impressions'] : 0,
-
-    'clicks' => isset($data['clicks']) ? (int)$data['clicks'] : 0,
-
-    'spend' => isset($data['spend']) ? (float)$data['spend'] : 0,
-
-    'reach' => isset($data['reach']) ? (int)$data['reach'] : 0,
-
-    'ctr' => isset($data['ctr']) ? (float)$data['ctr'] : 0,
-
-    'cpm' => isset($data['cpm']) ? (float)$data['cpm'] : 0,
-
-    'cpc' => isset($data['cpc']) ? (float)$data['cpc'] : 0,
-
-    'frequency' => isset($data['frequency']) ? (float)$data['frequency'] : 0,
-
-    'inline_link_clicks' => isset($data['inline_link_clicks'])
-        ? (int)$data['inline_link_clicks']
-        : 0,
-
-    'actions' => is_array($data['actions'] ?? null)
-        ? $data['actions']
-        : [],
-
-    'action_values' => is_array($data['action_values'] ?? null)
-        ? $data['action_values']
-        : [],
-
-    'video_25' => $data['video_p25_watched_actions'] ?? [],
-    'video_50' => $data['video_p50_watched_actions'] ?? [],
-    'video_75' => $data['video_p75_watched_actions'] ?? [],
-    'video_100' => $data['video_p100_watched_actions'] ?? [],
-
-    'date_start' => $data['date_start'] ?? null,
-    'date_stop' => $data['date_stop'] ?? null,
-
-    'raw' => $response
-];
 }
 /*
 |--------------------------------------------------------------------------
@@ -945,13 +901,11 @@ public function getBillingInfo(string $accountId)
 | Fetch all ads insights in ONE request (avoids rate limit)
 */
 
-public function getInsightsBatch(string $accountId, string $preset = 'today'): array
+public function getInsightsBatch(string $accountId): array
 {
     $accountId = $this->formatAccount($accountId);
 
-    $endpoint = "{$accountId}/insights";
-
-    $params = [
+    return $this->get("{$accountId}/insights", [
 
         'level' => 'ad',
 
@@ -962,96 +916,10 @@ public function getInsightsBatch(string $accountId, string $preset = 'today'): a
             'spend'
         ]),
 
-        'date_preset' => $preset,
+        'date_preset' => 'today',
 
         'limit' => 500
-    ];
-
-    Log::info('META_BATCH_INSIGHTS_REQUEST', [
-        'account_id' => $accountId,
-        'preset' => $preset
     ]);
-
-    $allData = [];
-
-    try {
-
-        do {
-
-            $response = $this->get($endpoint, $params);
-
-            $data = $response['data'] ?? [];
-
-            if (empty($data)) {
-
-                Log::warning('META_BATCH_EMPTY', [
-                    'account_id' => $accountId,
-                    'preset' => $preset
-                ]);
-
-                break;
-            }
-
-            foreach ($data as $row) {
-
-                if (empty($row['ad_id'])) {
-                    continue;
-                }
-
-                $allData[$row['ad_id']] = [
-
-                    'ad_id' => $row['ad_id'],
-
-                    'impressions' => (int) ($row['impressions'] ?? 0),
-
-                    'clicks' => (int) ($row['clicks'] ?? 0),
-
-                    'spend' => (float) ($row['spend'] ?? 0),
-                ];
-            }
-
-            /*
-            |------------------------------------------------------------
-            | PAGINATION (CRITICAL)
-            |------------------------------------------------------------
-            */
-
-            if (isset($response['paging']['next'])) {
-
-                $nextUrl = $response['paging']['next'];
-
-                $response = Http::timeout(20)->get($nextUrl);
-
-                if (!$response->successful()) {
-                    break;
-                }
-
-                $response = $response->json();
-
-                $params = []; // already inside next URL
-
-            } else {
-                break;
-            }
-
-        } while (true);
-
-    } catch (\Throwable $e) {
-
-        Log::error('META_BATCH_FAILED', [
-            'account_id' => $accountId,
-            'preset' => $preset,
-            'error' => $e->getMessage()
-        ]);
-    }
-
-    Log::info('META_BATCH_COMPLETED', [
-        'account_id' => $accountId,
-        'preset' => $preset,
-        'ads_count' => count($allData)
-    ]);
-
-    return $allData;
 }
 public function getAccountStatus($accountId)
 {

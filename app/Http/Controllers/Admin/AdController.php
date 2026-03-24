@@ -841,25 +841,41 @@ public function sync(Ad $ad): RedirectResponse
 
     try {
 
-        $life = $this->meta->getInsights($ad->meta_ad_id, 'maximum');
-        $today = $this->meta->getInsights($ad->meta_ad_id, 'today');
+        $insights = $this->meta->getInsights($ad->meta_ad_id);
+
+        $impressions = 0;
+        $clicks = 0;
+        $spend = 0;
+
+        if (!empty($insights['data'][0])) {
+
+            $row = $insights['data'][0];
+
+            $impressions = (int) ($row['impressions'] ?? 0);
+            $clicks = (int) ($row['clicks'] ?? 0);
+            $spend = (float) ($row['spend'] ?? 0);
+        }
+
+        $ctr = $impressions > 0
+            ? round(($clicks / $impressions) * 100, 2)
+            : 0;
 
         $ad->update([
 
-            'impressions' => $life['impressions'],
-            'clicks' => $life['clicks'],
-            'spend' => $life['spend'],
-            'daily_spend' => $today['spend'],
-            'ctr' => $life['ctr']
+            'impressions' => $impressions,
+            'clicks' => $clicks,
+            'spend' => $spend,
+            'ctr' => $ctr
 
         ]);
 
-        return back()->with('success','Ad metrics synced with Meta.');
+        return back()->with('success','Ad metrics refreshed.');
 
-    } catch(Throwable $e){
+    }
+
+    catch(Throwable $e){
 
         Log::error('AD_SYNC_FAILED',[
-            'ad_id' => $ad->id,
             'error'=>$e->getMessage()
         ]);
 

@@ -864,7 +864,7 @@ public function sync(Ad $ad): RedirectResponse
 
             'impressions' => $impressions,
             'clicks' => $clicks,
-            'spend' => max($ad->spend, $spend),
+            'spend' => $spend,
             'ctr' => $ctr
 
         ]);

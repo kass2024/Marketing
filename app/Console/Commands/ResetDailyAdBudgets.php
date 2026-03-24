@@ -12,12 +12,11 @@ class ResetDailyAdBudgets extends Command
 {
     protected $signature = 'ads:reset-daily-budget';
 
-    protected $description = 'Reset daily spend, enforce budget limits, and resume eligible ads';
+    protected $description = 'Sync Meta spend, enforce daily budget, pause/resume ads safely';
 
     protected MetaAdsService $meta;
 
-    // 🔧 Safety buffer (avoid Meta overspend)
-    protected float $bufferPercent = 0.98; // 98%
+    protected float $bufferPercent = 0.98; // 98% safety
 
     public function __construct(MetaAdsService $meta)
     {
@@ -31,60 +30,72 @@ class ResetDailyAdBudgets extends Command
 
         $ads = Ad::whereNotNull('meta_ad_id')->get();
 
-        $resetCount   = 0;
-        $pausedCount  = 0;
-        $resumedCount = 0;
-        $skippedCount = 0;
+        $paused = 0;
+        $resumed = 0;
+        $skipped = 0;
+        $errors = 0;
+
+        Log::info('DAILY_AD_JOB_STARTED', [
+            'date' => $today,
+            'ads_count' => $ads->count()
+        ]);
 
         foreach ($ads as $ad) {
 
             try {
 
                 /*
-                |------------------------------------------------------------------
-                | 1️⃣ RESET DAILY SPEND (NEW DAY)
-                |------------------------------------------------------------------
+                |------------------------------------------------------------
+                | 1️⃣ GET REAL-TIME META TODAY SPEND
+                |------------------------------------------------------------
                 */
-                if (!$ad->spend_date || $ad->spend_date < $today) {
+                $insights = $this->meta->getInsights(
+                    $ad->meta_ad_id,
+                    'today'
+                );
 
-                    $ad->update([
-                        'daily_spend' => 0,
-                        'spend_date'  => $today
-                    ]);
-
-                    $resetCount++;
-
-                    Log::info('AD_DAILY_RESET', [
-                        'ad_id' => $ad->id
-                    ]);
-                }
+                $todaySpend = (float) ($insights['spend'] ?? 0);
 
                 /*
-                |------------------------------------------------------------------
-                | 2️⃣ AUTO-PAUSE IF BUDGET EXCEEDED (🔥 CRITICAL FIX)
-                |------------------------------------------------------------------
+                |------------------------------------------------------------
+                | 2️⃣ UPDATE LOCAL CACHE (UI PURPOSE ONLY)
+                |------------------------------------------------------------
+                */
+                $ad->update([
+                    'daily_spend' => $todaySpend,
+                    'spend_date'  => $today
+                ]);
+
+                /*
+                |------------------------------------------------------------
+                | 3️⃣ CALCULATE LIMIT
+                |------------------------------------------------------------
                 */
                 $limit = $ad->daily_budget * $this->bufferPercent;
 
-                if (
-                    $ad->status === 'ACTIVE' &&
-                    $ad->daily_spend >= $limit
-                ) {
+                Log::info('AD_BUDGET_CHECK', [
+                    'ad_id' => $ad->id,
+                    'meta_ad_id' => $ad->meta_ad_id,
+                    'today_spend' => $todaySpend,
+                    'budget' => $ad->daily_budget,
+                    'limit' => $limit,
+                    'status' => $ad->status
+                ]);
+
+                /*
+                |------------------------------------------------------------
+                | 4️⃣ AUTO PAUSE IF EXCEEDED
+                |------------------------------------------------------------
+                */
+                if ($ad->status === 'ACTIVE' && $todaySpend >= $limit) {
 
                     $response = $this->meta->updateAd(
                         $ad->meta_ad_id,
                         ['status' => 'PAUSED']
                     );
 
-                    Log::info('META_PAUSE_RESPONSE', [
-                        'ad_id' => $ad->id,
-                        'response' => $response
-                    ]);
-
                     if (isset($response['error'])) {
-                        throw new \Exception(
-                            $response['error']['message'] ?? 'Meta pause error'
-                        );
+                        throw new \Exception($response['error']['message']);
                     }
 
                     $ad->update([
@@ -92,36 +103,32 @@ class ResetDailyAdBudgets extends Command
                         'pause_reason' => 'budget'
                     ]);
 
-                    $pausedCount++;
+                    $paused++;
 
-                    Log::warning('AD_AUTO_PAUSED_BUDGET', [
+                    Log::warning('AD_AUTO_PAUSED', [
                         'ad_id' => $ad->id,
-                        'spend' => $ad->daily_spend,
-                        'budget' => $ad->daily_budget
+                        'spend' => $todaySpend,
+                        'limit' => $limit
                     ]);
 
                     continue;
                 }
 
                 /*
-                |------------------------------------------------------------------
-                | 3️⃣ ONLY HANDLE PAUSED ADS FOR RESUME
-                |------------------------------------------------------------------
+                |------------------------------------------------------------
+                | 5️⃣ HANDLE RESUME LOGIC
+                |------------------------------------------------------------
                 */
+
                 if ($ad->status !== 'PAUSED') {
                     continue;
                 }
 
-                /*
-                |------------------------------------------------------------------
-                | 4️⃣ SKIP MANUAL PAUSE
-                |------------------------------------------------------------------
-                */
                 if ($ad->pause_reason === 'manual') {
 
-                    $skippedCount++;
+                    $skipped++;
 
-                    Log::info('AD_SKIPPED_MANUAL', [
+                    Log::info('AD_MANUAL_SKIP', [
                         'ad_id' => $ad->id
                     ]);
 
@@ -129,26 +136,19 @@ class ResetDailyAdBudgets extends Command
                 }
 
                 /*
-                |------------------------------------------------------------------
-                | 5️⃣ RESUME IF BUDGET AVAILABLE
-                |------------------------------------------------------------------
+                |------------------------------------------------------------
+                | 6️⃣ RESUME IF BELOW LIMIT
+                |------------------------------------------------------------
                 */
-                if ($ad->daily_spend < $limit) {
+                if ($todaySpend < $limit) {
 
                     $response = $this->meta->updateAd(
                         $ad->meta_ad_id,
                         ['status' => 'ACTIVE']
                     );
 
-                    Log::info('META_RESUME_RESPONSE', [
-                        'ad_id' => $ad->id,
-                        'response' => $response
-                    ]);
-
                     if (isset($response['error'])) {
-                        throw new \Exception(
-                            $response['error']['message'] ?? 'Meta resume error'
-                        );
+                        throw new \Exception($response['error']['message']);
                     }
 
                     $ad->update([
@@ -156,40 +156,43 @@ class ResetDailyAdBudgets extends Command
                         'pause_reason' => null
                     ]);
 
-                    $resumedCount++;
+                    $resumed++;
 
                     Log::info('AD_RESUMED', [
                         'ad_id' => $ad->id,
-                        'meta_ad_id' => $ad->meta_ad_id
+                        'spend' => $todaySpend,
+                        'limit' => $limit
                     ]);
                 }
 
             } catch (\Throwable $e) {
 
-                Log::error('AD_BUDGET_JOB_FAILED', [
-                    'ad_id' => $ad->id,
-                    'meta_ad_id' => $ad->meta_ad_id,
+                $errors++;
+
+                Log::error('AD_JOB_ERROR', [
+                    'ad_id' => $ad->id ?? null,
+                    'meta_ad_id' => $ad->meta_ad_id ?? null,
                     'error' => $e->getMessage()
                 ]);
             }
         }
 
         /*
-        |------------------------------------------------------------------
+        |------------------------------------------------------------
         | FINAL SUMMARY
-        |------------------------------------------------------------------
+        |------------------------------------------------------------
         */
-        $this->info(
-            "Reset: {$resetCount} | Paused: {$pausedCount} | Resumed: {$resumedCount} | Skipped: {$skippedCount}"
-        );
-
         Log::info('DAILY_AD_JOB_COMPLETED', [
-            'ads_reset'   => $resetCount,
-            'ads_paused'  => $pausedCount,
-            'ads_resumed' => $resumedCount,
-            'ads_skipped' => $skippedCount,
-            'total_ads'   => $ads->count()
+            'paused' => $paused,
+            'resumed' => $resumed,
+            'skipped' => $skipped,
+            'errors' => $errors,
+            'total_ads' => $ads->count()
         ]);
+
+        $this->info(
+            "Paused: {$paused} | Resumed: {$resumed} | Skipped: {$skipped} | Errors: {$errors}"
+        );
 
         return Command::SUCCESS;
     }

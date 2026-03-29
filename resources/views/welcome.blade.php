@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Xander Global Scholars — Meta Ads management, AI WhatsApp automation, and analytics in one dashboard.">
+    <meta name="description" content="Parrot Canada Visa Consultant — Meta Ads management, AI WhatsApp automation, and analytics in one dashboard.">
 
-    <title>{{ config('app.name', 'Xander Global Scholars') }}</title>
+    <title>{{ config('app.name') }}</title>
 
     <link rel="icon" href="{{ asset('img/logo.png') }}">
 
@@ -24,7 +24,7 @@
                 <img src="{{ asset('img/logo.png') }}" alt="" class="h-full w-full object-contain" width="48" height="48">
             </span>
             <span class="min-w-0 text-left">
-                <span class="block truncate text-base font-bold tracking-tight text-xander-navy sm:text-lg">{{ config('app.name', 'Xander Global Scholars') }}</span>
+                <span class="block truncate text-base font-bold tracking-tight text-xander-navy sm:text-lg">{{ config('app.name') }}</span>
                 <span class="hidden text-xs font-medium text-slate-500 sm:block">Ads &amp; automation suite</span>
             </span>
         </a>
@@ -42,7 +42,7 @@
 <main>
     {{-- Hero — split layout like Meta Business Suite landing --}}
     <section class="relative overflow-hidden border-b border-slate-200/60 bg-white">
-        <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_70%_-10%,rgba(1,47,107,0.08),transparent)]"></div>
+        <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_70%_-10%,rgba(66,116,49,0.12),transparent)]"></div>
         <div class="relative mx-auto grid max-w-6xl gap-12 px-4 py-14 sm:px-6 lg:grid-cols-2 lg:items-center lg:gap-16 lg:px-8 lg:py-20">
             <div>
                 <p class="mb-4 inline-flex items-center gap-2 rounded-full border border-xander-navy/15 bg-xander-navy/[0.06] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-xander-navy">
@@ -184,7 +184,7 @@
 
     {{-- CTA band — brand gradient + gold button (PDF palette) --}}
     <section class="relative overflow-hidden bg-gradient-to-br from-xander-navy via-xander-secondary to-xander-accent py-16 sm:py-20">
-        <div class="pointer-events-none absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_30%_20%,rgba(242,166,90,0.25),transparent_50%)]"></div>
+        <div class="pointer-events-none absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_30%_20%,rgba(226,29,30,0.2),transparent_50%)]"></div>
         <div class="relative mx-auto max-w-3xl px-4 text-center sm:px-6">
             <h2 class="text-2xl font-bold text-white sm:text-3xl">Ready to work the way your team already does?</h2>
             <p class="mx-auto mt-4 max-w-xl text-base text-white/85">
@@ -205,7 +205,7 @@
         <div class="flex items-center gap-3">
             <img src="{{ asset('img/logo.png') }}" alt="" class="h-9 w-9 object-contain opacity-90" width="36" height="36">
             <div class="text-left text-sm">
-                <p class="font-semibold text-white">{{ config('app.name', 'Xander Global Scholars') }}</p>
+                <p class="font-semibold text-white">{{ config('app.name') }}</p>
                 <p>&copy; {{ date('Y') }} All rights reserved.</p>
             </div>
         </div>

@@ -20,7 +20,7 @@ Creative Preview
 <div>
 
 <div class="font-semibold">
-Xander Global Scholars
+{{ config('app.name') }}
 </div>
 
 <div class="text-xs text-gray-500">

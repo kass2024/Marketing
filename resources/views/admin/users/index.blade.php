@@ -11,7 +11,7 @@
                 User management
             </h1>
             <p class="text-slate-500 mt-2 max-w-xl">
-                Platform logins, roles, and access for Xander Global Scholars admins and clients.
+                Platform logins, roles, and access for Parrot Canada Visa Consultant admins and clients.
             </p>
     </div>
 

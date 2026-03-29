@@ -12,7 +12,7 @@
                     Ad Accounts
                 </h1>
                 <p class="text-slate-500 mt-2 max-w-xl">
-                    Sync and manage Meta ad accounts linked to Xander Global Scholars.
+                    Sync and manage Meta ad accounts linked to Parrot Canada Visa Consultant.
                 </p>
         </div>
 

@@ -11,7 +11,7 @@
 <h1 class="text-2xl font-bold text-gray-900">
 General Settings
 </h1>
-<p class="text-sm text-gray-500 mt-1">Platform identity and Xander Global Scholars contact details</p>
+<p class="text-sm text-gray-500 mt-1">Platform identity and Parrot Canada Visa Consultant contact details</p>
 </div>
 </div>
 
@@ -59,7 +59,7 @@ class="mt-2 w-full border rounded-lg p-3">
 </div>
 
 <div class="rounded-xl border border-indigo-100 bg-indigo-50/40 p-5 space-y-4">
-<h2 class="text-sm font-semibold text-indigo-900">Xander Global Scholars</h2>
+<h2 class="text-sm font-semibold text-indigo-900">Parrot Canada Visa Consultant</h2>
 
 <div>
 <label class="block text-sm font-medium text-gray-700">
@@ -71,7 +71,7 @@ name="xander_name"
 value="{{ old('xander_name', $branding['xander_name']) }}"
 required
 class="mt-2 w-full border rounded-lg p-3"
-placeholder="e.g. Xander Admissions Team">
+placeholder="e.g. Parrot Canada Visa Admissions">
 </div>
 
 <div>
@@ -84,7 +84,7 @@ name="xander_email"
 value="{{ old('xander_email', $branding['xander_email']) }}"
 required
 class="mt-2 w-full border rounded-lg p-3"
-placeholder="contact@xanderglobalscholars.org">
+placeholder="infos@visaconsultantcanada.ca">
 </div>
 </div>
 

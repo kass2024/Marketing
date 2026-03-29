@@ -17,10 +17,10 @@ export default {
             colors: {
                 // Parrot Canada Visa Consultant — logo palette (class names kept for Blade compatibility)
                 xander: {
-                    navy: '#4B7930',
-                    secondary: '#3D6CBA',
-                    accent: '#355A23',
-                    gold: '#E31F26',
+                    navy: '#427431', // forest green
+                    secondary: '#3661B9', // royal blue
+                    accent: '#2f5a26', // deep green (gradients)
+                    gold: '#E21D1E', // maple red (CTAs)
                 },
             },
         },

@@ -11,7 +11,7 @@ Sign in to your account
 </h2>
 
 <p class="text-sm text-gray-500 mt-1">
-Access your Xander Global Scholars dashboard
+Access your {{ config('app.name') }} dashboard
 </p>
 
 </div>

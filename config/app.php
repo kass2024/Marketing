@@ -16,7 +16,7 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Xander Global Scholars'),
+    'name' => env('APP_NAME', 'Parrot Canada Visa Consultant'),
 
     /*
     |--------------------------------------------------------------------------

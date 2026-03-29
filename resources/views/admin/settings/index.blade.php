@@ -12,7 +12,7 @@
 Platform Settings
 </h1>
 <p class="text-slate-500 mt-2 max-w-xl">
-Configure your Xander Global Scholars workspace, Meta integration, billing, and team access.
+Configure your Parrot Canada Visa Consultant workspace, Meta integration, billing, and team access.
 </p>
 </div>
 

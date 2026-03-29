@@ -7,18 +7,18 @@
 
     <title>
         @hasSection('title')
-            @yield('title') | {{ config('app.name', 'Xander Global Scholars') }}
+            @yield('title') | {{ config('app.name') }}
         @else
-            {{ config('app.name', 'Xander Global Scholars') }}
+            {{ config('app.name') }}
         @endif
     </title>
 
-    <meta name="description" content="@yield('meta_description', 'Meta Ads management for Xander Global Scholars')">
-    <meta name="author" content="{{ config('app.name', 'Xander Global Scholars') }}">
+    <meta name="description" content="@yield('meta_description', 'Meta Ads management for Parrot Canada Visa Consultant')">
+    <meta name="author" content="{{ config('app.name') }}">
 
-    <meta property="og:title" content="@yield('title', config('app.name','Xander Global Scholars'))">
+    <meta property="og:title" content="@yield('title', config('app.name'))">
     <meta property="og:type" content="website">
-    <meta property="og:site_name" content="{{ config('app.name','Xander Global Scholars') }}">
+    <meta property="og:site_name" content="{{ config('app.name') }}">
 
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
 

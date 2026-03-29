@@ -11,6 +11,9 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Template;
 use App\Models\PlatformMetaConnection;
+use App\Models\AdAccount;
+use App\Models\AdSet;
+use App\Models\Ad;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -58,12 +61,19 @@ class AdminDashboardController extends Controller
                                 : 0,
         ];
 
+        $adsStats = [
+            'ad_accounts' => Schema::hasTable('ad_accounts') ? AdAccount::count() : 0,
+            'ad_sets'     => Schema::hasTable('ad_sets') ? AdSet::count() : 0,
+            'ads'         => Schema::hasTable('ads') ? Ad::count() : 0,
+        ];
+
         return view('admin.dashboard', compact(
             'stats',
             'platformMeta',
             'recentClients',
             'recentCampaigns',
-            'queueStats'
+            'queueStats',
+            'adsStats'
         ));
     }
 }

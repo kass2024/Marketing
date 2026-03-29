@@ -2,16 +2,18 @@
 
 namespace App\Services\Chatbot;
 
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Str;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\HumanHandoffTimeoutService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ChatbotProcessor
 {
     protected int $rateLimitSeconds = 2;
+
     protected bool $debug = true; // set false in strict production
 
     public function __construct(
@@ -28,10 +30,11 @@ class ChatbotProcessor
     {
         $requestId = Str::uuid()->toString();
 
-        $phone     = $payload['from'] ?? null;
-        $text      = trim($payload['text'] ?? '');
-        $clientId  = $payload['client_id'] ?? null;
+        $phone = $payload['from'] ?? null;
+        $text = trim($payload['text'] ?? '');
+        $clientId = $payload['client_id'] ?? null;
         $messageId = $payload['message_id'] ?? Str::uuid()->toString();
+        $inboundDisplayContent = isset($payload['inbound_display_content']) ? trim((string) $payload['inbound_display_content']) : null;
 
         /*
         |--------------------------------------------------------------------------
@@ -39,26 +42,29 @@ class ChatbotProcessor
         |--------------------------------------------------------------------------
         */
         $metaCampaignId = $payload['meta_campaign_id'] ?? null;
-        $metaAdsetId    = $payload['meta_adset_id'] ?? null;
-        $metaAdId       = $payload['meta_ad_id'] ?? null;
-        $source         = $payload['source'] ?? 'organic';
+        $metaAdsetId = $payload['meta_adset_id'] ?? null;
+        $metaAdId = $payload['meta_ad_id'] ?? null;
+        $source = $payload['source'] ?? 'organic';
 
         $this->log('START', compact(
-            'clientId','phone','text','messageId'
+            'clientId', 'phone', 'text', 'messageId'
         ), $requestId);
 
-        if (!$phone || !$text || !$clientId) {
+        if (! $phone || ! $text || ! $clientId) {
             $this->log('INVALID PAYLOAD', $payload, $requestId);
+
             return null;
         }
 
         if ($this->isDuplicate($messageId)) {
             $this->log('DUPLICATE BLOCKED', ['message_id' => $messageId], $requestId);
+
             return null;
         }
 
-        if (!$this->allowProcessing($clientId, $phone)) {
-            $this->log('RATE LIMITED', compact('clientId','phone'), $requestId);
+        if (! $this->allowProcessing($clientId, $phone)) {
+            $this->log('RATE LIMITED', compact('clientId', 'phone'), $requestId);
+
             return null;
         }
 
@@ -72,7 +78,9 @@ class ChatbotProcessor
                 $metaAdsetId,
                 $metaAdId,
                 $source,
-                $requestId
+                $requestId,
+                $payload,
+                $inboundDisplayContent
             ) {
 
                 /*
@@ -83,26 +91,26 @@ class ChatbotProcessor
 
                 $conversation = Conversation::firstOrCreate(
                     [
-                        'client_id'    => $clientId,
+                        'client_id' => $clientId,
                         'phone_number' => $phone,
                     ],
                     [
-                        'status'                => 'bot',
-                        'last_activity_at'      => now(),
-                        'is_profile_completed'  => 0,
-                        'profile_step'          => null,
-                        'meta_campaign_id'      => $metaCampaignId,
-                        'meta_adset_id'         => $metaAdsetId,
-                        'meta_ad_id'            => $metaAdId,
-                        'source'                => $source,
-                        'first_contact_at'      => now(),
+                        'status' => 'bot',
+                        'last_activity_at' => now(),
+                        'is_profile_completed' => 0,
+                        'profile_step' => null,
+                        'meta_campaign_id' => $metaCampaignId,
+                        'meta_adset_id' => $metaAdsetId,
+                        'meta_ad_id' => $metaAdId,
+                        'source' => $source,
+                        'first_contact_at' => now(),
                     ]
                 );
 
                 $this->log('CONVERSATION RESOLVED', [
                     'conversation_id' => $conversation->id,
-                    'status'          => $conversation->status,
-                    'source'          => $conversation->source
+                    'status' => $conversation->status,
+                    'source' => $conversation->source,
                 ], $requestId);
 
                 /*
@@ -119,14 +127,14 @@ class ChatbotProcessor
                 ) {
                     $conversation->update([
                         'meta_campaign_id' => $metaCampaignId,
-                        'meta_adset_id'    => $metaAdsetId,
-                        'meta_ad_id'       => $metaAdId,
-                        'source'           => 'paid'
+                        'meta_adset_id' => $metaAdsetId,
+                        'meta_ad_id' => $metaAdId,
+                        'source' => 'paid',
                     ]);
 
                     $this->log('ATTRIBUTION UPDATED', [
                         'conversation_id' => $conversation->id,
-                        'campaign_id'     => $metaCampaignId
+                        'campaign_id' => $metaCampaignId,
                     ], $requestId);
                 }
 
@@ -136,16 +144,28 @@ class ChatbotProcessor
                 |--------------------------------------------------------------------------
                 */
 
-                $incoming = Message::create([
+                $incomingRow = [
                     'conversation_id' => $conversation->id,
-                    'direction'       => 'incoming',
-                    'content'         => $text,
-                    'status'          => 'received'
-                ]);
+                    'direction' => 'incoming',
+                    'content' => $inboundDisplayContent !== null && $inboundDisplayContent !== '' ? $inboundDisplayContent : $text,
+                    'status' => 'received',
+                ];
+
+                if (! empty($payload['inbound_media_url'])) {
+                    $incomingRow['type'] = 'media';
+                    $incomingRow['media_type'] = $payload['inbound_media_type'] ?? 'audio';
+                    $incomingRow['media_url'] = $payload['inbound_media_url'];
+                    $incomingRow['filename'] = $payload['inbound_filename'] ?? 'Voice note';
+                }
+
+                $incoming = Message::create($incomingRow);
 
                 $this->log('INCOMING STORED', [
-                    'message_id' => $incoming->id
+                    'message_id' => $incoming->id,
                 ], $requestId);
+
+                app(HumanHandoffTimeoutService::class)->checkAndRelease($conversation->fresh());
+                $conversation = $conversation->fresh();
 
                 /*
                 |--------------------------------------------------------------------------
@@ -153,8 +173,9 @@ class ChatbotProcessor
                 |--------------------------------------------------------------------------
                 */
 
-                if ($conversation->status === 'human') {
-                    $this->log('HUMAN MODE ACTIVE', [], $requestId);
+                if ($conversation->isEscalated()) {
+                    $this->log('HUMAN OR ESCALATED — skip bot reply', [], $requestId);
+
                     return null;
                 }
 
@@ -164,10 +185,10 @@ class ChatbotProcessor
                 |--------------------------------------------------------------------------
                 */
 
-                if (!$conversation->is_profile_completed) {
+                if (! $conversation->is_profile_completed) {
 
                     $this->log('ONBOARDING FLOW', [
-                        'step' => $conversation->profile_step
+                        'step' => $conversation->profile_step,
                     ], $requestId);
 
                     $response = $this->handleOnboarding($conversation, $text);
@@ -195,21 +216,21 @@ class ChatbotProcessor
                     $conversation
                 );
 
-                if (!$aiResponse || !is_array($aiResponse)) {
+                if (! $aiResponse || ! is_array($aiResponse)) {
 
                     $this->log('AI EMPTY RESPONSE', [], $requestId);
 
                     return [
-                        'text'        => "Sorry, I’m having trouble right now. Please try again shortly.",
+                        'text' => 'Sorry, I’m having trouble right now. Please try again shortly.',
                         'attachments' => [],
-                        'confidence'  => 0,
-                        'source'      => 'error'
+                        'confidence' => 0,
+                        'source' => 'error',
                     ];
                 }
 
                 $this->log('AI RESPONSE RECEIVED', [
                     'preview' => substr($aiResponse['text'] ?? '', 0, 150),
-                    'source'  => $aiResponse['source'] ?? null
+                    'source' => $aiResponse['source'] ?? null,
                 ], $requestId);
 
                 $this->storeOutgoing(
@@ -220,7 +241,7 @@ class ChatbotProcessor
 
                 $conversation->update([
                     'last_activity_at' => now(),
-                    'last_message_at'  => now(),
+                    'last_message_at' => now(),
                 ]);
 
                 return $aiResponse;
@@ -230,14 +251,14 @@ class ChatbotProcessor
 
             Log::error('ChatbotProcessor FATAL', [
                 'request_id' => $requestId,
-                'error'      => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return [
-                'text'        => "Technical issue occurred. Please try again.",
+                'text' => 'Technical issue occurred. Please try again.',
                 'attachments' => [],
-                'confidence'  => 0,
-                'source'      => 'error'
+                'confidence' => 0,
+                'source' => 'error',
             ];
         }
     }
@@ -252,10 +273,10 @@ class ChatbotProcessor
         $message = trim($message);
 
         // STEP 0 → Ask Name
-        if (!$conversation->profile_step) {
+        if (! $conversation->profile_step) {
 
             $conversation->update([
-                'profile_step' => 'ask_name'
+                'profile_step' => 'ask_name',
             ]);
 
             return $this->systemReply(
@@ -267,12 +288,12 @@ class ChatbotProcessor
         if ($conversation->profile_step === 'ask_name') {
 
             if (strlen($message) < 3) {
-                return $this->systemReply("Please enter your full name.");
+                return $this->systemReply('Please enter your full name.');
             }
 
             $conversation->update([
                 'customer_name' => $message,
-                'profile_step'  => 'ask_email'
+                'profile_step' => 'ask_email',
             ]);
 
             return $this->systemReply(
@@ -283,31 +304,31 @@ class ChatbotProcessor
         // STEP 2 → Save Email
         if ($conversation->profile_step === 'ask_email') {
 
-            if (!filter_var($message, FILTER_VALIDATE_EMAIL)) {
-                return $this->systemReply("❌ Please provide a valid email address.");
+            if (! filter_var($message, FILTER_VALIDATE_EMAIL)) {
+                return $this->systemReply('❌ Please provide a valid email address.');
             }
 
             $conversation->update([
-                'customer_email'       => strtolower($message),
+                'customer_email' => strtolower($message),
                 'is_profile_completed' => 1,
-                'profile_step'         => 'completed'
+                'profile_step' => 'completed',
             ]);
 
             return $this->systemReply(
-                "✅ Thank you! You can now ask your questions."
+                '✅ Thank you! You can now ask your questions.'
             );
         }
 
-        return $this->systemReply("Please continue.");
+        return $this->systemReply('Please continue.');
     }
 
     protected function systemReply(string $text): array
     {
         return [
-            'text'        => $text,
+            'text' => $text,
             'attachments' => [],
-            'confidence'  => 1,
-            'source'      => 'system_onboarding'
+            'confidence' => 1,
+            'source' => 'system_onboarding',
         ];
     }
 
@@ -319,21 +340,23 @@ class ChatbotProcessor
 
     protected function storeOutgoing(int $conversationId, array $response, string $requestId): void
     {
-        if (!empty($response['text'])) {
+        if (! empty($response['text'])) {
 
             $message = Message::create([
                 'conversation_id' => $conversationId,
-                'direction'       => 'outgoing',
-                'content'         => $response['text'],
-                'status'          => 'pending',
-                'meta'            => json_encode([
+                'direction' => 'outgoing',
+                'content' => $response['text'],
+                'status' => 'pending',
+                'source' => $response['source'] ?? null,
+                'confidence' => $response['confidence'] ?? null,
+                'meta' => [
                     'confidence' => $response['confidence'] ?? null,
-                    'source'     => $response['source'] ?? null,
-                ])
+                    'source' => $response['source'] ?? null,
+                ],
             ]);
 
             $this->log('OUTGOING TEXT STORED', [
-                'message_id' => $message->id
+                'message_id' => $message->id,
             ], $requestId);
         }
 
@@ -341,15 +364,16 @@ class ChatbotProcessor
 
             $att = Message::create([
                 'conversation_id' => $conversationId,
-                'direction'       => 'outgoing',
-                'content'         => '[Attachment]',
-                'status'          => 'pending',
-                'meta'            => json_encode($attachment)
+                'direction' => 'outgoing',
+                'content' => '[Attachment]',
+                'type' => 'media',
+                'status' => 'pending',
+                'meta' => $attachment,
             ]);
 
             $this->log('OUTGOING ATTACHMENT STORED', [
                 'message_id' => $att->id,
-                'type'       => $attachment['type'] ?? null
+                'type' => $attachment['type'] ?? null,
             ], $requestId);
         }
     }
@@ -369,6 +393,7 @@ class ChatbotProcessor
         }
 
         Cache::put($key, true, now()->addMinutes(10));
+
         return false;
     }
 
@@ -387,6 +412,7 @@ class ChatbotProcessor
         }
 
         Cache::put($key, true, now()->addSeconds($this->rateLimitSeconds));
+
         return true;
     }
 

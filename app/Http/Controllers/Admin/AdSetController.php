@@ -35,7 +35,52 @@ class AdSetController extends Controller
             ->latest()
             ->paginate(20);
 
-        return view('admin.adsets.index', compact('adsets'));
+        return view('admin.adsets.index', [
+            'adsets' => $adsets,
+            'adsetStats' => [
+                'total' => AdSet::count(),
+                'active' => AdSet::where('status', 'ACTIVE')->count(),
+                'paused' => AdSet::where('status', 'PAUSED')->count(),
+                'draft' => AdSet::where('status', 'DRAFT')->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Ad sets for a single campaign (route: admin.campaigns.adsets.index).
+     */
+    public function indexByCampaign(Campaign $campaign)
+    {
+        $campaignId = $campaign->id;
+
+        $adsets = AdSet::query()
+            ->where('campaign_id', $campaignId)
+            ->latest()
+            ->paginate(20);
+
+        $stats = [
+            'total' => AdSet::where('campaign_id', $campaignId)->count(),
+            'active' => AdSet::where('campaign_id', $campaignId)->where('status', 'ACTIVE')->count(),
+            'paused' => AdSet::where('campaign_id', $campaignId)->where('status', 'PAUSED')->count(),
+        ];
+
+        $totalBudgetCents = AdSet::where('campaign_id', $campaignId)->sum('daily_budget');
+        $totalBudget = ((float) $totalBudgetCents) / 100;
+
+        return view('admin.adsets.by-campaign', [
+            'campaign' => $campaign,
+            'adsets' => $adsets,
+            'stats' => $stats,
+            'totalBudget' => $totalBudget,
+        ]);
+    }
+
+    /**
+     * Resource route adsets.show — no dedicated page; send users to edit.
+     */
+    public function show(AdSet $adset)
+    {
+        return redirect()->route('admin.adsets.edit', $adset);
     }
 
     /*
@@ -79,7 +124,9 @@ class AdSetController extends Controller
 
             'daily_budget' => 'required|numeric|min:5',
 
-            'bid_strategy' => 'required|string',
+            'optimization_goal' => 'required|string|in:LINK_CLICKS,LANDING_PAGE_VIEWS,REACH,IMPRESSIONS,LEAD_GENERATION,OFFSITE_CONVERSIONS,POST_ENGAGEMENT',
+
+            'bid_strategy' => 'required|string|in:LOWEST_COST_WITHOUT_CAP',
 
             'page_id' => 'required|string',
 
@@ -134,12 +181,12 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $objective = strtoupper($campaign->objective);
+            $objective = strtoupper((string) $campaign->objective);
 
             $optimizationMap = [
 
-                'TRAFFIC' => 'LANDING_PAGE_VIEWS',
-                'OUTCOME_TRAFFIC' => 'LANDING_PAGE_VIEWS',
+                'TRAFFIC' => 'LINK_CLICKS',
+                'OUTCOME_TRAFFIC' => 'LINK_CLICKS',
 
                 'LEADS' => 'LEAD_GENERATION',
                 'OUTCOME_LEADS' => 'LEAD_GENERATION',
@@ -148,12 +195,47 @@ class AdSetController extends Controller
                 'OUTCOME_SALES' => 'OFFSITE_CONVERSIONS',
 
                 'AWARENESS' => 'REACH',
+                'OUTCOME_AWARENESS' => 'REACH',
 
-                'ENGAGEMENT' => 'POST_ENGAGEMENT'
+                'ENGAGEMENT' => 'POST_ENGAGEMENT',
+                'OUTCOME_ENGAGEMENT' => 'POST_ENGAGEMENT',
             ];
 
-            $optimizationGoal =
-                $optimizationMap[$objective] ?? 'LANDING_PAGE_VIEWS';
+            $allowedByObjective = [
+
+                'TRAFFIC' => ['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'REACH', 'IMPRESSIONS'],
+                'OUTCOME_TRAFFIC' => ['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'REACH', 'IMPRESSIONS'],
+
+                'LEADS' => ['LEAD_GENERATION', 'IMPRESSIONS'],
+                'OUTCOME_LEADS' => ['LEAD_GENERATION', 'IMPRESSIONS'],
+
+                'SALES' => ['OFFSITE_CONVERSIONS', 'LINK_CLICKS', 'LANDING_PAGE_VIEWS'],
+                'OUTCOME_SALES' => ['OFFSITE_CONVERSIONS', 'LINK_CLICKS', 'LANDING_PAGE_VIEWS'],
+
+                'AWARENESS' => ['REACH', 'IMPRESSIONS'],
+                'OUTCOME_AWARENESS' => ['REACH', 'IMPRESSIONS'],
+
+                'ENGAGEMENT' => ['POST_ENGAGEMENT', 'IMPRESSIONS', 'REACH'],
+                'OUTCOME_ENGAGEMENT' => ['POST_ENGAGEMENT', 'IMPRESSIONS', 'REACH'],
+            ];
+
+            $defaultGoal = $optimizationMap[$objective] ?? 'LINK_CLICKS';
+
+            $allowed = $allowedByObjective[$objective] ?? [
+                'LINK_CLICKS',
+                'LANDING_PAGE_VIEWS',
+                'REACH',
+                'IMPRESSIONS',
+                'LEAD_GENERATION',
+                'OFFSITE_CONVERSIONS',
+                'POST_ENGAGEMENT',
+            ];
+
+            $requestedGoal = $data['optimization_goal'];
+
+            $optimizationGoal = in_array($requestedGoal, $allowed, true)
+                ? $requestedGoal
+                : $defaultGoal;
 
             $billingEvent = 'IMPRESSIONS';
 
@@ -172,10 +254,6 @@ class AdSetController extends Controller
     'age_min' => (int)$data['age_min'],
 
     'age_max' => (int)$data['age_max'],
-
-    'targeting_automation' => [
-        'advantage_audience' => 0
-    ]
 
 ];
             if (!empty($data['genders'])) {
@@ -255,7 +333,7 @@ if (!empty($data['languages'])) {
 
                 'optimization_goal' => $optimizationGoal,
 
-                'bid_strategy' => $data['bid_strategy'],
+                'bid_strategy' => 'LOWEST_COST_WITHOUT_CAP',
 
                 'status' => 'PAUSED',
 
@@ -312,9 +390,8 @@ $adset = AdSet::create([
 
     'optimization_goal' => $optimizationGoal,
 
-    'targeting' => json_encode([
-        ...$targeting,
-        'locales' => $languages ?? []
+    'targeting' => array_merge($targeting, [
+        'locales' => $languages ?? [],
     ]),
 
     'status' => 'PAUSED'
@@ -527,7 +604,10 @@ public function edit(AdSet $adset)
     |--------------------------------------------------------------------------
     */
 
-    $targeting = json_decode($adset->targeting ?? '{}', true);
+    $rawTargeting = $adset->targeting;
+    $targeting = is_array($rawTargeting)
+        ? $rawTargeting
+        : json_decode($rawTargeting ?? '{}', true);
 
     $adset->countries =
         $targeting['geo_locations']['countries'] ?? [];
@@ -684,6 +764,10 @@ public function update(Request $request, AdSet $adset)
 
             $targeting['publisher_platforms'] =
                 $data['publisher_platforms'] ?? [];
+
+            if (! empty($targeting['publisher_platforms'])) {
+                $targeting = $this->meta->enrichPlacementsForTargeting($targeting);
+            }
         }
 
         /*
@@ -728,7 +812,7 @@ public function update(Request $request, AdSet $adset)
 
             'status' => $data['status'],
 
-            'targeting' => json_encode($targeting)
+            'targeting' => $targeting
         ]);
 
         return redirect()

@@ -1,8 +1,10 @@
-@extends('layouts.app')
+@extends('layouts.admin')
+
+@section('title', 'Ads')
 
 @section('content')
 
-<div class="max-w-7xl mx-auto py-10 space-y-8">
+<div class="mx-auto max-w-[1600px] space-y-6 sm:space-y-8">
 
 @if($errors->any())
 <div class="bg-red-100 border border-red-200 text-red-700 p-4 rounded-lg">
@@ -15,32 +17,29 @@
 @endif
 
 
-{{-- =========================================================
-HEADER
-========================================================= --}}
-<div class="flex items-center justify-between flex-wrap gap-4">
-
-<div>
-<h1 class="text-2xl font-bold text-gray-900">Ads Manager</h1>
-<p class="text-sm text-gray-500">
-Create, publish and monitor ad delivery performance.
-</p>
-</div>
-
-<div class="flex gap-3">
-
-<a href="{{ route('admin.adsets.index') }}"
-class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
-Back to Ad Sets
-</a>
-
-<a href="{{ route('admin.ads.create') }}"
-class="inline-flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg shadow hover:bg-blue-700">
-<span>＋</span>
-<span>Create Ad</span>
-</a>
-
-</div>
+{{-- HEADER --}}
+<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
+        <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Ads Manager</h1>
+        <p class="mt-1 text-sm text-slate-600">
+            Create, publish and monitor ad delivery performance.
+        </p>
+    </div>
+    <div class="flex flex-shrink-0 flex-wrap items-center gap-2 sm:gap-3">
+        <a
+            href="{{ route('admin.adsets.index') }}"
+            class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-xander-navy/25 hover:bg-slate-50 hover:text-xander-navy"
+        >
+            Ad sets
+        </a>
+        <a
+            href="{{ route('admin.ads.create') }}"
+            class="inline-flex items-center justify-center gap-2 rounded-xl bg-xander-navy px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary"
+        >
+            <span class="text-lg leading-none">+</span>
+            Create ad
+        </a>
+    </div>
 </div>
 
 {{-- =========================================================
@@ -59,134 +58,117 @@ ALERTS
 @endif
 
 
-{{-- =========================================================
-METRICS
-========================================================= --}}
-<div class="grid grid-cols-1 md:grid-cols-4 gap-5">
-
-<div class="bg-white p-6 rounded-xl shadow border">
-<p class="text-sm text-gray-500">Total Ads</p>
-<p class="text-2xl font-bold" id="metric-total-ads">
-{{ $ads->total() }}
-</p>
-</div>
-
-<div class="bg-white p-6 rounded-xl shadow border">
-<p class="text-sm text-gray-500">Active Ads</p>
-<p class="text-2xl font-bold text-green-600" id="metric-active-ads">
-{{ $ads->getCollection()->where('status','ACTIVE')->count() }}
-</p>
-</div>
-
-<div class="bg-white p-6 rounded-xl shadow border">
-<p class="text-sm text-gray-500">Total Spend</p>
-<p class="text-2xl font-bold text-blue-600" id="metric-total-spend">
-${{ number_format($ads->getCollection()->sum('spend'),2) }}
-</p>
-</div>
-
-<div class="bg-white p-6 rounded-xl shadow border">
-<p class="text-sm text-gray-500">Total Clicks</p>
-<p class="text-2xl font-bold text-purple-600" id="metric-total-clicks">
-{{ number_format($ads->getCollection()->sum('clicks')) }}
-</p>
-</div>
-
+{{-- METRICS --}}
+<div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Total ads</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-slate-900" id="metric-total-ads">{{ $ads->total() }}</p>
+    </div>
+    <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Active</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-emerald-600" id="metric-active-ads">{{ $ads->getCollection()->where('status','ACTIVE')->count() }}</p>
+    </div>
+    <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Total spend</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-xander-navy" id="metric-total-spend">${{ number_format($ads->getCollection()->sum('spend'),2) }}</p>
+    </div>
+    <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
+        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Clicks</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-slate-800" id="metric-total-clicks">{{ number_format($ads->getCollection()->sum('clicks')) }}</p>
+    </div>
 </div>
 
 
-{{-- =========================================================
-TABLE
-========================================================= --}}
-<div class="bg-white rounded-xl shadow overflow-hidden">
+{{-- TABLE: horizontal scroll + sticky Actions column --}}
+<div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-900/5">
+    <div class="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+        <table class="w-full min-w-[1040px] border-collapse text-left text-sm text-slate-700">
 
-<table class="min-w-full text-sm">
-
-<thead class="bg-gray-50 text-gray-600">
-<tr>
-<th class="px-6 py-3 text-left">Ad</th>
-<th class="px-6 py-3 text-left">Creative</th>
-<th class="px-6 py-3 text-left">AdSet</th>
-<th class="px-6 py-3 text-left">Delivery</th>
-<th class="px-6 py-3 text-left">Impressions</th>
-<th class="px-6 py-3 text-left">Clicks</th>
-<th class="px-6 py-3 text-left">CTR</th>
-<th class="px-6 py-3 text-left">Spend</th>
-<th class="px-6 py-3 text-left">Today</th>
-<th class="px-6 py-3 text-left">Budget</th>
-<th class="px-6 py-3 text-left">Reason</th>
-<th class="px-6 py-3 text-right">Actions</th>
+<thead>
+<tr class="border-b border-slate-200 bg-slate-50/95 text-xs font-semibold uppercase tracking-wide text-slate-500">
+<th class="whitespace-nowrap px-4 py-3 lg:px-5">Ad</th>
+<th class="whitespace-nowrap px-4 py-3 lg:px-5">Creative</th>
+<th class="min-w-[8rem] whitespace-nowrap px-4 py-3 lg:px-5">Ad set</th>
+<th class="whitespace-nowrap px-4 py-3 lg:px-5">Delivery</th>
+<th class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">Impr.</th>
+<th class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">Clicks</th>
+<th class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">CTR</th>
+<th class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">Spend</th>
+<th class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">Today</th>
+<th class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">Budget</th>
+<th class="min-w-[6rem] whitespace-nowrap px-4 py-3 lg:px-5">Reason</th>
+<th class="sticky right-0 z-20 min-w-[10.5rem] whitespace-nowrap border-l border-slate-200 bg-slate-50/95 px-4 py-3 text-right shadow-[-12px_0_24px_-12px_rgba(15,23,42,0.12)] backdrop-blur-sm lg:min-w-[11rem] lg:px-5">Actions</th>
 </tr>
 </thead>
 
-<tbody class="divide-y">
+<tbody class="divide-y divide-slate-100">
 
 @forelse($ads as $ad)
 
-<tr class="hover:bg-gray-50 transition">
+<tr class="group transition-colors hover:bg-slate-50/80">
 
 
 {{-- AD --}}
-<td class="px-6 py-4">
-<div class="font-medium text-gray-900">{{ $ad->name }}</div>
-@if($ad->meta_ad_id)
-<div class="text-xs text-gray-400 mt-1">
-Meta ID: {{ $ad->meta_ad_id }}
-</div>
-@endif
+<td class="max-w-[14rem] px-4 py-3 align-top lg:max-w-[18rem] lg:px-5">
+    <div class="truncate font-medium text-slate-900" title="{{ $ad->name }}">{{ $ad->name }}</div>
+    @if($ad->meta_ad_id)
+        <div class="mt-0.5 truncate text-xs text-slate-400">ID {{ $ad->meta_ad_id }}</div>
+    @endif
 </td>
-
 
 {{-- CREATIVE --}}
-<td class="px-6 py-4">
-
-@if($ad->creative)
-<div class="flex items-center gap-3">
-
-@if($ad->creative->image_url)
-<img src="{{ $ad->creative->image_url }}"
-class="w-10 h-10 rounded object-cover border">
-@endif
-
-<div class="text-sm font-medium">
-{{ $ad->creative->name }}
-</div>
-
-</div>
-@endif
-
+<td class="px-4 py-3 align-top lg:px-5">
+    @if($ad->creative)
+        <div class="flex min-w-0 max-w-[12rem] items-center gap-2 sm:max-w-[14rem]">
+            @if($ad->creative->image_url)
+                <div class="relative h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                    <img
+                        src="{{ $ad->creative->image_url }}"
+                        alt=""
+                        class="h-full w-full object-cover"
+                        loading="lazy"
+                        onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')"
+                    >
+                    <div class="hidden h-full w-full items-center justify-center bg-slate-200 text-[10px] font-medium text-slate-500" aria-hidden="true">—</div>
+                </div>
+            @else
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-xs text-slate-400" title="No image">N/A</div>
+            @endif
+            <span class="min-w-0 truncate text-sm font-medium text-slate-800" title="{{ $ad->creative->name }}">{{ $ad->creative->name }}</span>
+        </div>
+    @else
+        <span class="text-slate-400">—</span>
+    @endif
 </td>
-
 
 {{-- ADSET --}}
-<td class="px-6 py-4">
-{{ $ad->adSet?->name ?? '-' }}
+<td class="max-w-[10rem] px-4 py-3 align-top lg:px-5">
+    <span class="line-clamp-2 text-slate-700" title="{{ $ad->adSet?->name }}">{{ $ad->adSet?->name ?? '—' }}</span>
 </td>
 
-
 {{-- STATUS --}}
-<td class="px-6 py-4" id="status-{{ $ad->id }}">
+<td class="whitespace-nowrap px-4 py-3 align-top lg:px-5" id="status-{{ $ad->id }}">
 
 @switch($ad->status)
 
 @case('ACTIVE')
-<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">Active</span>
+<span class="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15">Active</span>
 @break
 
 @case('PAUSED')
-<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">Paused</span>
+<span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-600/15">Paused</span>
 @break
 
 @case('PENDING_REVIEW')
-<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">In Review</span>
+<span class="inline-flex rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800 ring-1 ring-sky-600/15">In review</span>
 @break
 
 @case('DISAPPROVED')
-<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">Disapproved</span>
+<span class="inline-flex rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-800 ring-1 ring-red-600/15">Disapproved</span>
 @break
 
 @default
-<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Draft</span>
+<span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Draft</span>
 
 @endswitch
 
@@ -194,127 +176,70 @@ class="w-10 h-10 rounded object-cover border">
 
 
 {{-- IMPRESSIONS --}}
-<td class="px-6 py-4" id="imp-{{ $ad->id }}">
-{{ number_format($ad->impressions ?? 0) }}
-</td>
-
+<td class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5" id="imp-{{ $ad->id }}">{{ number_format($ad->impressions ?? 0) }}</td>
 
 {{-- CLICKS --}}
-<td class="px-6 py-4" id="clk-{{ $ad->id }}">
-{{ number_format($ad->clicks ?? 0) }}
-</td>
-
+<td class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5" id="clk-{{ $ad->id }}">{{ number_format($ad->clicks ?? 0) }}</td>
 
 {{-- CTR --}}
-<td class="px-6 py-4">
+<td class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">
 @php $ctr = $ad->ctr ?? 0; @endphp
-<span class="font-semibold
-@if($ctr > 3) text-green-600
-@elseif($ctr > 1) text-yellow-600
-@else text-gray-600
-@endif">
-{{ number_format($ctr,2) }}%
-</span>
+<span class="font-semibold @if($ctr > 3) text-emerald-600 @elseif($ctr > 1) text-amber-600 @else text-slate-600 @endif">{{ number_format($ctr,2) }}%</span>
 </td>
-
 
 {{-- SPEND --}}
-<td class="px-6 py-4 font-semibold text-gray-800" id="spend-{{ $ad->id }}">
-${{ number_format($ad->spend ?? 0,2) }}
-</td>
-
+<td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-800 lg:px-5" id="spend-{{ $ad->id }}">${{ number_format($ad->spend ?? 0,2) }}</td>
 
 {{-- TODAY --}}
-<td class="px-6 py-4 font-semibold text-blue-600" id="today-{{ $ad->id }}">
-${{ number_format($ad->daily_spend ?? 0,2) }}
-</td>
-
+<td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-xander-secondary lg:px-5" id="today-{{ $ad->id }}">${{ number_format($ad->daily_spend ?? 0,2) }}</td>
 
 {{-- BUDGET --}}
-<td class="px-6 py-4 text-gray-700 font-medium">
-${{ number_format($ad->daily_budget ?? 0,2) }}
-</td>
-
+<td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-slate-700 lg:px-5">${{ number_format($ad->daily_budget ?? 0,2) }}</td>
 
 {{-- REASON --}}
-<td class="px-6 py-4">
+<td class="px-4 py-3 align-top lg:px-5">
 
 @if($ad->pause_reason === 'budget_limit')
-<span class="inline-block bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-medium">
-Budget Limit
-</span>
-
+<span class="inline-flex rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-800 ring-1 ring-red-600/15">Budget limit</span>
 @elseif($ad->pause_reason === 'manual')
-<span class="inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-medium">
-Manual
-</span>
-
+<span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Manual</span>
 @else
-<span class="text-gray-400 text-xs">—</span>
+<span class="text-xs text-slate-400">—</span>
 @endif
-
 </td>
 
-
-{{-- ACTIONS --}}
-<td class="px-6 py-4">
-<div class="flex flex-wrap gap-2 justify-end text-xs font-medium">
-
-<a href="{{ route('admin.ads.preview',$ad) }}"
-class="px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">
-Preview
-</a>
-
-<a href="{{ route('admin.ads.edit',$ad) }}"
-class="px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">
-Edit
-</a>
-
-@if($ad->status !== 'ACTIVE')
-<form method="POST" action="{{ route('admin.ads.publish',$ad->id) }}">
-@csrf
-<button type="submit"
-class="px-2 py-1 bg-green-50 text-green-600 rounded hover:bg-green-100">
-Publish
-</button>
-</form>
-@endif
-
-@if($ad->status === 'ACTIVE')
-<form method="POST" action="{{ route('admin.ads.pause',$ad->id) }}">
-@csrf
-@method('PATCH')
-<button type="submit"
-class="px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
-Pause
-</button>
-</form>
-@endif
-
-<form method="POST" action="{{ route('admin.ads.sync',$ad->id) }}">
-@csrf
-<button class="px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">
-Sync
-</button>
-</form>
-
-<form method="POST" action="{{ route('admin.ads.duplicate',$ad->id) }}">
-@csrf
-<button class="px-2 py-1 bg-purple-50 text-purple-600 rounded hover:bg-purple-100">
-Duplicate
-</button>
-</form>
-
-<form method="POST" action="{{ route('admin.ads.destroy',$ad->id) }}">
-@csrf
-@method('DELETE')
-<button onclick="return confirm('Delete this ad?')"
-class="px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
-Delete
-</button>
-</form>
-
-</div>
+{{-- ACTIONS: sticky + vertical stack so nothing clips --}}
+<td class="sticky right-0 z-10 min-w-[10.5rem] border-l border-slate-200 bg-white px-3 py-3 align-top shadow-[-12px_0_24px_-12px_rgba(15,23,42,0.1)] backdrop-blur-[2px] transition-colors group-hover:bg-slate-50/95 lg:min-w-[11rem] lg:px-4">
+    <div class="flex flex-col items-stretch gap-1.5">
+        <a href="{{ route('admin.ads.preview',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-navy ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Preview</a>
+        <a href="{{ route('admin.ads.edit',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-secondary ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Edit</a>
+        @if($ad->status !== 'ACTIVE')
+            <form method="POST" action="{{ route('admin.ads.publish',$ad->id) }}" class="m-0">
+                @csrf
+                <button type="submit" class="w-full rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">Publish</button>
+            </form>
+        @endif
+        @if($ad->status === 'ACTIVE')
+            <form method="POST" action="{{ route('admin.ads.pause',$ad->id) }}" class="m-0">
+                @csrf
+                @method('PATCH')
+                <button type="submit" class="w-full rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-900 ring-1 ring-amber-600/15 transition hover:bg-amber-100">Pause</button>
+            </form>
+        @endif
+        <form method="POST" action="{{ route('admin.ads.sync',$ad->id) }}" class="m-0">
+            @csrf
+            <button type="submit" class="w-full rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/80 transition hover:bg-white">Sync</button>
+        </form>
+        <form method="POST" action="{{ route('admin.ads.duplicate',$ad->id) }}" class="m-0">
+            @csrf
+            <button type="submit" class="w-full rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-800 ring-1 ring-violet-600/15 transition hover:bg-violet-100">Duplicate</button>
+        </form>
+        <form method="POST" action="{{ route('admin.ads.destroy',$ad->id) }}" class="m-0" onsubmit="return confirm('Delete this ad?');">
+            @csrf
+            @method('DELETE')
+            <button type="submit" class="w-full rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 ring-1 ring-red-600/15 transition hover:bg-red-100">Delete</button>
+        </form>
+    </div>
 </td>
 
 </tr>
@@ -322,13 +247,10 @@ Delete
 @empty
 
 <tr>
-<td colspan="12" class="text-center py-16 text-gray-400">
+<td colspan="12" class="px-4 py-16 text-center text-slate-500">
 <div class="flex flex-col items-center gap-4">
-<p class="text-lg">No ads created yet</p>
-<a href="{{ route('admin.ads.create') }}"
-class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700">
-Create Your First Ad
-</a>
+<p class="text-lg font-medium text-slate-700">No ads yet</p>
+<a href="{{ route('admin.ads.create') }}" class="inline-flex rounded-xl bg-xander-navy px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary">Create your first ad</a>
 </div>
 </td>
 </tr>
@@ -337,14 +259,13 @@ Create Your First Ad
 
 </tbody>
 </table>
-
+    </div>
 
 @if($ads->hasPages())
-<div class="p-4 border-t">
-{{ $ads->links() }}
-</div>
+    <div class="border-t border-slate-200 bg-slate-50/50 px-4 py-3">
+        {{ $ads->links() }}
+    </div>
 @endif
-
 </div>
 </div>
 {{-- =========================================================
@@ -378,19 +299,19 @@ function renderStatus(status){
     switch(status){
 
         case 'ACTIVE':
-            return '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs">Active</span>';
+            return '<span class="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15">Active</span>';
 
         case 'PAUSED':
-            return '<span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded text-xs">Paused</span>';
+            return '<span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-600/15">Paused</span>';
 
         case 'PENDING_REVIEW':
-            return '<span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs">In Review</span>';
+            return '<span class="inline-flex rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800 ring-1 ring-sky-600/15">In review</span>';
 
         case 'DISAPPROVED':
-            return '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs">Disapproved</span>';
+            return '<span class="inline-flex rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-800 ring-1 ring-red-600/15">Disapproved</span>';
 
         default:
-            return '<span class="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Draft</span>';
+            return '<span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Draft</span>';
 
     }
 

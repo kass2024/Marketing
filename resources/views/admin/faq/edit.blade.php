@@ -1,6 +1,10 @@
-<x-app-layout>
+@extends('layouts.admin')
 
-<div class="max-w-3xl mx-auto px-6 py-10 space-y-8">
+@section('title', 'Edit FAQ')
+
+@section('content')
+
+<div class="mx-auto max-w-3xl space-y-8">
 
     {{-- PAGE TITLE --}}
     <div>
@@ -103,4 +107,4 @@
 
 </div>
 
-</x-app-layout>
+@endsection

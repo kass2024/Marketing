@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.admin')
 
 @section('content')
 
@@ -170,9 +170,13 @@
 
                             {{-- Budget --}}
                             <td class="px-6 py-4">
-                                <div class="text-sm font-medium text-gray-900">
-                                    ${{ number_format($adset->daily_budget / 100, 2) }}/day
-                                </div>
+                                @if($adset->daily_budget)
+                                    <div class="text-sm font-medium text-gray-900">
+                                        ${{ number_format($adset->daily_budget / 100, 2) }}/day
+                                    </div>
+                                @else
+                                    <span class="text-sm text-gray-400">No budget</span>
+                                @endif
                             </td>
 
                             {{-- Targeting Summary --}}

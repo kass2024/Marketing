@@ -38,7 +38,16 @@ class CreativeController extends Controller
             ->latest()
             ->paginate(20);
 
-        return view('admin.creatives.index', compact('creatives'));
+        return view('admin.creatives.index', [
+            'creatives' => $creatives,
+            'creativeStats' => [
+                'total' => Creative::count(),
+                'approved' => Creative::where('review_status', 'APPROVED')->count(),
+                'pending' => Creative::where('review_status', 'PENDING_REVIEW')->count(),
+                'rejected' => Creative::where('review_status', 'DISAPPROVED')->count(),
+                'active' => Creative::where('effective_status', 'ACTIVE')->count(),
+            ],
+        ]);
     }
 
     /*

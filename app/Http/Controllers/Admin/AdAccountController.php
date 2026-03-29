@@ -83,7 +83,7 @@ class AdAccountController extends Controller
                         ['meta_id' => $metaId],
                         [
                             'ad_account_id' => $metaId,
-                            'name' => $account['name'] ?? 'Unknown',
+                            'name' => AdAccount::normalizeSyncedName($account['name'] ?? null),
                             'currency' => $account['currency'] ?? null,
                             'account_status' => $statusText
                         ]

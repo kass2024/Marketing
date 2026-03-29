@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
 
-<title>{{ config('app.name', 'Parrot Canada') }}</title>
+<title>{{ config('app.name', 'Xander Global Scholars') }}</title>
 
 <link rel="icon" href="{{ asset('img/logo.png') }}">
 
@@ -28,23 +28,32 @@
 <div class="bg-white rounded-3xl shadow-xl overflow-hidden grid lg:grid-cols-2">
 
 {{-- LEFT BRAND PANEL --}}
-<div class="hidden lg:flex bg-green-600 text-white items-center justify-center p-12">
+<div class="hidden lg:flex bg-gradient-to-br from-xander-navy to-xander-accent text-white items-center justify-center p-12">
 
-<div class="text-center max-w-sm">
+<div class="text-center max-w-md">
 
 <img
 src="{{ asset('img/logo.png') }}"
-class="w-20 mx-auto mb-6">
+alt="{{ config('app.name') }}"
+class="w-44 h-auto max-w-[min(100%,280px)] mx-auto mb-8 drop-shadow-md">
 
-<h1 class="text-3xl font-bold mb-4">
-Parrot Canada
+<h1 class="text-3xl font-bold mb-4 tracking-tight">
+Xander Global Scholars
 </h1>
 
-<p class="text-green-100 leading-relaxed text-sm">
+<p class="text-white/85 leading-relaxed text-sm">
 AI chatbot automation and Meta Ads management platform.
-Manage conversations, campaigns, creatives and marketing
-performance from one powerful dashboard.
+Manage advertising campaigns, automate WhatsApp conversations,
+and track marketing performance from one powerful dashboard.
 </p>
+
+<div class="mt-8">
+
+<span class="inline-block bg-xander-gold text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm">
+Smart Marketing Automation
+</span>
+
+</div>
 
 </div>
 
@@ -62,11 +71,16 @@ performance from one powerful dashboard.
 
 <img
 src="{{ asset('img/logo.png') }}"
-class="w-16 mx-auto mb-3">
+alt="{{ config('app.name') }}"
+class="w-28 h-auto max-w-[220px] mx-auto mb-4">
 
 <h2 class="text-lg font-semibold text-gray-800">
-Parrot Canada
+Xander Global Scholars
 </h2>
+
+<p class="text-gray-500 text-sm">
+Ads Management & AI Chatbot Platform
+</p>
 
 </div>
 

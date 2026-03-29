@@ -1,6 +1,10 @@
-<x-app-layout>
+@extends('layouts.admin')
 
-<div class="max-w-4xl mx-auto py-12">
+@section('title', 'Create FAQ')
+
+@section('content')
+
+<div class="mx-auto max-w-4xl">
 
     <div class="bg-white p-8 rounded-2xl shadow border">
 
@@ -53,4 +57,4 @@
 
 </div>
 
-</x-app-layout>
+@endsection

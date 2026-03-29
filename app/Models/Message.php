@@ -20,6 +20,11 @@ class Message extends Model
         'external_message_id',  // WhatsApp / Twilio ID
         'confidence',           // AI confidence score
         'source',               // faq | grounded_ai | ai | system
+        'media_type',
+        'media_url',
+        'filename',
+        'is_read',
+        'read_at',
     ];
 
     protected $casts = [
@@ -103,6 +108,42 @@ class Message extends Model
     public function markAsFailed(): void
     {
         $this->update(['status' => 'failed']);
+    }
+
+    /**
+     * Resolved media for inbox bubbles (some rows only store URL/type in meta JSON).
+     *
+     * @return array{type: ?string, url: ?string, filename: ?string}
+     */
+    public function displayMedia(): array
+    {
+        $type = $this->media_type;
+        $url = $this->media_url;
+        $filename = $this->filename;
+
+        $meta = $this->meta;
+        if (is_array($meta)) {
+            if (! $type && ! empty($meta['type']) && is_string($meta['type'])) {
+                $type = $meta['type'];
+            }
+            if (! $url) {
+                $url = $meta['url'] ?? $meta['link'] ?? $meta['media_url'] ?? null;
+            }
+            if (! $filename && ! empty($meta['filename']) && is_string($meta['filename'])) {
+                $filename = $meta['filename'];
+            }
+        }
+
+        $type = $type ? strtolower((string) $type) : null;
+        if ($type === 'voice') {
+            $type = 'audio';
+        }
+
+        return [
+            'type' => $type,
+            'url' => $url ? (string) $url : null,
+            'filename' => $filename ? (string) $filename : null,
+        ];
     }
 
     /*

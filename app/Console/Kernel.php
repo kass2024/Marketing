@@ -96,7 +96,7 @@ class Kernel extends ConsoleKernel
         */
 
         $schedule->command('agents:monitor')
-            ->everyFiveMinutes()
+            ->everyMinute()
             ->withoutOverlapping()
             ->name('agent-monitor')
             ->appendOutputTo(storage_path('logs/agent-monitor.log'));

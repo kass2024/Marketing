@@ -1,206 +1,148 @@
-@extends('layouts.app')
+@extends('layouts.admin')
 
 @section('content')
 
-<div class="space-y-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 py-10 space-y-8">
 
-    {{-- ================= HEADER ================= --}}
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+    {{-- HEADER --}}
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
 
         <div>
-            <h1 class="text-3xl font-bold text-gray-900">
-                Ad Accounts
-            </h1>
-
-            <p class="text-gray-500 mt-1">
-                Manage and synchronize your Meta advertising accounts.
-            </p>
+                <h1 class="text-3xl font-bold tracking-tight text-slate-900">
+                    Ad Accounts
+                </h1>
+                <p class="text-slate-500 mt-2 max-w-xl">
+                    Sync and manage Meta ad accounts linked to Xander Global Scholars.
+                </p>
         </div>
 
-        {{-- Sync Button --}}
-        <form method="POST" action="{{ route('admin.accounts.store') }}" id="syncForm">
+        <form method="POST" action="{{ route('admin.accounts.store') }}" id="syncForm" class="shrink-0">
             @csrf
-
             <button
                 id="syncBtn"
                 type="submit"
-                class="inline-flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow transition disabled:opacity-50">
+                class="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg disabled:opacity-50 disabled:pointer-events-none">
 
                 <svg id="syncSpinner"
-                     class="hidden animate-spin h-5 w-5"
+                     class="hidden h-5 w-5 animate-spin"
                      xmlns="http://www.w3.org/2000/svg"
                      fill="none"
-                     viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10"
-                        stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v8H4z"></path>
+                     viewBox="0 0 24 24"
+                     aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
                 </svg>
 
-                <span id="syncText">Sync From Meta</span>
-
+                <span id="syncText">Sync from Meta</span>
             </button>
-
         </form>
-
     </div>
 
-
-    {{-- ================= ALERTS ================= --}}
     @if(session('success'))
-        <div class="p-4 rounded-xl bg-green-50 border border-green-200 text-green-700">
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 text-sm font-medium">
             {{ session('success') }}
         </div>
     @endif
 
     @if($errors->any())
-        <div class="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
+        <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-red-800 text-sm font-medium">
             {{ $errors->first() }}
         </div>
     @endif
 
-
-    {{-- ================= CARD ================= --}}
-    <div class="bg-white shadow rounded-2xl overflow-hidden">
+    <div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-900/5">
 
         <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-100 text-sm">
 
-            <table class="min-w-full divide-y divide-gray-200">
-
-                {{-- TABLE HEADER --}}
-                <thead class="bg-gray-50 text-xs font-semibold uppercase text-gray-500">
-                    <tr>
-
-                        <th class="px-6 py-4 text-left">
-                            Account
-                        </th>
-
-                        <th class="px-6 py-4 text-left">
-                            Currency
-                        </th>
-
-                        <th class="px-6 py-4 text-left">
-                            Status
-                        </th>
-
-                        <th class="px-6 py-4 text-right">
-                            Actions
-                        </th>
-
+                <thead>
+                    <tr class="bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <th class="px-6 py-4">Account</th>
+                        <th class="px-6 py-4">Currency</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4 text-right">Actions</th>
                     </tr>
                 </thead>
 
-
-                {{-- TABLE BODY --}}
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-slate-100">
 
                     @forelse($accounts as $account)
 
-                        <tr class="hover:bg-gray-50 transition">
+                        <tr class="transition hover:bg-slate-50/80">
 
-                            {{-- Account --}}
                             <td class="px-6 py-4">
-
-                                <div class="font-semibold text-gray-900">
-                                    {{ $account->name }}
+                                <div class="font-semibold text-slate-900">
+                                    {{ $account->display_name }}
                                 </div>
-
-                                <div class="text-xs text-gray-400 mt-1">
-                                    Meta ID: {{ $account->meta_id ?? $account->ad_account_id }}
+                                <div class="mt-1 font-mono text-xs text-slate-400">
+                                    {{ $account->meta_id ?? $account->ad_account_id }}
                                 </div>
-
                             </td>
 
-
-                            {{-- Currency --}}
-                            <td class="px-6 py-4 text-gray-700 text-sm">
+                            <td class="px-6 py-4 text-slate-700">
                                 {{ $account->currency ?? '—' }}
                             </td>
 
-
-                            {{-- Status --}}
                             <td class="px-6 py-4">
-
                                 @php
                                     $status = strtoupper($account->account_status ?? 'UNKNOWN');
                                 @endphp
 
                                 @switch($status)
-
                                     @case('ACTIVE')
-                                        <span class="px-3 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                                        <span class="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                                             Active
                                         </span>
                                         @break
-
                                     @case('DISABLED')
-                                        <span class="px-3 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-700">
+                                        <span class="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
                                             Disabled
                                         </span>
                                         @break
-
                                     @case('PENDING')
-                                        <span class="px-3 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">
+                                        <span class="inline-flex rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
                                             Pending
                                         </span>
                                         @break
-
                                     @default
-                                        <span class="px-3 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-600">
+                                        <span class="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                                             {{ $status }}
                                         </span>
-
                                 @endswitch
-
                             </td>
 
-
-                            {{-- Actions --}}
                             <td class="px-6 py-4 text-right">
-
                                 <form method="POST"
                                       action="{{ route('admin.accounts.destroy', $account) }}"
-                                      onsubmit="return confirm('Remove this account locally?')">
-
+                                      onsubmit="return confirm('Remove this account from the platform?')">
                                     @csrf
                                     @method('DELETE')
-
                                     <button
                                         type="submit"
-                                        class="text-red-500 hover:text-red-700 text-sm font-medium">
-
-                                        Delete
-
+                                        class="text-sm font-semibold text-red-600 hover:text-red-800">
+                                        Remove
                                     </button>
-
                                 </form>
-
                             </td>
 
                         </tr>
 
                     @empty
 
-                        {{-- EMPTY STATE --}}
                         <tr>
-
-                            <td colspan="4" class="text-center py-20">
-
-                                <div class="text-6xl text-gray-300 mb-4">
-                                    📊
+                            <td colspan="4" class="px-6 py-20 text-center">
+                                <div class="mx-auto max-w-sm">
+                                    <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-2xl">
+                                        📊
+                                    </div>
+                                    <h3 class="mt-4 text-lg font-semibold text-slate-800">
+                                        No ad accounts yet
+                                    </h3>
+                                    <p class="mt-2 text-sm text-slate-500">
+                                        Use <strong>Sync from Meta</strong> to import accounts from your connected Business.
+                                    </p>
                                 </div>
-
-                                <h3 class="text-lg font-semibold text-gray-700">
-                                    No Ad Accounts Found
-                                </h3>
-
-                                <p class="text-gray-500 mt-2">
-                                    Click <strong>Sync From Meta</strong> to import your advertising accounts.
-                                </p>
-
                             </td>
-
                         </tr>
 
                     @endforelse
@@ -208,13 +150,10 @@
                 </tbody>
 
             </table>
-
         </div>
 
-
-        {{-- Pagination --}}
         @if(method_exists($accounts, 'links'))
-            <div class="p-4 border-t bg-gray-50">
+            <div class="border-t border-slate-100 bg-slate-50/50 px-4 py-3">
                 {{ $accounts->links() }}
             </div>
         @endif
@@ -223,23 +162,15 @@
 
 </div>
 
-
-
-{{-- ================= SYNC UX ================= --}}
 <script>
-
-document.getElementById('syncForm').addEventListener('submit', function(){
-
-    const btn = document.getElementById('syncBtn')
-    const spinner = document.getElementById('syncSpinner')
-    const text = document.getElementById('syncText')
-
-    btn.disabled = true
-    spinner.classList.remove('hidden')
-    text.innerText = 'Syncing...'
-
-})
-
+document.getElementById('syncForm')?.addEventListener('submit', function () {
+    const btn = document.getElementById('syncBtn');
+    const spinner = document.getElementById('syncSpinner');
+    const text = document.getElementById('syncText');
+    btn.disabled = true;
+    spinner.classList.remove('hidden');
+    text.textContent = 'Syncing…';
+});
 </script>
 
 @endsection

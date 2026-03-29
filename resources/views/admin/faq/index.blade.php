@@ -1,6 +1,10 @@
-<x-app-layout>
-<div class="min-h-screen bg-gray-50">
-    <div class="max-w-6xl mx-auto px-6 py-10 space-y-8">
+@extends('layouts.admin')
+
+@section('title', 'FAQ')
+
+@section('content')
+
+<div class="mx-auto max-w-6xl space-y-8">
 
         {{-- SUCCESS --}}
         @if(session('success'))
@@ -12,12 +16,7 @@
         {{-- HEADER --}}
         <div class="flex items-center justify-between">
             <div>
-                <a href="{{ route('dashboard') }}"
-                   class="text-sm text-gray-500 hover:text-gray-900">
-                    ← Back
-                </a>
-
-                <h1 class="text-2xl font-semibold text-gray-900 mt-2">
+                <h1 class="text-2xl font-semibold text-xander-navy">
                     FAQ Knowledge Base
                 </h1>
 
@@ -193,7 +192,6 @@
             {{ $faqs->links() }}
         </div>
 
-    </div>
 </div>
 
 
@@ -262,4 +260,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
-</x-app-layout>
+@endsection

@@ -94,6 +94,12 @@ protected function handleError($response, $endpoint, $payload = [])
 
     if (is_array($body) && isset($body['error']['message'])) {
         $message = $body['error']['message'];
+        if (! empty($body['error']['error_user_msg'])) {
+            $message .= ' — ' . $body['error']['error_user_msg'];
+        }
+        if (! empty($body['error']['error_subcode'])) {
+            $message .= ' (Meta subcode ' . $body['error']['error_subcode'] . ')';
+        }
     }
 
     /*
@@ -275,7 +281,7 @@ protected function buildTargeting(array $targeting): array
 {
     /*
     |--------------------------------------------------------------------------
-    | Remove locales (Meta rejects them)
+    | Remove locales (Meta rejects them at ad set level)
     |--------------------------------------------------------------------------
     */
 
@@ -283,22 +289,82 @@ protected function buildTargeting(array $targeting): array
 
     /*
     |--------------------------------------------------------------------------
-    | Ensure Advantage Audience flag
+    | Manual placements: Meta requires position arrays with publisher_platforms
+    | (omitting them often returns OAuthException 100 / subcode 1870247).
     |--------------------------------------------------------------------------
     */
 
-    if (!isset($targeting['targeting_automation'])) {
-
-        $targeting['targeting_automation'] = [
-            'advantage_audience' => 0
-        ];
-
+    if (! empty($targeting['publisher_platforms'])) {
+        $targeting = $this->enrichPlacementTargeting($targeting);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Advantage audience: omit unless already set (safer across API versions)
+    |--------------------------------------------------------------------------
+    */
 
     Log::info('META_TARGETING_FINAL', $targeting);
 
     return $targeting;
 }
+
+    /**
+     * Add required placement positions when publisher_platforms is present.
+     */
+    protected function enrichPlacementTargeting(array $targeting): array
+    {
+        $platforms = $targeting['publisher_platforms'];
+
+        if (in_array('facebook', $platforms, true)) {
+            $targeting['facebook_positions'] = $targeting['facebook_positions'] ?? [
+                'feed',
+                'story',
+                'instream_video',
+                'marketplace',
+            ];
+        }
+
+        if (in_array('instagram', $platforms, true)) {
+            $targeting['instagram_positions'] = $targeting['instagram_positions'] ?? [
+                'stream',
+                'story',
+                'reels',
+            ];
+        }
+
+        if (in_array('messenger', $platforms, true)) {
+            $targeting['messenger_positions'] = $targeting['messenger_positions'] ?? [
+                'messenger_home',
+                'story',
+            ];
+        }
+
+        if (in_array('audience_network', $platforms, true)) {
+            $targeting['audience_network_positions'] = $targeting['audience_network_positions'] ?? [
+                'classic',
+                'instream_video',
+            ];
+        }
+
+        if (empty($targeting['device_platforms'])) {
+            $targeting['device_platforms'] = ['mobile', 'desktop'];
+        }
+
+        return $targeting;
+    }
+
+    /**
+     * Apply placement position defaults (for local targeting JSON or API payloads).
+     */
+    public function enrichPlacementsForTargeting(array $targeting): array
+    {
+        if (empty($targeting['publisher_platforms'])) {
+            return $targeting;
+        }
+
+        return $this->enrichPlacementTargeting($targeting);
+    }
 
    /*
 |--------------------------------------------------------------------------

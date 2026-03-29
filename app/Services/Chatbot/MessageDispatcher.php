@@ -67,7 +67,28 @@ class MessageDispatcher
             );
         }
 
+        if (! empty($payload['voice_url']) && filter_var($payload['voice_url'], FILTER_VALIDATE_URL)) {
+            $results[] = $this->sendAudioLink($endpoint, $token, $to, $payload['voice_url']);
+        }
+
         return $results;
+    }
+
+    public function accessTokenForPlatform(PlatformMetaConnection $platform): ?string
+    {
+        return $this->decryptToken($platform);
+    }
+
+    protected function sendAudioLink(string $endpoint, string $token, string $to, string $link): array
+    {
+        return $this->post($endpoint, $token, [
+            'messaging_product' => 'whatsapp',
+            'to' => $to,
+            'type' => 'audio',
+            'audio' => [
+                'link' => $link,
+            ],
+        ]);
     }
 
     /*
@@ -151,6 +172,10 @@ class MessageDispatcher
                         'filename' => $attachment['filename'] ?? basename($link),
                     ],
                 ]);
+
+            case 'audio':
+            case 'voice':
+                return $this->sendAudioLink($endpoint, $token, $to, $link);
 
             default:
                 Log::warning('Unsupported attachment type', [

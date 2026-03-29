@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.admin')
 
 @section('content')
 
@@ -14,10 +14,7 @@
 <p class="text-sm text-gray-500">Modify targeting, budget and delivery settings</p>
 </div>
 
-<a href="{{ route('admin.adsets.index') }}"
-class="bg-gray-600 text-white px-4 py-3 rounded-xl hover:bg-gray-700">
-Back
-</a>
+<x-admin.page-back :href="route('admin.adsets.index')" label="Back to Ad Sets" />
 
 </div>
 
@@ -86,7 +83,7 @@ type="number"
 step="0.01"
 min="5"
 name="daily_budget"
-value="{{ old('daily_budget',$adset->daily_budget) }}"
+value="{{ old('daily_budget', $adset->daily_budget_dollars) }}"
 class="w-full border rounded-xl px-4 py-3"
 required>
 

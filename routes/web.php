@@ -13,15 +13,12 @@ use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\Admin\FaqController;
 use App\Http\Controllers\Admin\InboxController;
 use App\Http\Controllers\Admin\AdsManagerController;
-use App\Http\Controllers\Admin\UserController;
 
 /* CLIENT CONTROLLERS */
 
 use App\Http\Controllers\Client\{
     DashboardController,
     CampaignController,
-    ChatbotController,
-    TemplateController,
     ConversationController,
     BillingController,
     MetaConnectionController
@@ -38,7 +35,8 @@ use App\Http\Controllers\Admin\{
     AdSetController,
     AdController,
     AnalyticsController,
-    CreativeController
+    CreativeController,
+    UserController
 };
 
 
@@ -136,24 +134,6 @@ Route::middleware(['auth','verified','role:client'])
 
         /*
         |--------------------------------------------------------------------------
-        | CHATBOTS
-        |--------------------------------------------------------------------------
-        */
-
-        Route::resource('chatbots', ChatbotController::class);
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | WHATSAPP TEMPLATES
-        |--------------------------------------------------------------------------
-        */
-
-        Route::resource('templates', TemplateController::class);
-
-
-        /*
-        |--------------------------------------------------------------------------
         | CLIENT INBOX
         |--------------------------------------------------------------------------
         */
@@ -242,13 +222,6 @@ Route::middleware(['auth','verified','role:admin'])
     ->as('admin.')
     ->group(function () {
 
-/*
-|--------------------------------------------------------------------------
-| USER MANAGEMENT
-|--------------------------------------------------------------------------
-*/
-
-Route::resource('users', UserController::class)->names('users');
         /*
         |--------------------------------------------------------------------------
         | DASHBOARD
@@ -258,6 +231,13 @@ Route::resource('users', UserController::class)->names('users');
         Route::get('/dashboard',[AdminDashboardController::class,'index'])
             ->name('dashboard');
 
+        /*
+        |--------------------------------------------------------------------------
+        | USER MANAGEMENT (Settings area)
+        |--------------------------------------------------------------------------
+        */
+
+        Route::resource('users', UserController::class)->names('users');
 
         /*
         |--------------------------------------------------------------------------
@@ -319,25 +299,14 @@ Route::resource('users', UserController::class)->names('users');
             ->group(function () {
 
                 Route::get('/','index')->name('index');
+                Route::get('{conversation}/messages', 'fetchMessages')->name('fetch');
+                Route::delete('{conversation}/messages/{message}', 'deleteMessage')->name('message.delete');
                 Route::post('{conversation}/reply','reply')->name('reply');
                 Route::post('{conversation}/toggle','toggle')->name('toggle');
                 Route::post('{conversation}/close','close')->name('close');
+                Route::delete('{conversation}/delete', 'deleteConversation')->name('delete');
             });
 
-/*
-|--------------------------------------------------------------------------
-| AUTOMATION & CRM
-|--------------------------------------------------------------------------
-*/
-
-Route::resource('chatbots', \App\Http\Controllers\Admin\ChatbotController::class)
-    ->names('chatbots');
-
-Route::resource('templates', \App\Http\Controllers\Admin\TemplateController::class)
-    ->names('templates');
-
-Route::resource('leads', \App\Http\Controllers\Admin\LeadController::class)
-    ->names('leads');
         /*
         |--------------------------------------------------------------------------
         | META ADS SYSTEM
@@ -620,9 +589,6 @@ Route::get(
     '/admin/creatives/{creative}/preview',
     [CreativeController::class, 'preview']
 )->name('admin.creatives.preview');
-Route::get('/admin/inbox/{conversation}/messages', 
-    [App\Http\Controllers\Admin\InboxController::class, 'fetchMessages']
-)->name('admin.inbox.fetch');
 Route::get('/admin/bulk', function(){
 return view('admin.bulk.index');
 })->middleware('auth');
@@ -631,8 +597,4 @@ Route::post('/admin/bulk-send',
 [InboxController::class,'bulkSend']
 )->name('admin.bulk.send')->middleware('auth');
 
-Route::delete('/admin/inbox/{conversation}/delete', [InboxController::class,'deleteConversation'])
-    ->name('admin.inbox.delete');
-    Route::get('/admin/inbox/{conversation}/messages', [InboxController::class, 'fetchMessages'])
-    ->name('admin.inbox.messages');
 require __DIR__.'/auth.php';

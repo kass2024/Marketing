@@ -1,37 +1,19 @@
-@extends('layouts.app')
+@extends('layouts.admin')
+
+@section('title', 'Create campaign')
 
 @section('content')
 
-<div class="max-w-5xl mx-auto py-10 space-y-8">
+<div class="mx-auto max-w-3xl space-y-8">
 
-{{-- ================= HEADER ================= --}}
-<div class="flex items-center justify-between">
-
-<div>
-
-<h1 class="text-3xl font-bold text-gray-900">
-Create Campaign
-</h1>
-
-<p class="text-gray-500 mt-2">
-Define the objective for your Meta advertising campaign.
-</p>
-
+<div class="min-w-0">
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Create campaign</h1>
+    <p class="mt-1 text-sm text-slate-600">
+        Define the objective for your Meta advertising campaign.
+    </p>
 </div>
 
-<a
-href="{{ route('admin.campaigns.index') }}"
-class="text-sm text-gray-500 hover:text-gray-700"
->
-← Back to Campaigns
-</a>
-
-</div>
-
-
-
-{{-- ================= FORM ================= --}}
-<div class="bg-white border rounded-2xl shadow-sm overflow-hidden">
+<div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-900/5">
 
 <form
 method="POST"
@@ -79,7 +61,7 @@ name="name"
 value="{{ old('name') }}"
 required
 placeholder="Example: Global Study Abroad Campaign"
-class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20
 @if($errors->has('name')) border-red-500 @endif"
 >
 
@@ -103,7 +85,7 @@ Campaign Objective
 <select
 name="objective"
 required
-class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20
 @if($errors->has('objective')) border-red-500 @endif"
 >
 
@@ -149,7 +131,7 @@ Campaign Status
 
 <select
 name="status"
-class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 >
 
 <option value="PAUSED" {{ old('status')=='PAUSED'?'selected':'' }}>
@@ -171,7 +153,7 @@ Campaigns normally start paused until ads are ready.
 
 
 {{-- ================= META SYNC ================= --}}
-<div class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm">
+<div class="rounded-xl border border-xander-navy/15 bg-xander-navy/5 p-4 text-sm text-slate-700">
 
 <label class="flex items-center gap-3">
 
@@ -180,7 +162,7 @@ type="checkbox"
 name="sync_meta"
 value="1"
 checked
-class="rounded border-gray-300"
+class="rounded border-slate-300 text-xander-navy focus:ring-xander-navy"
 >
 
 <span>
@@ -201,11 +183,11 @@ Disable to test locally without sending data to Meta.
 
 
 {{-- ================= ACTION BAR ================= --}}
-<div class="bg-gray-50 border-t px-10 py-6 flex items-center justify-between">
+<div class="flex items-center justify-between border-t border-slate-200 bg-slate-50/80 px-6 py-5 sm:px-10">
 
 <a
 href="{{ route('admin.campaigns.index') }}"
-class="text-sm text-gray-500 hover:text-gray-700"
+class="text-sm font-semibold text-slate-600 transition hover:text-xander-navy"
 >
 Cancel
 </a>
@@ -213,7 +195,7 @@ Cancel
 <button
 type="submit"
 id="submitBtn"
-class="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl shadow hover:bg-blue-700 transition"
+class="inline-flex items-center gap-2 rounded-xl bg-xander-navy px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-xander-secondary"
 >
 
 <span id="btnText">

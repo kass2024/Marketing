@@ -65,6 +65,20 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'voice' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/voice.log'),
+            'level' => 'debug',
+            'replace_placeholders' => true,
+        ],
+
+        'chatbot' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/chatbot.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'replace_placeholders' => true,
+        ],
+
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),

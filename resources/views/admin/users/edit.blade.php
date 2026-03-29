@@ -1,27 +1,19 @@
-@extends('layouts.app')
+@extends('layouts.admin')
 
 @section('content')
 
-<div class="max-w-4xl mx-auto py-10 space-y-8">
+<div class="max-w-4xl mx-auto px-4 sm:px-6 py-10 space-y-8">
 
-{{-- HEADER --}}
-<div class="flex items-center justify-between">
-
+<div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
 <div>
-<h1 class="text-2xl font-bold text-gray-900">
-Edit User
+<h1 class="text-3xl font-bold tracking-tight text-slate-900">
+Edit user
 </h1>
-
-<p class="text-sm text-gray-500">
-Update user account details
+<p class="text-slate-500 mt-2">
+Update profile, role, status, or set a new password.
 </p>
 </div>
-
-<a href="{{ route('admin.users.index') }}"
-class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition">
-Back
-</a>
-
+<x-admin.page-back :href="route('admin.users.index')" label="Back to users" />
 </div>
 
 
@@ -45,8 +37,7 @@ Back
 
 
 
-{{-- FORM CARD --}}
-<div class="bg-white border shadow rounded-2xl p-8">
+<div class="rounded-2xl border border-slate-200/80 bg-white p-8 shadow-sm ring-1 ring-slate-900/5">
 
 <form method="POST"
 action="{{ route('admin.users.update',$user->id) }}"
@@ -114,7 +105,7 @@ New Password
 <div class="relative">
 
 <input
-:x-bind:type="show ? 'text' : 'password'"
+x-bind:type="show ? 'text' : 'password'"
 name="password"
 class="w-full border rounded-xl px-4 py-3 pr-12 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 >
@@ -237,9 +228,10 @@ Suspended
 <div class="pt-4">
 
 <button
-class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow transition">
+type="submit"
+class="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:from-blue-700 hover:to-indigo-700">
 
-Update User
+Update user
 
 </button>
 

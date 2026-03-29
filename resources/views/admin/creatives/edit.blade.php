@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.admin')
 
 @section('content')
 
@@ -14,10 +14,7 @@ Update your ad creative and preview changes.
 </p>
 </div>
 
-<a href="{{ route('admin.creatives.index') }}"
-class="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800">
-Back
-</a>
+<x-admin.page-back :href="route('admin.creatives.index')" label="Back to Creatives" />
 
 </div>
 

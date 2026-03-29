@@ -156,8 +156,18 @@ class AdSet extends Model
     */
 public function getBudgetFormattedAttribute(): string
 {
-    return '$'.number_format($this->daily_budget ?? 0, 2);
+    $cents = (float) ($this->daily_budget ?? 0);
+
+    return '$'.number_format($cents / 100, 2);
 }
+
+    /**
+     * Meta stores daily_budget in account minor units (cents for USD).
+     */
+    public function getDailyBudgetDollarsAttribute(): float
+    {
+        return round(((float) ($this->daily_budget ?? 0)) / 100, 2);
+    }
 
     public function getCtrAttribute(): float
     {

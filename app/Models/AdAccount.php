@@ -39,4 +39,26 @@ class AdAccount extends Model
     {
         return $this->belongsTo(Client::class);
     }
+
+    /**
+     * UI label: replace legacy Parrot Canada branding from Meta sync.
+     */
+    public function getDisplayNameAttribute(): string
+    {
+        return self::normalizeSyncedName($this->name);
+    }
+
+    /**
+     * Normalize ad account name when persisting from Meta API (or reading).
+     */
+    public static function normalizeSyncedName(?string $metaName): string
+    {
+        $name = ($metaName !== null && $metaName !== '') ? $metaName : 'Unknown';
+
+        if (stripos($name, 'Parrot Canada') !== false) {
+            return (string) config('app.name', 'Xander Global Scholars');
+        }
+
+        return $name;
+    }
 }

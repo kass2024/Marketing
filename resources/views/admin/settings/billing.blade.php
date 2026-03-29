@@ -1,4 +1,4 @@
-@extends('layouts.app')
+@extends('layouts.admin')
 
 @section('content')
 
@@ -13,7 +13,7 @@ Meta Ads Billing
 </h1>
 
 <p class="text-sm text-gray-500">
-Monitor ad account spending and payment method
+Monitor ad account status, currency, and payment method
 </p>
 </div>
 
@@ -93,22 +93,6 @@ Currency
 
 <p class="text-lg font-semibold text-gray-900">
 {{ $billing['currency'] ?? 'N/A' }}
-</p>
-
-</div>
-
-
-{{-- TOTAL SPENT --}}
-<div class="bg-white border rounded-xl shadow p-6">
-
-<p class="text-xs text-gray-500">
-Total Spent
-</p>
-
-<p class="text-xl font-bold text-gray-900">
-
-${{ isset($billing['amount_spent']) ? number_format($billing['amount_spent']/100,2) : '0.00' }}
-
 </p>
 
 </div>

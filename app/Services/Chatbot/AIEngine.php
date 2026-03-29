@@ -62,8 +62,8 @@ class AIEngine
         |--------------------------------------------------------------------------
         */
 
-        if ($conversation && $conversation->status === 'human') {
-            $this->log('HUMAN_MODE_ACTIVE', [
+        if ($conversation && $conversation->isEscalated()) {
+            $this->log('HUMAN_OR_ESCALATED_ACTIVE', [
                 'conversation_id' => $conversation->id
             ], $requestId);
 
@@ -129,16 +129,39 @@ class AIEngine
                 return $this->store($clientId, $hash, $response);
             }
 
-            // Strategy 2: Keyword search across all FAQs
+            // Strategy 1b: Fuzzy similarity on question text (typos / short paraphrases)
+            $similarMatch = $this->findBySimilarQuestion($clientId, $normalized);
+            if ($similarMatch) {
+                $this->log('SIMILAR_QUESTION_MATCH', [
+                    'question' => $similarMatch->question,
+                    'id' => $similarMatch->id,
+                ], $requestId);
+
+                $response = $this->formatFromKnowledge($similarMatch, 0.92, 'similar_question');
+                return $this->store($clientId, $hash, $response);
+            }
+
+            // Strategy 2: Keyword search across question + answer (grouped SQL)
             $keywordMatch = $this->findKeywordDatabaseMatch($clientId, $normalized);
             if ($keywordMatch) {
                 $this->log('KEYWORD_DB_MATCH', [
                     'question' => $keywordMatch->question,
                     'id' => $keywordMatch->id,
-                    'method' => $keywordMatch['method'] ?? 'keyword'
                 ], $requestId);
 
                 $response = $this->formatFromKnowledge($keywordMatch, 0.95, 'keyword_match');
+                return $this->store($clientId, $hash, $response);
+            }
+
+            // Strategy 3: Token overlap on question + answer (strong FAQ signal before AI)
+            $overlapMatch = $this->findByTokenOverlap($clientId, $normalized);
+            if ($overlapMatch) {
+                $this->log('FAQ_TOKEN_OVERLAP', [
+                    'question' => $overlapMatch->question,
+                    'id' => $overlapMatch->id,
+                ], $requestId);
+
+                $response = $this->formatFromKnowledge($overlapMatch, 0.88, 'faq_token_overlap');
                 return $this->store($clientId, $hash, $response);
             }
 
@@ -281,8 +304,8 @@ class AIEngine
 
         // Try contains match (question contains key phrase)
         $keyPhrases = [
-            'what is parrot',
-            'parrot canada',
+            'what is xander',
+            'xander global',
             'visa consultant',
             'study visa',
             'documents required',
@@ -310,29 +333,31 @@ class AIEngine
     }
 
     /**
-     * Find match by extracting and matching keywords
+     * Find match by extracting and matching keywords (question + answer)
      */
     protected function findKeywordDatabaseMatch(int $clientId, string $message): ?KnowledgeBase
     {
-        // Extract important keywords
         $keywords = $this->extractImportantKeywords($message);
-        
+
         if (empty($keywords)) {
             return null;
         }
 
         $this->log('EXTRACTED_KEYWORDS', [
-            'keywords' => $keywords
+            'keywords' => array_values($keywords),
         ], uniqid());
 
-        // Build query to search for any of these keywords in questions
         $query = KnowledgeBase::forClient($clientId)->active();
-        
-        foreach ($keywords as $keyword) {
-            if (strlen($keyword) > 2) {
-                $query->orWhere('question', 'LIKE', '%' . $keyword . '%');
+
+        $query->where(function ($q) use ($keywords) {
+            foreach ($keywords as $keyword) {
+                if (strlen($keyword) > 2) {
+                    $like = '%'.$keyword.'%';
+                    $q->orWhere('question', 'LIKE', $like)
+                        ->orWhere('answer', 'LIKE', $like);
+                }
             }
-        }
+        });
 
         $results = $query->with('attachments')->get();
 
@@ -340,34 +365,124 @@ class AIEngine
             return null;
         }
 
-        // Score each result
         $bestMatch = null;
         $bestScore = 0;
+        $keywordCount = max(count($keywords), 1);
 
         foreach ($results as $faq) {
-            $question = Str::lower($faq->question);
-            $score = 0;
-            
+            $haystack = Str::lower($faq->question.' '.$faq->answer);
+            $hits = 0;
+
             foreach ($keywords as $keyword) {
-                if (str_contains($question, $keyword)) {
-                    $score += 1;
+                if (strlen($keyword) > 2 && str_contains($haystack, $keyword)) {
+                    $hits++;
                 }
             }
 
-            // Normalize score
-            $score = $score / count($keywords);
-            
-            // Boost score based on question length (shorter questions with keywords are better)
-            $score = $score * (1 + (1 / max(strlen($question), 1)));
-            
+            $score = $hits / $keywordCount;
+            $questionLower = Str::lower($faq->question);
+            if (str_contains($questionLower, $message) || str_contains($message, Str::substr($questionLower, 0, min(40, strlen($questionLower))))) {
+                $score += 0.35;
+            }
+
             if ($score > $bestScore) {
                 $bestScore = $score;
                 $bestMatch = $faq;
             }
         }
 
-        // Return if score is good enough
-        return $bestScore > 0.3 ? $bestMatch : null;
+        return $bestScore >= 0.25 ? $bestMatch : null;
+    }
+
+    /**
+     * similar_text() over active FAQ questions — catches near-duplicates
+     */
+    protected function findBySimilarQuestion(int $clientId, string $normalized): ?KnowledgeBase
+    {
+        if (strlen($normalized) < 4) {
+            return null;
+        }
+
+        $best = null;
+        $bestPct = 0.0;
+
+        $faqs = KnowledgeBase::forClient($clientId)
+            ->active()
+            ->get(['id', 'question']);
+
+        foreach ($faqs as $faq) {
+            $q = Str::lower(trim($faq->question));
+            if ($q === '') {
+                continue;
+            }
+            similar_text($normalized, $q, $pct);
+            if ($pct > $bestPct) {
+                $bestPct = $pct;
+                $best = $faq;
+            }
+        }
+
+        if ($best && $bestPct >= 48.0) {
+            return KnowledgeBase::forClient($clientId)
+                ->active()
+                ->with('attachments')
+                ->find($best->id);
+        }
+
+        return null;
+    }
+
+    /**
+     * Token overlap between user message and FAQ question+answer
+     */
+    protected function findByTokenOverlap(int $clientId, string $normalized): ?KnowledgeBase
+    {
+        $userTokens = array_unique(array_filter(
+            explode(' ', $normalized),
+            fn ($t) => strlen($t) > 2
+        ));
+
+        if (count($userTokens) < 2) {
+            return null;
+        }
+
+        $faqs = KnowledgeBase::forClient($clientId)->active()->get(['id', 'question', 'answer']);
+        $best = null;
+        $bestScore = 0.0;
+
+        foreach ($faqs as $faq) {
+            $blob = Str::lower($faq->question.' '.$faq->answer);
+            $blob = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $blob);
+            $blobTokens = array_unique(array_filter(
+                explode(' ', (string) $blob),
+                fn ($t) => strlen($t) > 2
+            ));
+
+            if (count($blobTokens) < 2) {
+                continue;
+            }
+
+            $overlap = count(array_intersect($userTokens, $blobTokens));
+            if ($overlap < 2) {
+                continue;
+            }
+
+            $score = $overlap / max(count($userTokens), count($blobTokens), 1);
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $faq;
+            }
+        }
+
+        if ($best && $bestScore >= 0.22) {
+            return KnowledgeBase::forClient($clientId)
+                ->active()
+                ->with('attachments')
+                ->find($best->id);
+        }
+
+        return null;
     }
 
     /**
@@ -377,10 +492,10 @@ class AIEngine
     {
         $stopwords = [
             'the', 'and', 'for', 'with', 'from', 'this', 'that', 'what', 'how',
-            'can', 'you', 'your', 'have', 'has', 'help', 'need', 'want', 'about',
+            'can', 'you', 'your', 'have', 'has', 'need', 'want', 'about',
             'please', 'thanks', 'thank', 'would', 'could', 'should', 'tell',
             'know', 'like', 'just', 'get', 'are', 'not', 'was', 'were', 'will',
-            'visa', 'study', 'student', 'application'
+            'help', 'me', 'any', 'some', 'does', 'did',
         ];
 
         $words = explode(' ', $message);
@@ -735,7 +850,7 @@ Provide the best possible helpful answer using the information above.
     protected function greetingResponse(): array
     {
         return [
-            'text' => "Hello! 👋 I'm your virtual assistant from Parrot Canada Visa Consultant.\n\nHow can I help you today? You can ask me about:\n• Visa requirements\n• Study abroad programs\n• Our services\n• Application process\n• Scholarships\n\nOr type 'talk to human' to speak with a real agent.",
+            'text' => "Hello! 👋 I'm your virtual assistant from xanderglobalscholars.\n\nHow can I help you today? You can ask me about:\n• Visa requirements\n• Study abroad programs\n• Our services\n• Application process\n• Scholarships\n\nOr type 'talk to human' to speak with a real agent.",
             'attachments' => [],
             'confidence' => 1.0,
             'source' => 'greeting'

@@ -52,12 +52,15 @@ return [
         | Required Permissions
         |--------------------------------------------------------------------------
         */
-        'required_permissions' => [
-            'ads_management',
-            'business_management',
-            'whatsapp_business_management',
-            'whatsapp_business_messaging',
-        ],
+       'required_permissions' => [
+    'ads_management',
+    'business_management',
+    'pages_show_list',
+    'pages_read_engagement',
+    'pages_manage_ads',
+    'whatsapp_business_management',
+    'whatsapp_business_messaging',
+],
 
         /*
         |--------------------------------------------------------------------------
@@ -86,6 +89,7 @@ return [
     'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
     'access_token'    => env('WHATSAPP_ACCESS_TOKEN'),
     'timeout' => (int) env('WHATSAPP_TIMEOUT', 30),
+    'ffmpeg_binary' => env('FFMPEG_BINARY', 'ffmpeg'),
 
     ],
 

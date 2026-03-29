@@ -39,7 +39,7 @@ class ChatbotEngineService
             ]);
 
             // 3️⃣ If human takeover → stop bot
-            if ($conversation->status === 'human') {
+            if ($conversation->isEscalated()) {
                 DB::commit();
                 return null;
             }

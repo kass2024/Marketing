@@ -1,18 +1,24 @@
-@extends('layouts.app')
+@extends('layouts.admin')
+
+@section('title', 'Create creative')
 
 @section('content')
 
-<div class="max-w-7xl mx-auto py-10 grid grid-cols-1 lg:grid-cols-2 gap-10">
+<div class="mx-auto grid max-w-7xl grid-cols-1 gap-10 py-2 lg:grid-cols-2 lg:py-4">
 
 
 {{-- ================= FORM ================= --}}
 <div>
 
-<div class="bg-white shadow rounded-2xl p-10">
+<div class="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-10">
 
-<h2 class="text-2xl font-bold mb-8">
-Create Ad Creative
-</h2>
+<div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
+        <h2 class="text-2xl font-bold tracking-tight text-slate-900">Create ad creative</h2>
+        <p class="mt-1 text-sm text-slate-600">Upload or define creative assets for your ads.</p>
+    </div>
+    <a href="{{ route('admin.creatives.index') }}" class="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-xander-navy/25 hover:text-xander-navy">All creatives</a>
+</div>
 
 
 @if($errors->any())
@@ -44,7 +50,7 @@ Campaign
 <select
 name="campaign_id"
 id="campaign-select"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="">Select Campaign</option>
@@ -73,7 +79,7 @@ Ad Set
 <select
 name="adset_id"
 id="adset-select"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="">Select AdSet</option>
@@ -101,7 +107,7 @@ Facebook Page
 
 <select
 name="page_id"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="">Select Page</option>
@@ -131,7 +137,7 @@ Creative Name
 type="text"
 name="name"
 value="{{ old('name') }}"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 </div>
@@ -271,7 +277,7 @@ Status
 
 <select
 name="status"
-class="w-full border rounded-xl px-4 py-3">
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20">
 
 <option value="DRAFT">Draft</option>
 <option value="ACTIVE">Active</option>
@@ -282,25 +288,11 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-<div class="flex justify-between">
-
-<a
-href="{{ route('admin.creatives.index') }}"
-class="text-gray-600 hover:text-gray-900">
-
-Cancel
-
-</a>
-
-
-<button
-type="submit"
-class="bg-blue-600 text-white px-6 py-3 rounded-xl shadow hover:bg-blue-700">
-
-Create Creative
-
-</button>
-
+<div class="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
+    <a href="{{ route('admin.creatives.index') }}" class="text-center text-sm font-semibold text-slate-600 transition hover:text-xander-navy sm:text-left">Cancel</a>
+    <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl bg-xander-navy px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-xander-secondary sm:w-auto">
+        Create creative
+    </button>
 </div>
 
 </form>
@@ -314,10 +306,10 @@ Create Creative
 {{-- ================= PREVIEW ================= --}}
 <div>
 
-<div class="bg-white shadow rounded-2xl p-6">
+<div class="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm ring-1 ring-slate-900/5">
 
-<h3 class="font-bold mb-6">
-Facebook Feed Preview
+<h3 class="mb-6 font-bold text-slate-900">
+Facebook feed preview
 </h3>
 
 
@@ -356,7 +348,7 @@ Headline preview
 
 <button
 id="preview-cta"
-class="mt-3 bg-blue-600 text-white text-sm px-4 py-2 rounded">
+class="mt-3 rounded-lg bg-xander-navy px-4 py-2 text-sm font-semibold text-white shadow-sm">
 
 Call To Action
 

@@ -1,6 +1,10 @@
-<x-app-layout>
+@extends('layouts.admin')
 
-<div class="max-w-3xl mx-auto p-6">
+@section('title', 'Bulk send')
+
+@section('content')
+
+<div class="mx-auto max-w-3xl">
 
 <h2 class="text-xl font-semibold mb-4">Bulk WhatsApp Message</h2>
 
@@ -30,4 +34,4 @@ Send Bulk Message
 
 </div>
 
-</x-app-layout>
+@endsection

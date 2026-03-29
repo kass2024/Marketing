@@ -75,7 +75,7 @@ class SyncMetaAccounts extends Command
 
                     [
                         'ad_account_id' => $metaId,
-                        'name' => $account['name'] ?? 'Unknown',
+                        'name' => AdAccount::normalizeSyncedName($account['name'] ?? null),
                         'currency' => $account['currency'] ?? null,
                         'account_status' => $status
                     ]

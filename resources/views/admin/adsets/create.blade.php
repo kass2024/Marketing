@@ -1,37 +1,25 @@
-@extends('layouts.app')
+@extends('layouts.admin')
+
+@section('title', 'Create ad set')
 
 @section('content')
 
 <link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
 
-<div class="max-w-6xl mx-auto space-y-8">
+<div class="mx-auto max-w-6xl space-y-8">
 
-{{-- HEADER --}}
-<div class="flex justify-between items-center">
-
-<div>
-<h1 class="text-3xl font-bold text-gray-900">
-Create Ad Set
-</h1>
-
-<p class="text-sm text-gray-500">
-Meta validated audience configuration
-</p>
+<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
+        <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Create ad set</h1>
+        <p class="mt-1 text-sm text-slate-600">Meta validated audience configuration.</p>
+    </div>
+    <a href="{{ route('admin.campaigns.index') }}" class="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-xander-navy/25 hover:text-xander-navy">Campaigns</a>
 </div>
-
-<a href="{{ route('admin.campaigns.index') }}"
-class="bg-gray-600 text-white px-4 py-3 rounded-xl hover:bg-gray-700">
-Back
-</a>
-
-</div>
-
-
 
 {{-- ERRORS --}}
 @if($errors->any())
 
-<div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl">
+<div class="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
 
 <ul class="list-disc ml-6">
 
@@ -49,7 +37,7 @@ Back
 
 
 
-<div class="bg-white shadow border rounded-2xl p-8">
+<div class="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-8">
 
 <form method="POST"
 action="{{ route('admin.adsets.store') }}"
@@ -65,7 +53,7 @@ id="adsetForm">
 
 <select name="campaign_id"
 id="campaign-select"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="">Select campaign</option>
@@ -85,7 +73,7 @@ data-objective="{{ $campaign->objective }}">
 </select>
 
 <p id="objective-info"
-class="text-xs text-blue-600 mt-2 hidden"></p>
+class="mt-2 hidden text-xs text-xander-secondary"></p>
 
 </div>
 
@@ -99,7 +87,7 @@ class="text-xs text-blue-600 mt-2 hidden"></p>
 <input
 type="text"
 name="name"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 </div>
@@ -116,7 +104,7 @@ type="number"
 name="daily_budget"
 value="10"
 min="5"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <p class="text-xs text-gray-500 mt-1">
@@ -137,14 +125,16 @@ Optimization Goal
 <select
 name="optimization_goal"
 id="optimization-goal"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="LINK_CLICKS">Link Clicks</option>
+<option value="LANDING_PAGE_VIEWS">Landing Page Views</option>
 <option value="REACH">Reach</option>
 <option value="IMPRESSIONS">Impressions</option>
 <option value="LEAD_GENERATION">Lead Generation</option>
 <option value="OFFSITE_CONVERSIONS">Conversions</option>
+<option value="POST_ENGAGEMENT">Post Engagement</option>
 
 </select>
 
@@ -159,19 +149,11 @@ required>
 Bid Strategy
 </label>
 
-<select
-name="bid_strategy"
-class="w-full border rounded-xl px-4 py-3">
+<input type="hidden" name="bid_strategy" value="LOWEST_COST_WITHOUT_CAP">
 
-<option value="LOWEST_COST_WITHOUT_CAP">
-Lowest Cost
-</option>
-
-<option value="LOWEST_COST_WITH_BID_CAP">
-Bid Cap
-</option>
-
-</select>
+<div class="w-full border rounded-xl px-4 py-3 bg-slate-50 text-slate-700 text-sm">
+Lowest cost without bid cap <span class="text-slate-500">(recommended — bid cap requires a bid amount in Meta)</span>
+</div>
 
 </div>
 
@@ -186,7 +168,7 @@ Facebook Page
 
 <select
 name="page_id"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="">Select Page</option>
@@ -277,7 +259,7 @@ Countries
 name="countries[]"
 multiple
 id="country-select"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 @foreach($countries as $code => $country)
@@ -348,7 +330,7 @@ Placement Strategy
 <select
 name="placement_type"
 id="placement-type"
-class="w-full border rounded-xl px-4 py-3"
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
 required>
 
 <option value="automatic">
@@ -377,7 +359,7 @@ Publisher Platforms
 name="publisher_platforms[]"
 multiple
 id="platform-select"
-class="w-full border rounded-xl px-4 py-3">
+class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20">
 
 <option value="facebook">Facebook</option>
 <option value="instagram">Instagram</option>
@@ -390,16 +372,11 @@ class="w-full border rounded-xl px-4 py-3">
 
 
 
-<div class="flex justify-end">
-
-<button
-type="submit"
-class="bg-blue-600 text-white px-8 py-3 rounded-xl hover:bg-blue-700">
-
-Create Ad Set
-
-</button>
-
+<div class="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
+    <a href="{{ route('admin.adsets.index') }}" class="text-center text-sm font-semibold text-slate-600 transition hover:text-xander-navy sm:text-left">Cancel</a>
+    <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl bg-xander-navy px-8 py-3 font-semibold text-white shadow-sm transition hover:bg-xander-secondary sm:w-auto">
+        Create ad set
+    </button>
 </div>
 
 </form>
@@ -446,10 +423,15 @@ fetch("/admin/meta/interests?q="+query)
 const rules = {
 
 TRAFFIC: "LINK_CLICKS",
+OUTCOME_TRAFFIC: "LINK_CLICKS",
 AWARENESS: "REACH",
-ENGAGEMENT: "IMPRESSIONS",
+OUTCOME_AWARENESS: "REACH",
+ENGAGEMENT: "POST_ENGAGEMENT",
+OUTCOME_ENGAGEMENT: "POST_ENGAGEMENT",
 LEADS: "LEAD_GENERATION",
-SALES: "OFFSITE_CONVERSIONS"
+OUTCOME_LEADS: "LEAD_GENERATION",
+SALES: "OFFSITE_CONVERSIONS",
+OUTCOME_SALES: "OFFSITE_CONVERSIONS"
 
 };
 

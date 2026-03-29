@@ -14,6 +14,15 @@ export default {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
+            colors: {
+                // Parrot Canada Visa Consultant — logo palette (class names kept for Blade compatibility)
+                xander: {
+                    navy: '#4B7930',
+                    secondary: '#3D6CBA',
+                    accent: '#355A23',
+                    gold: '#E31F26',
+                },
+            },
         },
     },
 

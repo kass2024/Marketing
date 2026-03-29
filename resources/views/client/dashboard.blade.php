@@ -9,9 +9,6 @@ $meta = $client?->metaConnection;
 $plan = $client->subscription_plan ?? 'free';
 $isFree = $plan === 'free';
 
-$botCount = $client?->chatbots()->count() ?? 0;
-$templateCount = $client?->templates()->count() ?? 0;
-
 $campaignCount = $kpis['total_campaigns'] ?? 0;
 
 $activeCampaigns = $kpis['active_campaigns'] ?? 0;
@@ -89,7 +86,7 @@ Logout
 {{-- ACCOUNT OVERVIEW --}}
 <div class="bg-white rounded-2xl border shadow-sm p-6">
 
-<div class="grid grid-cols-2 md:grid-cols-5 gap-6 text-center">
+<div class="grid grid-cols-2 md:grid-cols-3 gap-6 text-center">
 
 <div>
 <p class="text-xs text-gray-500 uppercase">Meta Status</p>
@@ -109,20 +106,6 @@ Logout
 <p class="text-xs text-gray-500 uppercase">Campaigns</p>
 <p class="mt-2 font-semibold">
 {{ $campaignCount }}
-</p>
-</div>
-
-<div>
-<p class="text-xs text-gray-500 uppercase">Chatbots</p>
-<p class="mt-2 font-semibold">
-{{ $botCount }}
-</p>
-</div>
-
-<div>
-<p class="text-xs text-gray-500 uppercase">Templates</p>
-<p class="mt-2 font-semibold">
-{{ $templateCount }}
 </p>
 </div>
 
@@ -249,7 +232,7 @@ ${{ number_format($cpa,2) }}
 Platform Modules
 </h3>
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
 
 <a href="{{ route('client.campaigns.index') }}"
@@ -259,32 +242,6 @@ class="bg-white border rounded-2xl p-6 hover:shadow-lg transition">
 
 <p class="text-sm text-gray-500 mt-2">
 Create and manage campaigns
-</p>
-
-</a>
-
-
-
-<a href="{{ route('client.chatbots.index') }}"
-class="bg-white border rounded-2xl p-6 hover:shadow-lg transition">
-
-<h4 class="font-semibold">Chatbot Builder</h4>
-
-<p class="text-sm text-gray-500 mt-2">
-Build WhatsApp flows
-</p>
-
-</a>
-
-
-
-<a href="{{ route('client.templates.index') }}"
-class="bg-white border rounded-2xl p-6 hover:shadow-lg transition">
-
-<h4 class="font-semibold">Templates</h4>
-
-<p class="text-sm text-gray-500 mt-2">
-Manage approved templates
 </p>
 
 </a>

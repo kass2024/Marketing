@@ -105,10 +105,18 @@ required>
 Facebook Page
 </label>
 
+@if(empty($pages))
+<p class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+    No pages were returned from the Graph API. Set <code class="rounded bg-amber-100 px-1">META_PAGE_ID</code> (and optional <code class="rounded bg-amber-100 px-1">META_PAGE_NAME</code>) in <code class="rounded bg-amber-100 px-1">.env</code> to use a fallback, or fix outbound DNS / firewall so this server can reach <code class="rounded bg-amber-100 px-1">graph.facebook.com</code>.
+</p>
+@endif
+
 <select
 name="page_id"
 class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:border-xander-navy focus:ring-2 focus:ring-xander-navy/20"
-required>
+@unless(empty($pages)) required @endunless
+@if(empty($pages)) disabled @endif
+>
 
 <option value="">Select Page</option>
 

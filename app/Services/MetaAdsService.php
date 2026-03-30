@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use Throwable;
 
 class MetaAdsService
 {
@@ -58,8 +59,12 @@ class MetaAdsService
 
     protected function client()
     {
-        return Http::timeout(30)
-            ->retry(3,500)
+        $timeout = (int) config('services.meta.http_timeout', 90);
+        $connectTimeout = (int) config('services.meta.http_connect_timeout', 45);
+
+        return Http::timeout($timeout)
+            ->connectTimeout($connectTimeout)
+            ->retry(4, 2000)
             ->acceptJson();
     }
 
@@ -227,10 +232,35 @@ protected function handleError($response, $endpoint, $payload = [])
     |--------------------------------------------------------------------------
     */
 
-    public function getPages():array
+    public function getPages(): array
     {
-        $res = $this->get('me/accounts');
-        return $res['data'] ?? [];
+        try {
+            $res = $this->get('me/accounts');
+            $data = $res['data'] ?? [];
+            if ($data !== []) {
+                return $data;
+            }
+        } catch (Throwable $e) {
+            Log::warning('META_GET_PAGES_FAILED', [
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        $pageId = config('services.meta.page_id');
+        if (! empty($pageId)) {
+            Log::info('META_GET_PAGES_USING_CONFIG_FALLBACK', [
+                'page_id' => $pageId,
+            ]);
+
+            return [
+                [
+                    'id' => (string) $pageId,
+                    'name' => (string) config('services.meta.page_name', 'Facebook Page'),
+                ],
+            ];
+        }
+
+        return [];
     }
 
     /*
@@ -527,14 +557,18 @@ if (!is_array($targeting)) {
             'file'=>$filePath
         ]);
 
-        $response = Http::timeout(60)
+        $timeout = (int) config('services.meta.http_timeout', 90);
+        $connectTimeout = (int) config('services.meta.http_connect_timeout', 45);
+
+        $response = Http::timeout(max(60, $timeout))
+            ->connectTimeout($connectTimeout)
             ->attach(
                 'filename',
                 file_get_contents($filePath),
                 basename($filePath)
             )
-            ->post("{$this->baseUrl}/{$accountId}/adimages",[
-                'access_token'=>$this->accessToken
+            ->post("{$this->baseUrl}/{$accountId}/adimages", [
+                'access_token' => $this->accessToken,
             ]);
 
         if($response->failed()){
@@ -940,19 +974,24 @@ public function getBillingInfo(string $accountId)
 {
     $accountId = $this->formatAccount($accountId);
 
-    $response = Http::get("{$this->baseUrl}/{$accountId}",[
-        'fields' => implode(',',[
-            'id',
-            'name',
-            'account_status',
-            'currency',
-            'timezone_name',
-            'amount_spent',
-            'spend_cap',
-            'funding_source_details'
-        ]),
-        'access_token' => $this->accessToken
-    ]);
+    $timeout = (int) config('services.meta.http_timeout', 90);
+    $connectTimeout = (int) config('services.meta.http_connect_timeout', 45);
+
+    $response = Http::timeout($timeout)
+        ->connectTimeout($connectTimeout)
+        ->get("{$this->baseUrl}/{$accountId}", [
+            'fields' => implode(',', [
+                'id',
+                'name',
+                'account_status',
+                'currency',
+                'timezone_name',
+                'amount_spent',
+                'spend_cap',
+                'funding_source_details',
+            ]),
+            'access_token' => $this->accessToken,
+        ]);
 
     if(!$response->successful()){
         $this->handleError($response,'billing_info');
@@ -993,10 +1032,15 @@ public function getAccountStatus($accountId)
         ? $accountId
         : "act_{$accountId}";
 
-    $response = Http::get("{$this->baseUrl}/{$accountId}", [
-        'fields' => 'account_status',
-        'access_token' => $this->accessToken
-    ]);
+    $timeout = (int) config('services.meta.http_timeout', 90);
+    $connectTimeout = (int) config('services.meta.http_connect_timeout', 45);
+
+    $response = Http::timeout($timeout)
+        ->connectTimeout($connectTimeout)
+        ->get("{$this->baseUrl}/{$accountId}", [
+            'fields' => 'account_status',
+            'access_token' => $this->accessToken,
+        ]);
 
     if (!$response->successful()) {
         throw new \Exception($response->body());

@@ -41,11 +41,22 @@ return [
         'graph_version' => env('META_GRAPH_VERSION', 'v19.0'),
         'graph_url'     => env('META_GRAPH_URL', 'https://graph.facebook.com'),
         'oauth_url'     => env('META_OAUTH_URL', 'https://www.facebook.com'),
-         
-    'token' => env('META_SYSTEM_USER_TOKEN'),
-    'ad_account_id' => env('META_AD_ACCOUNT_ID'),
-     'page_id' => env('META_PAGE_ID'),
-    'refresh_before_days' => env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
+
+        'token' => env('META_SYSTEM_USER_TOKEN'),
+        'ad_account_id' => env('META_AD_ACCOUNT_ID'),
+        'page_id' => env('META_PAGE_ID'),
+        /** Label for the page when using META_PAGE_ID fallback (create creative form). */
+        'page_name' => env('META_PAGE_NAME', 'Facebook Page'),
+
+        /*
+        |--------------------------------------------------------------------------
+        | Graph API HTTP client (avoid cURL "Resolving timed out after 10000 ms")
+        |--------------------------------------------------------------------------
+        */
+        'http_timeout' => (int) env('META_HTTP_TIMEOUT', 90),
+        'http_connect_timeout' => (int) env('META_HTTP_CONNECT_TIMEOUT', 45),
+
+        'refresh_before_days' => env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
 
         /*
         |--------------------------------------------------------------------------

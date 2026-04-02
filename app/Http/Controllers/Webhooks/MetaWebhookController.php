@@ -71,22 +71,87 @@ class MetaWebhookController extends Controller
             return response()->json(['status' => 'ignored'], 200);
         }
 
+        $forwardParrot = false;
+
         foreach ($payload['entry'] ?? [] as $entry) {
             foreach ($entry['changes'] ?? [] as $change) {
 
                 $value = $change['value'] ?? [];
+                $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
+                $routeParrot = $this->isParrotSupportPhoneNumberId(
+                    is_string($phoneNumberId) ? $phoneNumberId : null
+                );
 
                 if (! empty($value['messages'])) {
+                    if ($routeParrot) {
+                        $forwardParrot = true;
+
+                        continue;
+                    }
                     $this->handleIncomingMessages($value);
                 }
 
                 if (! empty($value['statuses'])) {
+                    if ($routeParrot) {
+                        $forwardParrot = true;
+
+                        continue;
+                    }
                     $this->handleStatusUpdates($value['statuses']);
                 }
             }
         }
 
+        if ($forwardParrot) {
+            $this->forwardToParrotSupport($request);
+        }
+
         return response()->json(['status' => 'ok'], 200);
+    }
+
+    /**
+     * Same Meta app: Parrot must receive the original body + signature.
+     * Called at most once per request when any change targets a Parrot line.
+     */
+    protected function forwardToParrotSupport(Request $request): void
+    {
+        $url = config('services.parrot_support.forward_url');
+        if (! is_string($url) || $url === '') {
+            Log::error('PARROT_WEBHOOK_FORWARD_URL is not set; Parrot support events are dropped');
+
+            return;
+        }
+
+        $sigHeader = config('services.whatsapp_webhook.signature_header', 'X-Hub-Signature-256');
+        try {
+            $response = Http::timeout(20)
+                ->withHeaders(array_filter([
+                    'Content-Type' => 'application/json',
+                    $sigHeader => $request->header($sigHeader),
+                ]))
+                ->withBody($request->getContent(), 'application/json')
+                ->post($url);
+
+            if (! $response->successful()) {
+                Log::warning('Parrot webhook forward failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('Parrot webhook forward exception', ['e' => $e->getMessage()]);
+        }
+    }
+
+    protected function isParrotSupportPhoneNumberId(?string $phoneNumberId): bool
+    {
+        if (! is_string($phoneNumberId) || $phoneNumberId === '') {
+            return false;
+        }
+
+        $ids = config('services.parrot_support.phone_number_ids', []);
+
+        return is_array($ids) && in_array($phoneNumberId, $ids, true);
     }
 
     /*

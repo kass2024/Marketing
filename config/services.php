@@ -121,7 +121,23 @@ return [
 
         'hash_algo' => 'sha256',
     ],
-    
+
+    /*
+    |--------------------------------------------------------------------------
+    | Parrot WA Support (second Laravel app, same Meta app ID)
+    |--------------------------------------------------------------------------
+    | Meta sends webhooks only to one URL (this app: /api/webhook/meta). Events
+    | for these WhatsApp phone_number_id values are forwarded in-process to
+    | Parrot so signature validation still passes. Comma-separated IDs.
+    */
+    'parrot_support' => [
+        'forward_url' => env('PARROT_WEBHOOK_FORWARD_URL'),
+        'phone_number_ids' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('PARROT_SUPPORT_PHONE_NUMBER_IDS', ''))
+        ))),
+    ],
+
 'openai' => [
     'key'   => env('OPENAI_API_KEY'),
     'model' => env('OPENAI_MODEL', 'gpt-4.1-mini'),

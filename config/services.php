@@ -133,9 +133,9 @@ return [
     'parrot_support' => [
         'forward_url' => env('PARROT_WEBHOOK_FORWARD_URL'),
         'phone_number_ids' => array_values(array_filter(array_map(
-            'trim',
+            static fn (string $id) => trim($id),
             explode(',', (string) env('PARROT_SUPPORT_PHONE_NUMBER_IDS', ''))
-        ))),
+        ), static fn (string $id) => $id !== '')),
     ],
 
 'openai' => [

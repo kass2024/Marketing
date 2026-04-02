@@ -78,9 +78,7 @@ class MetaWebhookController extends Controller
 
                 $value = $change['value'] ?? [];
                 $phoneNumberId = $value['metadata']['phone_number_id'] ?? null;
-                $routeParrot = $this->isParrotSupportPhoneNumberId(
-                    is_string($phoneNumberId) ? $phoneNumberId : null
-                );
+                $routeParrot = $this->isParrotSupportPhoneNumberId($phoneNumberId);
 
                 if (! empty($value['messages'])) {
                     if ($routeParrot) {
@@ -123,16 +121,29 @@ class MetaWebhookController extends Controller
         }
 
         $sigHeader = config('services.whatsapp_webhook.signature_header', 'X-Hub-Signature-256');
+        $signature = $request->header($sigHeader);
+        $headers = ['Content-Type' => 'application/json'];
+        if (is_string($signature) && $signature !== '') {
+            $headers[$sigHeader] = $signature;
+        } else {
+            Log::warning('Parrot webhook forward missing Meta signature header; Parrot may return 403');
+        }
+
         try {
+            $raw = $request->getContent();
+            if ($raw === '') {
+                Log::error('Parrot webhook forward aborted: empty request body');
+                return;
+            }
+
             $response = Http::timeout(20)
-                ->withHeaders(array_filter([
-                    'Content-Type' => 'application/json',
-                    $sigHeader => $request->header($sigHeader),
-                ]))
-                ->withBody($request->getContent(), 'application/json')
+                ->withHeaders($headers)
+                ->withBody($raw, 'application/json')
                 ->post($url);
 
-            if (! $response->successful()) {
+            if ($response->successful()) {
+                Log::info('Parrot webhook forward ok', ['status' => $response->status()]);
+            } else {
                 Log::warning('Parrot webhook forward failed', [
                     'status' => $response->status(),
                     'body' => $response->body(),
@@ -143,15 +154,36 @@ class MetaWebhookController extends Controller
         }
     }
 
-    protected function isParrotSupportPhoneNumberId(?string $phoneNumberId): bool
+    /**
+     * Meta JSON often encodes phone_number_id as a number; normalize to string for matching .env lists.
+     */
+    protected function isParrotSupportPhoneNumberId(mixed $phoneNumberId): bool
     {
-        if (! is_string($phoneNumberId) || $phoneNumberId === '') {
+        if ($phoneNumberId === null || $phoneNumberId === '') {
+            return false;
+        }
+
+        if (! is_scalar($phoneNumberId)) {
+            return false;
+        }
+
+        $id = trim((string) $phoneNumberId);
+        if ($id === '') {
             return false;
         }
 
         $ids = config('services.parrot_support.phone_number_ids', []);
+        if (! is_array($ids)) {
+            return false;
+        }
 
-        return is_array($ids) && in_array($phoneNumberId, $ids, true);
+        foreach ($ids as $configured) {
+            if (is_scalar($configured) && trim((string) $configured) === $id) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /*

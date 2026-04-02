@@ -36,18 +36,28 @@ class MetaWebhookController extends Controller
         $mode = $request->input('hub_mode') ?? $request->input('hub.mode');
         $token = $request->input('hub_verify_token') ?? $request->input('hub.verify_token');
         $challenge = $request->input('hub_challenge') ?? $request->input('hub.challenge');
+        $expected = (string) config('services.whatsapp_webhook.verify_token');
+        $tokenOk = hash_equals($expected, (string) $token);
 
-        if (
-            $mode === 'subscribe' &&
-            hash_equals(
-                (string) config('services.whatsapp_webhook.verify_token'),
-                (string) $token
-            )
-        ) {
+        Log::channel('webhook')->info('meta.webhook.verify', [
+            'mode' => $mode,
+            'token_length' => is_string($token) ? strlen($token) : null,
+            'expected_token_length' => strlen($expected),
+            'token_matches' => $tokenOk,
+            'challenge_length' => is_string($challenge) ? strlen($challenge) : (is_numeric($challenge) ? strlen((string) $challenge) : null),
+            'client_ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
+
+        if ($mode === 'subscribe' && $tokenOk) {
             return response($challenge, 200);
         }
 
         Log::warning('Meta webhook verification failed');
+        Log::channel('webhook')->warning('meta.webhook.verify.denied', [
+            'mode' => $mode,
+            'reason' => $mode !== 'subscribe' ? 'hub.mode not subscribe' : 'verify token mismatch',
+        ]);
 
         return response('Forbidden', 403);
     }
@@ -59,17 +69,53 @@ class MetaWebhookController extends Controller
     */
     public function handle(Request $request): Response
     {
+        $correlationId = Str::lower(Str::substr((string) Str::uuid(), 0, 8));
+        $rawLen = strlen($request->getContent());
+        $sigHeader = config('services.whatsapp_webhook.signature_header', 'X-Hub-Signature-256');
+        $sigIn = $request->header($sigHeader);
+        $sigPrefix = is_string($sigIn) ? Str::substr($sigIn, 0, 22).'…' : null;
+
+        Log::channel('webhook')->info('meta.webhook.post.received', [
+            'correlation_id' => $correlationId,
+            'content_length' => $rawLen,
+            'signature_header' => $sigHeader,
+            'signature_prefix' => $sigPrefix,
+            'client_ip' => $request->ip(),
+        ]);
+
         if (! $this->isValidSignature($request)) {
-            Log::warning('Invalid Meta webhook signature');
+            Log::warning('Invalid Meta webhook');
+            Log::channel('webhook')->warning('meta.webhook.post.signature_invalid', [
+                'correlation_id' => $correlationId,
+                'content_length' => $rawLen,
+                'signature_prefix' => $sigPrefix,
+                'app_secret_configured' => (bool) config('services.whatsapp_webhook.app_secret'),
+            ]);
 
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
+        Log::channel('webhook')->info('meta.webhook.post.signature_ok', ['correlation_id' => $correlationId]);
+
         $payload = $request->json()->all();
 
         if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
+            Log::channel('webhook')->info('meta.webhook.post.ignored_object', [
+                'correlation_id' => $correlationId,
+                'object' => $payload['object'] ?? null,
+            ]);
+
             return response()->json(['status' => 'ignored'], 200);
         }
+
+        $summary = $this->summarizeMetaPayloadForWebhookLog($payload);
+        $parrotIds = config('services.parrot_support.phone_number_ids', []);
+        Log::channel('webhook')->info('meta.webhook.post.payload_summary', [
+            'correlation_id' => $correlationId,
+            'summary' => $summary,
+            'parrot_support_phone_number_ids_configured' => is_array($parrotIds) ? count($parrotIds) : 0,
+            'forward_url_configured' => (bool) config('services.parrot_support.forward_url'),
+        ]);
 
         $forwardParrot = false;
 
@@ -83,6 +129,11 @@ class MetaWebhookController extends Controller
                 if (! empty($value['messages'])) {
                     if ($routeParrot) {
                         $forwardParrot = true;
+                        Log::channel('webhook')->info('meta.webhook.route.parrot_skip_waba', [
+                            'correlation_id' => $correlationId,
+                            'phone_number_id' => $phoneNumberId,
+                            'reason' => 'messages',
+                        ]);
 
                         continue;
                     }
@@ -92,6 +143,11 @@ class MetaWebhookController extends Controller
                 if (! empty($value['statuses'])) {
                     if ($routeParrot) {
                         $forwardParrot = true;
+                        Log::channel('webhook')->info('meta.webhook.route.parrot_skip_waba', [
+                            'correlation_id' => $correlationId,
+                            'phone_number_id' => $phoneNumberId,
+                            'reason' => 'statuses',
+                        ]);
 
                         continue;
                     }
@@ -101,8 +157,18 @@ class MetaWebhookController extends Controller
         }
 
         if ($forwardParrot) {
-            $this->forwardToParrotSupport($request);
+            $this->forwardToParrotSupport($request, $correlationId);
+        } else {
+            Log::channel('webhook')->info('meta.webhook.forward_skipped', [
+                'correlation_id' => $correlationId,
+                'reason' => 'no_change_matched_parrot_support_phone_number_ids',
+            ]);
         }
+
+        Log::channel('webhook')->info('meta.webhook.post.done', [
+            'correlation_id' => $correlationId,
+            'forwarded_to_parrot' => $forwardParrot,
+        ]);
 
         return response()->json(['status' => 'ok'], 200);
     }
@@ -111,11 +177,15 @@ class MetaWebhookController extends Controller
      * Same Meta app: Parrot must receive the original body + signature.
      * Called at most once per request when any change targets a Parrot line.
      */
-    protected function forwardToParrotSupport(Request $request): void
+    protected function forwardToParrotSupport(Request $request, string $correlationId): void
     {
         $url = config('services.parrot_support.forward_url');
         if (! is_string($url) || $url === '') {
             Log::error('PARROT_WEBHOOK_FORWARD_URL is not set; Parrot support events are dropped');
+            Log::channel('webhook')->error('parrot.forward.aborted', [
+                'correlation_id' => $correlationId,
+                'reason' => 'PARROT_WEBHOOK_FORWARD_URL empty',
+            ]);
 
             return;
         }
@@ -127,31 +197,112 @@ class MetaWebhookController extends Controller
             $headers[$sigHeader] = $signature;
         } else {
             Log::warning('Parrot webhook forward missing Meta signature header; Parrot may return 403');
+            Log::channel('webhook')->warning('parrot.forward.missing_signature', [
+                'correlation_id' => $correlationId,
+                'header' => $sigHeader,
+            ]);
         }
 
         try {
             $raw = $request->getContent();
             if ($raw === '') {
                 Log::error('Parrot webhook forward aborted: empty request body');
+                Log::channel('webhook')->error('parrot.forward.aborted', [
+                    'correlation_id' => $correlationId,
+                    'reason' => 'empty body',
+                ]);
+
                 return;
             }
+
+            $targetHost = parse_url($url, PHP_URL_HOST) ?: 'unknown-host';
+            $started = microtime(true);
+
+            Log::channel('webhook')->info('parrot.forward.request', [
+                'correlation_id' => $correlationId,
+                'target_host' => $targetHost,
+                'target_path' => parse_url($url, PHP_URL_PATH) ?: '/',
+                'body_bytes' => strlen($raw),
+                'signature_forwarded' => isset($headers[$sigHeader]),
+            ]);
 
             $response = Http::timeout(20)
                 ->withHeaders($headers)
                 ->withBody($raw, 'application/json')
                 ->post($url);
 
+            $elapsedMs = (int) round((microtime(true) - $started) * 1000);
+            $respBody = $response->body();
+            $respSnippet = Str::limit(preg_replace('/\s+/', ' ', $respBody) ?? '', 400);
+
             if ($response->successful()) {
                 Log::info('Parrot webhook forward ok', ['status' => $response->status()]);
+                Log::channel('webhook')->info('parrot.forward.response', [
+                    'correlation_id' => $correlationId,
+                    'http_status' => $response->status(),
+                    'elapsed_ms' => $elapsedMs,
+                    'response_snippet' => $respSnippet,
+                ]);
             } else {
                 Log::warning('Parrot webhook forward failed', [
                     'status' => $response->status(),
-                    'body' => $response->body(),
+                    'body' => $respBody,
+                ]);
+                Log::channel('webhook')->warning('parrot.forward.response_error', [
+                    'correlation_id' => $correlationId,
+                    'http_status' => $response->status(),
+                    'elapsed_ms' => $elapsedMs,
+                    'response_snippet' => $respSnippet,
                 ]);
             }
         } catch (\Throwable $e) {
             Log::error('Parrot webhook forward exception', ['e' => $e->getMessage()]);
+            Log::channel('webhook')->error('parrot.forward.exception', [
+                'correlation_id' => $correlationId,
+                'message' => $e->getMessage(),
+                'exception' => $e::class,
+            ]);
         }
+    }
+
+    /**
+     * Structured summary for webhook.log (no message bodies / phone numbers).
+     */
+    protected function summarizeMetaPayloadForWebhookLog(array $payload): array
+    {
+        $changes = [];
+        foreach ($payload['entry'] ?? [] as $entry) {
+            foreach ($entry['changes'] ?? [] as $change) {
+                $v = $change['value'] ?? [];
+                $pni = $v['metadata']['phone_number_id'] ?? null;
+                $msgCount = isset($v['messages']) && is_array($v['messages']) ? count($v['messages']) : 0;
+                $stCount = isset($v['statuses']) && is_array($v['statuses']) ? count($v['statuses']) : 0;
+                $waIds = [];
+                if (! empty($v['messages']) && is_array($v['messages'])) {
+                    foreach (array_slice($v['messages'], 0, 5) as $m) {
+                        if (is_array($m) && isset($m['id'])) {
+                            $waIds[] = (string) $m['id'];
+                        }
+                    }
+                }
+
+                $changes[] = [
+                    'field' => $change['field'] ?? null,
+                    'phone_number_id' => $pni,
+                    'phone_number_id_type' => get_debug_type($pni),
+                    'route_parrot' => $this->isParrotSupportPhoneNumberId($pni),
+                    'messages' => $msgCount,
+                    'statuses' => $stCount,
+                    'sample_wa_message_ids' => $waIds,
+                ];
+            }
+        }
+
+        return [
+            'object' => $payload['object'] ?? null,
+            'change_count' => count($changes),
+            'changes' => $changes,
+        ];
     }
 
     /**

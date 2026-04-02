@@ -79,6 +79,16 @@ return [
             'replace_placeholders' => true,
         ],
 
+        /*
+        | Meta / WhatsApp webhook trace (tail: storage/logs/webhook.log)
+        */
+        'webhook' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/webhook.log'),
+            'level' => env('LOG_WEBHOOK_LEVEL', env('LOG_LEVEL', 'debug')),
+            'replace_placeholders' => true,
+        ],
+
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),

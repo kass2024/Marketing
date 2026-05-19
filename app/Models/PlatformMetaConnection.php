@@ -24,4 +24,24 @@ class PlatformMetaConnection extends Model
         'granted_permissions' => 'array',
         'token_expires_at' => 'datetime',
     ];
+
+    public function plainAccessToken(): ?string
+    {
+        if (! $this->access_token) {
+            return null;
+        }
+
+        try {
+            return decrypt($this->access_token);
+        } catch (\Throwable) {
+            return $this->access_token;
+        }
+    }
+
+    public function storeAccessToken(string $token, ?\DateTimeInterface $expiresAt = null): void
+    {
+        $this->access_token = encrypt($token);
+        $this->token_expires_at = $expiresAt;
+        $this->save();
+    }
 }

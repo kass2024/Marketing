@@ -2,20 +2,15 @@
 
 namespace App\Services\Chatbot;
 
+use App\Models\PlatformMetaConnection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
-use App\Models\PlatformMetaConnection;
 
 class MessageDispatcher
 {
     protected int $timeout = 20;
 
-    /*
-    |--------------------------------------------------------------------------
-    | PUBLIC SEND METHOD (TEXT + ATTACHMENTS)
-    |--------------------------------------------------------------------------
-    */
     public function send(
         PlatformMetaConnection $platform,
         string $to,
@@ -31,44 +26,41 @@ class MessageDispatcher
             return $this->error('Missing WhatsApp phone_number_id', $platform);
         }
 
-        $token = $this->decryptToken($platform);
-        if (!$token) {
-            return $this->error('Token decryption failed', $platform);
+        $tokenCandidates = $this->accessTokenCandidates($platform);
+        if ($tokenCandidates === []) {
+            return $this->error('No WhatsApp access token (check .env WHATSAPP_ACCESS_TOKEN or reconnect Meta)', $platform);
         }
 
         $endpoint = $this->buildEndpoint($platform);
         $results  = [];
 
-        /*
-        |--------------------------------------------------------------------------
-        | 1️⃣ SEND TEXT FIRST
-        |--------------------------------------------------------------------------
-        */
-        if (!empty($payload['text'])) {
-            $results[] = $this->sendText(
-                $endpoint,
-                $token,
-                $to,
-                $payload['text']
-            );
+        if (! empty($payload['text'])) {
+            $results[] = $this->postWithTokenFallback($endpoint, $tokenCandidates, [
+                'messaging_product' => 'whatsapp',
+                'to'   => $to,
+                'type' => 'text',
+                'text' => ['body' => $payload['text']],
+            ]);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | 2️⃣ SEND ATTACHMENTS
-        |--------------------------------------------------------------------------
-        */
         foreach ($payload['attachments'] ?? [] as $attachment) {
             $results[] = $this->sendAttachment(
                 $endpoint,
-                $token,
+                $tokenCandidates,
                 $to,
                 $attachment
             );
         }
 
         if (! empty($payload['voice_url']) && filter_var($payload['voice_url'], FILTER_VALIDATE_URL)) {
-            $results[] = $this->sendAudioLink($endpoint, $token, $to, $payload['voice_url']);
+            $results[] = $this->postWithTokenFallback($endpoint, $tokenCandidates, [
+                'messaging_product' => 'whatsapp',
+                'to' => $to,
+                'type' => 'audio',
+                'audio' => [
+                    'link' => $payload['voice_url'],
+                ],
+            ]);
         }
 
         return $results;
@@ -76,57 +68,21 @@ class MessageDispatcher
 
     public function accessTokenForPlatform(PlatformMetaConnection $platform): ?string
     {
-        return $this->decryptToken($platform);
+        $candidates = $this->accessTokenCandidates($platform);
+
+        return $candidates[0]['token'] ?? null;
     }
 
-    protected function sendAudioLink(string $endpoint, string $token, string $to, string $link): array
-    {
-        return $this->post($endpoint, $token, [
-            'messaging_product' => 'whatsapp',
-            'to' => $to,
-            'type' => 'audio',
-            'audio' => [
-                'link' => $link,
-            ],
-        ]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SEND TEXT
-    |--------------------------------------------------------------------------
-    */
-    protected function sendText(
-        string $endpoint,
-        string $token,
-        string $to,
-        string $message
-    ): array {
-
-        return $this->post($endpoint, $token, [
-            'messaging_product' => 'whatsapp',
-            'to'   => $to,
-            'type' => 'text',
-            'text' => ['body' => $message],
-        ]);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SEND ATTACHMENT (ENTERPRISE SAFE)
-    |--------------------------------------------------------------------------
-    */
     protected function sendAttachment(
         string $endpoint,
-        string $token,
+        array $tokenCandidates,
         string $to,
         array $attachment
     ): array {
 
         $type = strtolower($attachment['type'] ?? 'document');
 
-        // Normalize common extensions
-        if (in_array($type, ['jpg','jpeg','png','gif','webp'])) {
+        if (in_array($type, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
             $type = 'image';
         }
 
@@ -136,7 +92,7 @@ class MessageDispatcher
 
         $link = $this->resolveAttachmentUrl($attachment);
 
-        if (!$link) {
+        if (! $link) {
             Log::error('Attachment URL missing or invalid', $attachment);
 
             return [
@@ -147,13 +103,13 @@ class MessageDispatcher
 
         Log::info('Sending WhatsApp attachment', [
             'type' => $type,
-            'link' => $link
+            'link' => $link,
         ]);
 
         switch ($type) {
 
             case 'image':
-                return $this->post($endpoint, $token, [
+                return $this->postWithTokenFallback($endpoint, $tokenCandidates, [
                     'messaging_product' => 'whatsapp',
                     'to'   => $to,
                     'type' => 'image',
@@ -163,7 +119,7 @@ class MessageDispatcher
                 ]);
 
             case 'document':
-                return $this->post($endpoint, $token, [
+                return $this->postWithTokenFallback($endpoint, $tokenCandidates, [
                     'messaging_product' => 'whatsapp',
                     'to'   => $to,
                     'type' => 'document',
@@ -175,11 +131,18 @@ class MessageDispatcher
 
             case 'audio':
             case 'voice':
-                return $this->sendAudioLink($endpoint, $token, $to, $link);
+                return $this->postWithTokenFallback($endpoint, $tokenCandidates, [
+                    'messaging_product' => 'whatsapp',
+                    'to' => $to,
+                    'type' => 'audio',
+                    'audio' => [
+                        'link' => $link,
+                    ],
+                ]);
 
             default:
                 Log::warning('Unsupported attachment type', [
-                    'type' => $type
+                    'type' => $type,
                 ]);
 
                 return [
@@ -189,46 +152,63 @@ class MessageDispatcher
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESOLVE ATTACHMENT URL (CRITICAL FIX)
-    |--------------------------------------------------------------------------
-    */
     protected function resolveAttachmentUrl(array $attachment): ?string
     {
-        // If already full URL
-        if (!empty($attachment['url']) &&
+        if (! empty($attachment['url']) &&
             filter_var($attachment['url'], FILTER_VALIDATE_URL)) {
             return $attachment['url'];
         }
 
-        // If stored as /storage/faq_attachments/...
-        if (!empty($attachment['file_path'])) {
-            return URL::to('/storage/' . ltrim($attachment['file_path'], '/'));
+        if (! empty($attachment['file_path'])) {
+            return URL::to('/storage/'.ltrim($attachment['file_path'], '/'));
         }
 
         return null;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | CORE POST METHOD
-    |--------------------------------------------------------------------------
-    */
-    protected function post(string $endpoint, string $token, array $body): array
+    /**
+     * @param  array<int, array{source: string, token: string}>  $tokenCandidates
+     */
+    protected function postWithTokenFallback(string $endpoint, array $tokenCandidates, array $body): array
+    {
+        $last = [
+            'success' => false,
+            'error'   => 'No token attempted',
+        ];
+
+        foreach ($tokenCandidates as $candidate) {
+            $last = $this->post($endpoint, $candidate['token'], $body, $candidate['source']);
+
+            if ($last['success']) {
+                return $last;
+            }
+
+            if (! $this->isAuthFailure($last)) {
+                return $last;
+            }
+
+            Log::warning('WhatsApp token rejected, trying next source', [
+                'source' => $candidate['source'],
+                'status' => $last['status'] ?? null,
+            ]);
+        }
+
+        return $last;
+    }
+
+    protected function post(string $endpoint, string $token, array $body, string $source = 'unknown'): array
     {
         try {
-
             $response = Http::withToken($token)
                 ->timeout($this->timeout)
-                ->retry(2, 500)
+                ->retry(2, 500, throw: false)
                 ->post($endpoint, $body);
 
             if ($response->failed()) {
-
                 Log::error('WhatsApp API request failed', [
-                    'status'   => $response->status(),
-                    'response' => $response->body(),
+                    'token_source' => $source,
+                    'status'       => $response->status(),
+                    'response'     => $response->body(),
                 ]);
 
                 return [
@@ -241,20 +221,20 @@ class MessageDispatcher
             $data = $response->json();
 
             Log::info('WhatsApp message sent', [
-                'response' => $data,
+                'token_source' => $source,
+                'response'     => $data,
             ]);
 
             return [
                 'success' => true,
-                'external_message_id' =>
-                    $data['messages'][0]['id'] ?? null,
+                'external_message_id' => $data['messages'][0]['id'] ?? null,
                 'response' => $data,
             ];
 
         } catch (\Throwable $e) {
-
             Log::critical('WhatsApp API exception', [
-                'error' => $e->getMessage(),
+                'token_source' => $source,
+                'error'        => $e->getMessage(),
             ]);
 
             return [
@@ -264,35 +244,56 @@ class MessageDispatcher
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | HELPERS Good
-    |--------------------------------------------------------------------------
-    */
-  protected function decryptToken(PlatformMetaConnection $platform): ?string
-{
-    if (!$platform->access_token) {
-        Log::error('Access token missing', [
-            'platform_id' => $platform->id
-        ]);
-        return null;
+    /**
+     * Prefer .env token (fresh) then DB. Env is tried first when phone_number_id matches.
+     *
+     * @return array<int, array{source: string, token: string}>
+     */
+    protected function accessTokenCandidates(PlatformMetaConnection $platform): array
+    {
+        $seen = [];
+        $candidates = [];
+
+        $add = function (string $source, ?string $token) use (&$candidates, &$seen): void {
+            $token = trim((string) $token);
+            if ($token === '' || isset($seen[$token])) {
+                return;
+            }
+            $seen[$token] = true;
+            $candidates[] = ['source' => $source, 'token' => $token];
+        };
+
+        $envToken = config('services.whatsapp.access_token');
+        if (filled($envToken)) {
+            $add('env_whatsapp', $envToken);
+        }
+
+        $dbToken = $platform->plainAccessToken();
+        if ($dbToken) {
+            $add('platform_db', $dbToken);
+        }
+
+        $systemToken = config('services.meta.token');
+        if (filled($systemToken)) {
+            $add('env_meta_system', $systemToken);
+        }
+
+        return $candidates;
     }
 
-    try {
+    protected function isAuthFailure(array $result): bool
+    {
+        $status = (int) ($result['status'] ?? 0);
+        if ($status === 401) {
+            return true;
+        }
 
-        // Try decrypting first (for encrypted tokens)
-        return decrypt($platform->access_token);
+        $error = (string) ($result['error'] ?? '');
 
-    } catch (\Throwable $e) {
-
-        // Token is probably stored as plain text
-        Log::warning('Access token not encrypted, using raw token', [
-            'platform_id' => $platform->id
-        ]);
-
-        return $platform->access_token;
+        return str_contains($error, '"code":190')
+            || str_contains($error, 'OAuthException')
+            || str_contains($error, 'Authentication Error');
     }
-}
 
     protected function buildEndpoint(PlatformMetaConnection $platform): string
     {

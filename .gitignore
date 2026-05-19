@@ -6,6 +6,8 @@
 /storage/*.key
 /vendor
 .env
+.env.*
+!.env.example
 .env.backup
 .env.production
 .phpunit.result.cache
@@ -17,3 +19,22 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+
+# Database dumps (may contain PII, tokens, hashed passwords)
+*.sql
+*.sql.gz
+*.dump
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+/storage/logs/*.log
+!storage/logs/.gitignore
+
+# Local credentials / keys
+*.pem
+*.key
+*.p12
+credentials.json
+service-account*.json

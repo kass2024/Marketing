@@ -383,10 +383,6 @@ No placement data
 
 @php
 $image = $ad->creative->image_url;
-
-if ($image && !str_starts_with($image, 'http')) {
-    $image = asset('storage/creatives/' . basename($image));
-}
 @endphp
 
 @if($image)

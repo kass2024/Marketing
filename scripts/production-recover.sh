@@ -26,6 +26,9 @@ php artisan cache:clear
 php artisan route:clear
 php artisan view:clear
 
+echo "==> Linking public storage for creative previews"
+php artisan storage:link || true
+
 echo "==> Checking database connection"
 php artisan db:recover-check || {
   echo "Database still unreachable. Verify .env values:"

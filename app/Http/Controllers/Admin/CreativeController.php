@@ -38,6 +38,12 @@ class CreativeController extends Controller
             ->latest()
             ->paginate(20);
 
+        try {
+            Creative::hydrateMetaImageUrls($creatives->getCollection(), $this->meta);
+        } catch (Throwable) {
+            // Thumbnails fall back to local storage URLs when Meta lookup fails.
+        }
+
         return view('admin.creatives.index', [
             'creatives' => $creatives,
             'creativeStats' => [
@@ -150,6 +156,7 @@ class CreativeController extends Controller
             */
 
             $imageHash = null;
+            $metaImageUrl = null;
 
             if ($request->boolean('sync_meta')) {
 
@@ -171,6 +178,11 @@ class CreativeController extends Controller
                 if (!$imageHash) {
                     throw new Exception('Meta image hash missing.');
                 }
+
+                $metaImageUrl = $image['url']
+                    ?? $image['url_256']
+                    ?? $image['url_128']
+                    ?? null;
             }
 
 
@@ -231,6 +243,10 @@ class CreativeController extends Controller
 
             ];
 
+            if ($metaImageUrl) {
+                $payload['meta_image_url'] = $metaImageUrl;
+            }
+
             Log::info('META_CREATIVE_PAYLOAD', $payload);
 
 
@@ -284,7 +300,8 @@ class CreativeController extends Controller
                 'destination_url' => $data['destination_url'] ?? null,
 
                 'call_to_action' => $data['call_to_action'] ?? null,
-'image_url' => Storage::url($imagePath),
+
+                'image_url' => $imagePath,
 
                 'image_hash' => $imageHash,
 
@@ -372,12 +389,16 @@ class CreativeController extends Controller
 
             if ($request->hasFile('image')) {
 
-                if ($creative->image_url) {
-                    Storage::disk('public')->delete($creative->image_url);
+                $diskPath = Creative::normalizeImageDiskPath(
+                    $creative->getRawOriginal('image_url')
+                );
+
+                if ($diskPath) {
+                    Storage::disk('public')->delete($diskPath);
                 }
 
                 $creative->image_url = $request->file('image')
-                    ->store('creatives','public');
+                    ->store('creatives', 'public');
             }
 
             $creative->update($data);
@@ -411,8 +432,12 @@ class CreativeController extends Controller
     {
         try {
 
-            if ($creative->image_url) {
-                Storage::disk('public')->delete($creative->image_url);
+            $diskPath = Creative::normalizeImageDiskPath(
+                $creative->getRawOriginal('image_url')
+            );
+
+            if ($diskPath) {
+                Storage::disk('public')->delete($diskPath);
             }
 
             $creative->delete();
@@ -579,6 +604,12 @@ public function sync($id)
             'review_feedback' => $reviewFeedback,
             'last_synced_at' => now()
         ]);
+
+        try {
+            Creative::hydrateMetaImageUrls(collect([$creative->fresh()]), $this->meta);
+        } catch (Throwable) {
+            // Image preview falls back to local storage when Meta lookup fails.
+        }
 
 
         return back()->with('success','Creative synced successfully.');

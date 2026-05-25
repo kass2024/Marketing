@@ -43,7 +43,7 @@ public function index(): View
 
     $ads = Ad::query()
         ->with([
-            'creative:id,name,image_url',
+            'creative:id,name,image_url,image_hash,json_payload',
             'adSet:id,name,campaign_id',
             'adSet.campaign:id,name,ad_account_id',
             'adSet.campaign.adAccount:id,name,meta_id'
@@ -69,6 +69,15 @@ public function index(): View
 ])
         ->latest()
         ->paginate(20);
+
+    try {
+        Creative::hydrateMetaImageUrls(
+            $ads->getCollection()->pluck('creative')->filter(),
+            $this->meta
+        );
+    } catch (Throwable) {
+        // Previews fall back to local storage URLs when Meta lookup fails.
+    }
 
 
     /*
@@ -124,6 +133,12 @@ public function index(): View
             ->get();
 
         $creatives = Creative::latest()->get();
+
+        try {
+            Creative::hydrateMetaImageUrls($creatives, $this->meta);
+        } catch (Throwable) {
+            // Previews fall back to local storage URLs when Meta lookup fails.
+        }
 
         return view('admin.ads.create', compact('adsets','creatives'));
     }
@@ -373,6 +388,15 @@ public function preview(Ad $ad): View
         'adSet',
         'adSet.campaign'
     ]);
+
+    if ($ad->creative) {
+        try {
+            Creative::hydrateMetaImageUrls(collect([$ad->creative]), $this->meta);
+            $ad->load('creative');
+        } catch (Throwable) {
+            // Preview falls back to local storage URLs when Meta lookup fails.
+        }
+    }
 
     $audience = [
         'countries' => [],

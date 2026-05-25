@@ -1177,6 +1177,38 @@ if (!is_array($targeting)) {
         return $response->json();
     }
 
+    public function getAdImagesByHashes(string $accountId, array $hashes): array
+    {
+        $hashes = array_values(array_filter(array_unique($hashes)));
+
+        if ($hashes === []) {
+            return [];
+        }
+
+        $this->ensureConfigured();
+
+        $accountId = $this->formatAccount($accountId);
+
+        $response = $this->get("{$accountId}/adimages", [
+            'hashes' => json_encode($hashes),
+            'fields' => 'hash,url',
+        ]);
+
+        $map = [];
+
+        foreach ($response['data'] ?? [] as $image) {
+            $hash = $image['hash'] ?? null;
+
+            if (!$hash) {
+                continue;
+            }
+
+            $map[$hash] = $image['url'] ?? null;
+        }
+
+        return $map;
+    }
+
     /*
     |--------------------------------------------------------------------------
     | CREATIVE

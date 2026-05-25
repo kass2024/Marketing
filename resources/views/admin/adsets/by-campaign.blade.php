@@ -182,8 +182,11 @@
                             {{-- Targeting Summary --}}
                             <td class="px-6 py-4">
                                 @php
-                                    $targeting = json_decode($adset->targeting, true) ?? [];
+                                    $targeting = is_array($adset->targeting)
+                                        ? $adset->targeting
+                                        : (json_decode($adset->targeting, true) ?? []);
                                     $countries = $targeting['geo_locations']['countries'] ?? [];
+                                    $cities = $targeting['geo_locations']['cities'] ?? [];
                                     $ageRange = ($targeting['age_min'] ?? 18) . '-' . ($targeting['age_max'] ?? 65);
                                 @endphp
                                 <div class="text-sm text-gray-700">
@@ -192,6 +195,11 @@
                                 <div class="text-sm text-gray-700">
                                     <span class="font-medium">Countries:</span> {{ count($countries) }}
                                 </div>
+                                @if(count($cities))
+                                <div class="text-sm text-gray-700">
+                                    <span class="font-medium">Cities:</span> {{ count($cities) }}
+                                </div>
+                                @endif
                             </td>
 
                             {{-- Status --}}

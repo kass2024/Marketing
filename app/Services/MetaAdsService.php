@@ -309,35 +309,310 @@ protected function handleError($response, $endpoint, $payload = [])
 
 protected function buildTargeting(array $targeting): array
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Remove locales (Meta rejects them at ad set level)
-    |--------------------------------------------------------------------------
-    */
-
     unset($targeting['locales']);
 
-    /*
-    |--------------------------------------------------------------------------
-    | Manual placements: Meta requires position arrays with publisher_platforms
-    | (omitting them often returns OAuthException 100 / subcode 1870247).
-    |--------------------------------------------------------------------------
-    */
+    if (! empty($targeting['geo_locations'])) {
+        $targeting['geo_locations'] = $this->normalizeGeoLocationsForApi(
+            $targeting['geo_locations']
+        );
+    }
+
+    if (! empty($targeting['flexible_spec'])) {
+        $targeting = $this->sanitizeFlexibleSpec($targeting);
+    }
 
     if (! empty($targeting['publisher_platforms'])) {
         $targeting = $this->enrichPlacementTargeting($targeting);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Advantage audience: omit unless already set (safer across API versions)
-    |--------------------------------------------------------------------------
-    */
-
     Log::info('META_TARGETING_FINAL', $targeting);
 
     return $targeting;
 }
+
+    /**
+     * Build geo_locations from country codes and optional city entries.
+     * Countries with selected cities are targeted at city level only.
+     */
+    public function buildGeoLocations(array $selectedCountries, array $selectedCities = []): array
+    {
+        $countries = array_values(array_unique(array_map(
+            fn ($code) => strtoupper(trim((string) $code)),
+            $selectedCountries
+        )));
+
+        if ($countries === []) {
+            throw new Exception('At least one country is required.');
+        }
+
+        $citiesByCountry = [];
+
+        foreach ($selectedCities as $city) {
+            if (! is_array($city)) {
+                continue;
+            }
+
+            $key = trim((string) ($city['key'] ?? ''));
+            $country = strtoupper(trim((string) ($city['country'] ?? '')));
+
+            if ($key === '' || $country === '') {
+                continue;
+            }
+
+            $entry = ['key' => $key];
+
+            if (! empty($city['name'])) {
+                $entry['name'] = (string) $city['name'];
+            }
+
+            if (! empty($city['region'])) {
+                $entry['region'] = (string) $city['region'];
+            }
+
+            if (! empty($city['region_id'])) {
+                $entry['region_id'] = (int) $city['region_id'];
+            }
+
+            $entry['country'] = $country;
+            $citiesByCountry[$country][] = $entry;
+        }
+
+        $geo = [
+            'countries' => [],
+            'cities' => [],
+        ];
+
+        foreach ($countries as $country) {
+            if (! empty($citiesByCountry[$country])) {
+                $geo['cities'] = array_merge($geo['cities'], $citiesByCountry[$country]);
+                continue;
+            }
+
+            $geo['countries'][] = $country;
+        }
+
+        if ($geo['countries'] === []) {
+            unset($geo['countries']);
+        }
+
+        if ($geo['cities'] === []) {
+            unset($geo['cities']);
+        }
+
+        if (! isset($geo['countries']) && ! isset($geo['cities'])) {
+            throw new Exception('At least one valid country or city is required.');
+        }
+
+        return $geo;
+    }
+
+    /**
+     * Meta only needs city keys in API payloads; strip extra metadata safely.
+     */
+    protected function normalizeGeoLocationsForApi(array $geoLocations): array
+    {
+        if (! empty($geoLocations['countries']) && is_array($geoLocations['countries'])) {
+            $geoLocations['countries'] = array_values(array_unique(array_map(
+                fn ($code) => strtoupper(trim((string) $code)),
+                $geoLocations['countries']
+            )));
+        }
+
+        if (! empty($geoLocations['cities']) && is_array($geoLocations['cities'])) {
+            $geoLocations['cities'] = array_values(array_map(function ($city) {
+                $key = is_array($city)
+                    ? trim((string) ($city['key'] ?? ''))
+                    : trim((string) $city);
+
+                if ($key === '') {
+                    return null;
+                }
+
+                return ['key' => $key];
+            }, $geoLocations['cities']));
+
+            $geoLocations['cities'] = array_values(array_filter($geoLocations['cities']));
+
+            if ($geoLocations['cities'] === []) {
+                unset($geoLocations['cities']);
+            }
+        }
+
+        return $geoLocations;
+    }
+
+    /**
+     * Remove deprecated or invalid interest IDs (Meta subcode 2446394/2446395).
+     */
+    protected function sanitizeFlexibleSpec(array $targeting): array
+    {
+        if (empty($targeting['flexible_spec']) || ! is_array($targeting['flexible_spec'])) {
+            unset($targeting['flexible_spec']);
+            return $targeting;
+        }
+
+        $interestIds = [];
+
+        foreach ($targeting['flexible_spec'] as $spec) {
+            foreach ($spec['interests'] ?? [] as $interest) {
+                $id = trim((string) ($interest['id'] ?? ''));
+                if ($id !== '') {
+                    $interestIds[] = $id;
+                }
+            }
+        }
+
+        $interestIds = array_values(array_unique($interestIds));
+
+        if ($interestIds === []) {
+            unset($targeting['flexible_spec']);
+            return $targeting;
+        }
+
+        $validIds = $this->validateInterestIds($interestIds);
+
+        if ($validIds === []) {
+            Log::warning('META_INTERESTS_REMOVED', [
+                'removed' => $interestIds,
+            ]);
+            unset($targeting['flexible_spec']);
+            return $targeting;
+        }
+
+        if (count($validIds) !== count($interestIds)) {
+            Log::warning('META_INTERESTS_FILTERED', [
+                'requested' => $interestIds,
+                'valid' => $validIds,
+            ]);
+        }
+
+        $targeting['flexible_spec'] = [[
+            'interests' => array_map(
+                fn ($id) => ['id' => (string) $id],
+                $validIds
+            ),
+        ]];
+
+        return $targeting;
+    }
+
+    /**
+     * @return string[] Valid Meta interest IDs
+     */
+    public function validateInterestIds(array $interestIds): array
+    {
+        $interestIds = array_values(array_unique(array_filter(array_map(
+            fn ($id) => trim((string) $id),
+            $interestIds
+        ))));
+
+        if ($interestIds === []) {
+            return [];
+        }
+
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/search", [
+                'type' => 'adinterestvalid',
+                'interest_list' => json_encode($interestIds),
+                'access_token' => $this->accessToken,
+            ]);
+
+            if ($response->failed()) {
+                Log::warning('META_INTEREST_VALIDATION_FAILED', [
+                    'interest_ids' => $interestIds,
+                    'response' => $response->body(),
+                ]);
+
+                return $interestIds;
+            }
+
+            $result = $response->json();
+            $valid = [];
+
+            foreach ($result['data'] ?? [] as $item) {
+                if (($item['valid'] ?? false) && ! empty($item['id'])) {
+                    $valid[] = (string) $item['id'];
+                }
+            }
+
+            return $valid;
+        } catch (Throwable $e) {
+            Log::warning('META_INTEREST_VALIDATION_ERROR', [
+                'interest_ids' => $interestIds,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $interestIds;
+        }
+    }
+
+    /**
+     * Search cities, regions, or countries via Meta Targeting Search.
+     */
+    public function searchGeoLocations(
+        string $query,
+        string $locationType = 'city',
+        ?string $countryCode = null
+    ): array {
+        $query = trim($query);
+
+        if (strlen($query) < 2) {
+            return [];
+        }
+
+        $allowedTypes = ['city', 'country', 'region', 'zip'];
+        if (! in_array($locationType, $allowedTypes, true)) {
+            $locationType = 'city';
+        }
+
+        $params = [
+            'type' => 'adgeolocation',
+            'location_types' => json_encode([$locationType]),
+            'q' => $query,
+            'limit' => 25,
+            'access_token' => $this->accessToken,
+        ];
+
+        if ($countryCode) {
+            $params['country_code'] = strtoupper(trim($countryCode));
+        }
+
+        $response = $this->client()->get("{$this->baseUrl}/search", $params);
+
+        if ($response->failed()) {
+            Log::warning('META_GEO_SEARCH_FAILED', [
+                'query' => $query,
+                'location_type' => $locationType,
+                'country_code' => $countryCode,
+                'response' => $response->body(),
+            ]);
+
+            return [];
+        }
+
+        $items = $response->json()['data'] ?? [];
+
+        return collect($items)->map(function ($item) {
+            return [
+                'key' => (string) ($item['key'] ?? ''),
+                'name' => (string) ($item['name'] ?? ''),
+                'type' => (string) ($item['type'] ?? ''),
+                'country_code' => strtoupper((string) ($item['country_code'] ?? $item['country'] ?? '')),
+                'country_name' => (string) ($item['country_name'] ?? ''),
+                'region' => (string) ($item['region'] ?? ''),
+                'region_id' => isset($item['region_id']) ? (int) $item['region_id'] : null,
+                'supports_city' => (bool) ($item['supports_city'] ?? true),
+            ];
+        })->filter(fn ($item) => $item['key'] !== '' && $item['name'] !== '')->values()->all();
+    }
+
+    protected function resolveDestinationType(string $optimizationGoal): ?string
+    {
+        return match (strtoupper($optimizationGoal)) {
+            'LEAD_GENERATION', 'QUALITY_LEAD' => 'ON_AD',
+            default => null,
+        };
+    }
 
     /**
      * Add required placement positions when publisher_platforms is present.
@@ -504,6 +779,13 @@ if (!is_array($targeting)) {
         $payload['promoted_object'] = is_array($data['promoted_object'])
             ? json_encode($data['promoted_object'])
             : $data['promoted_object'];
+    }
+
+    $destinationType = $data['destination_type']
+        ?? $this->resolveDestinationType((string) ($payload['optimization_goal'] ?? ''));
+
+    if ($destinationType) {
+        $payload['destination_type'] = $destinationType;
     }
 
     /*

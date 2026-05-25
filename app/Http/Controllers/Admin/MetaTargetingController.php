@@ -3,12 +3,17 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\MetaAdsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class MetaTargetingController extends Controller
 {
+    public function __construct(protected MetaAdsService $meta)
+    {
+    }
+
     /**
      * Search Meta Ads Interests
      */
@@ -92,6 +97,46 @@ class MetaTargetingController extends Controller
             return response()->json([
                 'success' => false,
                 'data' => []
+            ]);
+        }
+    }
+
+    /**
+     * Search Meta geo locations (cities, regions, countries).
+     */
+    public function searchGeoLocations(Request $request)
+    {
+        $query = trim($request->get('q', ''));
+        $locationType = trim($request->get('type', 'city'));
+        $countryCode = trim($request->get('country', ''));
+
+        if (strlen($query) < 2) {
+            return response()->json([
+                'success' => true,
+                'data' => [],
+            ]);
+        }
+
+        try {
+            $results = $this->meta->searchGeoLocations(
+                $query,
+                $locationType !== '' ? $locationType : 'city',
+                $countryCode !== '' ? $countryCode : null
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => $results,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Meta geo search error', [
+                'query' => $query,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'data' => [],
             ]);
         }
     }

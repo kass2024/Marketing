@@ -239,6 +239,11 @@ public function getBudgetFormattedAttribute(): string
         return $this->targeting['geo_locations']['countries'] ?? [];
     }
 
+    public function getCities(): array
+    {
+        return $this->targeting['geo_locations']['cities'] ?? [];
+    }
+
     public function getAgeRange(): array
     {
         return [

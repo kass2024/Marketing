@@ -572,6 +572,9 @@ Route::prefix('creatives')->name('creatives.')->group(function () {
 Route::get('/admin/meta/interests', [\App\Http\Controllers\Admin\MetaTargetingController::class, 'searchInterests'])
     ->name('admin.meta.interests');
 
+Route::get('/admin/meta/geo', [\App\Http\Controllers\Admin\MetaTargetingController::class, 'searchGeoLocations'])
+    ->name('admin.meta.geo');
+
 /*
 |--------------------------------------------------------------------------
 | PROFILE

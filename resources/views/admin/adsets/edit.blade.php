@@ -205,6 +205,33 @@ Female
 
 
 
+{{-- GEO TARGETING --}}
+<div class="mb-6">
+
+<label class="font-semibold block mb-2">Location Targeting</label>
+
+<select
+name="geo_mode"
+id="geo-mode"
+class="w-full border rounded-xl px-4 py-3"
+required>
+
+<option value="countries_only"
+@selected(old('geo_mode', $adset->geo_mode ?? 'countries_only') === 'countries_only')>
+Entire selected countries
+</option>
+
+<option value="countries_and_cities"
+@selected(old('geo_mode', $adset->geo_mode ?? 'countries_only') === 'countries_and_cities')>
+Selected countries and/or specific cities
+</option>
+
+</select>
+
+</div>
+
+
+
 {{-- COUNTRIES --}}
 <div class="mb-6">
 
@@ -230,6 +257,26 @@ value="{{ $code }}"
 @endforeach
 
 </select>
+
+</div>
+
+
+
+{{-- CITIES --}}
+<div class="mb-6 {{ old('geo_mode', $adset->geo_mode ?? 'countries_only') === 'countries_and_cities' ? '' : 'hidden' }}" id="city-section">
+
+<label class="font-semibold block mb-2">Cities (optional)</label>
+
+<select
+id="city-select"
+multiple
+class="w-full border rounded-xl px-4 py-3"></select>
+
+<input
+type="hidden"
+name="cities_json"
+id="cities-json"
+value="{{ old('cities_json', json_encode($adset->cities ?? [])) }}">
 
 </div>
 
@@ -399,10 +446,113 @@ Delete
 
 <script>
 
-new TomSelect("#country-select",{plugins:['remove_button']});
+const countrySelect = new TomSelect("#country-select",{plugins:['remove_button']});
 new TomSelect("#gender-select",{plugins:['remove_button']});
 new TomSelect("#language-select",{plugins:['remove_button']});
 new TomSelect("#platform-select",{plugins:['remove_button']});
+
+const geoModeSelect = document.getElementById("geo-mode");
+const citySection = document.getElementById("city-section");
+const citiesJsonInput = document.getElementById("cities-json");
+
+let selectedCities = [];
+
+try {
+    selectedCities = JSON.parse(citiesJsonInput.value || "[]");
+    if (!Array.isArray(selectedCities)) selectedCities = [];
+} catch (e) {
+    selectedCities = [];
+}
+
+function syncCitiesJson() {
+    citiesJsonInput.value = JSON.stringify(selectedCities);
+}
+
+function cityLabel(city) {
+    const parts = [city.name || city.key];
+    if (city.region) parts.push(city.region);
+    if (city.country) parts.push(city.country);
+    return parts.join(", ");
+}
+
+let citySelect = new TomSelect("#city-select", {
+    plugins: ['remove_button'],
+    valueField: 'key',
+    labelField: 'label',
+    searchField: ['label', 'name', 'region'],
+    maxItems: 50,
+    options: selectedCities.map(city => ({
+        key: city.key,
+        label: cityLabel(city),
+        name: city.name || city.key,
+        region: city.region || '',
+        country: city.country || '',
+        region_id: city.region_id || null,
+    })),
+    items: selectedCities.map(city => city.key),
+    render: {
+        option: function(item, escape) {
+            return `<div>${escape(item.label || item.name || item.key)}</div>`;
+        },
+        item: function(item, escape) {
+            return `<div>${escape(item.label || item.name || item.key)}</div>`;
+        }
+    },
+    load: function(query, callback) {
+        if (query.length < 2) return callback();
+
+        const params = new URLSearchParams({
+            q: query,
+            type: 'city',
+        });
+
+        const countries = countrySelect.getValue();
+        if (countries.length === 1) {
+            params.set('country', countries[0]);
+        }
+
+        fetch("/admin/meta/geo?" + params.toString())
+            .then(res => res.json())
+            .then(data => {
+                callback((data.data ?? []).map(city => ({
+                    key: city.key,
+                    label: [city.name, city.region, city.country_code].filter(Boolean).join(", "),
+                    name: city.name,
+                    region: city.region || '',
+                    country: city.country_code || '',
+                    region_id: city.region_id || null,
+                })));
+            })
+            .catch(() => callback());
+    },
+    onItemAdd: function(value, item) {
+        const exists = selectedCities.some(city => city.key === value);
+        if (!exists) {
+            selectedCities.push({
+                key: value,
+                name: item.name || item.label || value,
+                region: item.region || '',
+                country: item.country || '',
+                region_id: item.region_id || null,
+            });
+            syncCitiesJson();
+        }
+    },
+    onItemRemove: function(value) {
+        selectedCities = selectedCities.filter(city => city.key !== value);
+        syncCitiesJson();
+    }
+});
+
+function toggleCitySection() {
+    const showCities = geoModeSelect.value === "countries_and_cities";
+    citySection.classList.toggle("hidden", !showCities);
+}
+
+geoModeSelect.addEventListener("change", toggleCitySection);
+countrySelect.on("change", () => citySelect.clearOptions());
+toggleCitySection();
+syncCitiesJson();
 
 let interestSelect = new TomSelect("#interest-select",{
 
@@ -444,6 +594,10 @@ section.classList.remove("hidden");
 section.classList.add("hidden");
 }
 
+});
+
+document.querySelector("form").addEventListener("submit", function() {
+    syncCitiesJson();
 });
 
 </script>

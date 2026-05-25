@@ -136,6 +136,10 @@ class AdSetController extends Controller
 
             'countries' => 'required|array|min:1',
 
+            'geo_mode' => 'required|in:countries_only,countries_and_cities',
+
+            'cities_json' => 'nullable|string',
+
             'genders' => 'nullable|array',
 
             'languages' => 'nullable|array',
@@ -245,75 +249,7 @@ class AdSetController extends Controller
             |--------------------------------------------------------------------------
             */
 
-          $targeting = [
-
-    'geo_locations' => [
-        'countries' => array_values($data['countries'])
-    ],
-
-    'age_min' => (int)$data['age_min'],
-
-    'age_max' => (int)$data['age_max'],
-
-];
-            if (!empty($data['genders'])) {
-
-                $targeting['genders'] =
-                    array_map('intval', $data['genders']);
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | INTERESTS
-            |--------------------------------------------------------------------------
-            */
-
-            if (!empty($data['interests'])) {
-
-                $interestList = [];
-
-                foreach ($data['interests'] as $interestId) {
-
-                    $interestList[] = [
-                        'id' => (string)$interestId
-                    ];
-                }
-
-                $targeting['flexible_spec'] = [
-                    [
-                        'interests' => $interestList
-                    ]
-                ];
-            }
-
-       /*
-|--------------------------------------------------------------------------
-| LANGUAGES (store locally only - do NOT send to Meta)
-|--------------------------------------------------------------------------
-*/
-
-$languages = [];
-
-if (!empty($data['languages'])) {
-
-    $languages = array_map('intval', $data['languages']);
-
-}
-            /*
-            |--------------------------------------------------------------------------
-            | PLACEMENTS
-            |--------------------------------------------------------------------------
-            */
-
-            if ($data['placement_type'] === 'manual') {
-
-                if (empty($data['publisher_platforms'])) {
-                    throw new Exception('Select at least one placement');
-                }
-
-                $targeting['publisher_platforms'] =
-                    $data['publisher_platforms'];
-            }
+            $targeting = $this->buildAdSetTargeting($data);
 
             /*
             |--------------------------------------------------------------------------
@@ -344,9 +280,10 @@ if (!empty($data['languages'])) {
                     'page_id' => $data['page_id']
                 ],
 
-                // DO NOT JSON encode here
                 'targeting' => $targeting
             ];
+
+            $languages = array_map('intval', $data['languages'] ?? []);
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 
@@ -612,6 +549,13 @@ public function edit(AdSet $adset)
     $adset->countries =
         $targeting['geo_locations']['countries'] ?? [];
 
+    $adset->cities =
+        $targeting['geo_locations']['cities'] ?? [];
+
+    $adset->geo_mode = ! empty($adset->cities)
+        ? 'countries_and_cities'
+        : 'countries_only';
+
     $adset->age_min =
         $targeting['age_min'] ?? 18;
 
@@ -685,6 +629,11 @@ public function update(Request $request, AdSet $adset)
         'age_max' => 'required|integer|min:18|max:65',
 
         'countries' => 'required|array|min:1',
+
+        'geo_mode' => 'required|in:countries_only,countries_and_cities',
+
+        'cities_json' => 'nullable|string',
+
         'genders' => 'nullable|array',
         'languages' => 'nullable|array',
         'interests' => 'nullable|array|max:5',
@@ -708,67 +657,9 @@ public function update(Request $request, AdSet $adset)
         |--------------------------------------------------------------------------
         */
 
-        $targeting = [
+        $targeting = $this->buildAdSetTargeting($data);
 
-            'geo_locations' => [
-                'countries' => array_values($data['countries'])
-            ],
-
-            'age_min' => (int)$data['age_min'],
-            'age_max' => (int)$data['age_max']
-        ];
-
-        if (!empty($data['genders'])) {
-
-            $targeting['genders'] =
-                array_map('intval', $data['genders']);
-        }
-
-        if (!empty($data['languages'])) {
-
-            $targeting['locales'] =
-                array_map('intval', $data['languages']);
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Interests
-        |--------------------------------------------------------------------------
-        */
-
-        if (!empty($data['interests'])) {
-
-            $interestList = [];
-
-            foreach ($data['interests'] as $interestId) {
-
-                $interestList[] = [
-                    'id' => (string)$interestId
-                ];
-            }
-
-            $targeting['flexible_spec'] = [
-                [
-                    'interests' => $interestList
-                ]
-            ];
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Placements
-        |--------------------------------------------------------------------------
-        */
-
-        if ($data['placement_type'] === 'manual') {
-
-            $targeting['publisher_platforms'] =
-                $data['publisher_platforms'] ?? [];
-
-            if (! empty($targeting['publisher_platforms'])) {
-                $targeting = $this->meta->enrichPlacementsForTargeting($targeting);
-            }
-        }
+        $languages = array_map('intval', $data['languages'] ?? []);
 
         /*
         |--------------------------------------------------------------------------
@@ -812,7 +703,9 @@ public function update(Request $request, AdSet $adset)
 
             'status' => $data['status'],
 
-            'targeting' => $targeting
+            'targeting' => array_merge($targeting, [
+                'locales' => $languages,
+            ])
         ]);
 
         return redirect()
@@ -838,4 +731,66 @@ public function update(Request $request, AdSet $adset)
             ]);
     }
 }
+
+    /**
+     * Build a Meta-compatible targeting spec from validated form data.
+     */
+    private function buildAdSetTargeting(array $data): array
+    {
+        $cities = [];
+
+        if (($data['geo_mode'] ?? 'countries_only') === 'countries_and_cities'
+            && ! empty($data['cities_json'])) {
+            $decoded = json_decode($data['cities_json'], true);
+
+            if (is_array($decoded)) {
+                $cities = $decoded;
+            }
+        }
+
+        $targeting = [
+            'geo_locations' => $this->meta->buildGeoLocations(
+                $data['countries'],
+                $cities
+            ),
+            'age_min' => (int) $data['age_min'],
+            'age_max' => (int) $data['age_max'],
+        ];
+
+        if (! empty($data['genders'])) {
+            $targeting['genders'] = array_map('intval', $data['genders']);
+        }
+
+        if (! empty($data['languages'])) {
+            $targeting['locales'] = array_map('intval', $data['languages']);
+        }
+
+        if (! empty($data['interests'])) {
+            $interestList = [];
+
+            foreach ($data['interests'] as $interestId) {
+                $interestList[] = [
+                    'id' => (string) $interestId,
+                ];
+            }
+
+            $targeting['flexible_spec'] = [[
+                'interests' => $interestList,
+            ]];
+        }
+
+        if (($data['placement_type'] ?? 'automatic') === 'manual') {
+            if (empty($data['publisher_platforms'])) {
+                throw new Exception('Select at least one placement');
+            }
+
+            $targeting['publisher_platforms'] = $data['publisher_platforms'];
+
+            if (! empty($targeting['publisher_platforms'])) {
+                $targeting = $this->meta->enrichPlacementsForTargeting($targeting);
+            }
+        }
+
+        return $targeting;
+    }
 }

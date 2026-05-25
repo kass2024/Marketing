@@ -183,11 +183,12 @@ required>
 
 </select>
 
+<p class="mt-2 text-sm text-slate-500">
+Lead ad sets require the selected Page to accept Meta Lead Generation Terms.
+<a id="leadgen-tos-link" class="text-xander-navy underline" href="https://www.facebook.com/ads/leadgen/tos" target="_blank" rel="noopener">Accept terms here</a>.
+</p>
+
 </div>
-
-
-
-{{-- AGE --}}
 <div class="grid grid-cols-2 gap-4 mb-6">
 
 <div>
@@ -555,6 +556,22 @@ geoModeSelect.addEventListener("change", toggleCitySection);
 countrySelect.on("change", () => citySelect.clearOptions());
 toggleCitySection();
 syncCitiesJson();
+
+const pageSelect = document.querySelector("[name='page_id']");
+const leadgenTosLink = document.getElementById("leadgen-tos-link");
+
+function updateLeadgenTosLink() {
+    if (!pageSelect || !leadgenTosLink) return;
+    const pageId = pageSelect.value;
+    leadgenTosLink.href = pageId
+        ? "https://www.facebook.com/ads/leadgen/tos?page_id=" + encodeURIComponent(pageId)
+        : "https://www.facebook.com/ads/leadgen/tos";
+}
+
+if (pageSelect) {
+    pageSelect.addEventListener("change", updateLeadgenTosLink);
+    updateLeadgenTosLink();
+}
 
 
 

@@ -265,6 +265,71 @@ class CampaignController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | Edit Campaign
+    |--------------------------------------------------------------------------
+    */
+
+    public function edit(Campaign $campaign)
+    {
+        return view('admin.campaigns.edit', [
+            'campaign' => $campaign,
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Update Campaign
+    |--------------------------------------------------------------------------
+    */
+
+    public function update(Request $request, Campaign $campaign)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'objective' => 'required|in:OUTCOME_TRAFFIC,OUTCOME_LEADS,OUTCOME_ENGAGEMENT,OUTCOME_AWARENESS,OUTCOME_SALES',
+            'daily_budget' => 'nullable|numeric|min:0',
+            'status' => 'required|in:DRAFT,ACTIVE,PAUSED,COMPLETED,draft,active,paused,completed',
+        ]);
+
+        try {
+            $status = strtoupper($data['status']);
+
+            $campaign->update([
+                'name' => $data['name'],
+                'objective' => $data['objective'],
+                'daily_budget' => isset($data['daily_budget'])
+                    ? (int) round(((float) $data['daily_budget']) * 100)
+                    : $campaign->daily_budget,
+                'status' => $status,
+            ]);
+
+            if ($campaign->meta_id) {
+                $this->meta->updateCampaign($campaign->meta_id, [
+                    'name' => $data['name'],
+                    'status' => $status,
+                ]);
+            }
+
+            return redirect()
+                ->route('admin.campaigns.index')
+                ->with('success', 'Campaign updated successfully.');
+
+        } catch (Throwable $e) {
+            Log::error('CAMPAIGN_UPDATE_FAILED', [
+                'campaign_id' => $campaign->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()
+                ->withInput()
+                ->withErrors([
+                    'meta' => 'Unable to update campaign: '.$e->getMessage(),
+                ]);
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Delete Campaign
     |--------------------------------------------------------------------------
     */

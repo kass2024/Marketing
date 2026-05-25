@@ -292,6 +292,87 @@ protected function handleError($response, $endpoint, $payload = [])
         return [];
     }
 
+    public function leadgenTosAcceptUrl(string $pageId): string
+    {
+        return 'https://www.facebook.com/ads/leadgen/tos?page_id='.urlencode($pageId);
+    }
+
+    /**
+     * @return array{accepted: bool, acceptance_time: ?string, page_name: ?string, error: ?string}
+     */
+    public function getPageLeadgenTosStatus(string $pageId): array
+    {
+        $this->ensureConfigured();
+
+        try {
+            $response = $this->get($pageId, [
+                'fields' => 'id,name,leadgen_tos_accepted,leadgen_tos_acceptance_time',
+            ]);
+
+            return [
+                'accepted' => (bool) ($response['leadgen_tos_accepted'] ?? false),
+                'acceptance_time' => $response['leadgen_tos_acceptance_time'] ?? null,
+                'page_name' => $response['name'] ?? null,
+                'error' => null,
+            ];
+        } catch (Throwable $e) {
+            Log::warning('META_LEADGEN_TOS_CHECK_FAILED', [
+                'page_id' => $pageId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'accepted' => false,
+                'acceptance_time' => null,
+                'page_name' => null,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    public function formatLeadgenTosError(string $pageId, ?string $pageName = null): string
+    {
+        $label = $pageName ? 'Page "'.$pageName.'"' : 'This Facebook Page';
+        $url = $this->leadgenTosAcceptUrl($pageId);
+
+        return $label." must accept Meta Lead Generation Terms before lead ad sets can run. "
+            ."Open {$url} while logged in as a Page admin, click Accept, then try again.";
+    }
+
+    protected function isLeadgenTosError(Throwable $e): bool
+    {
+        return str_contains($e->getMessage(), '1815089')
+            || str_contains($e->getMessage(), 'Lead Generation Terms');
+    }
+
+    protected function enrichLeadgenTosError(Exception $e, array $payload): Exception
+    {
+        if (! $this->isLeadgenTosError($e)) {
+            return $e;
+        }
+
+        $pageId = null;
+        $promotedObject = $payload['promoted_object'] ?? null;
+
+        if (is_string($promotedObject)) {
+            $decoded = json_decode($promotedObject, true);
+            $pageId = $decoded['page_id'] ?? null;
+        } elseif (is_array($promotedObject)) {
+            $pageId = $promotedObject['page_id'] ?? null;
+        }
+
+        if (! $pageId) {
+            return $e;
+        }
+
+        $status = $this->getPageLeadgenTosStatus((string) $pageId);
+
+        return new Exception($this->formatLeadgenTosError(
+            (string) $pageId,
+            $status['page_name'] ?? null
+        ));
+    }
+
     /*
     |--------------------------------------------------------------------------
     | CAMPAIGN
@@ -901,6 +982,28 @@ if (!is_array($targeting)) {
         'payload' => $payload
     ]);
 
+    $optimizationGoal = strtoupper((string) ($payload['optimization_goal'] ?? ''));
+
+    if (in_array($optimizationGoal, ['LEAD_GENERATION', 'QUALITY_LEAD'], true)) {
+        $pageId = null;
+        $promotedObject = $data['promoted_object'] ?? null;
+
+        if (is_array($promotedObject)) {
+            $pageId = $promotedObject['page_id'] ?? null;
+        }
+
+        if ($pageId) {
+            $tosStatus = $this->getPageLeadgenTosStatus((string) $pageId);
+
+            if (! $tosStatus['accepted']) {
+                throw new Exception($this->formatLeadgenTosError(
+                    (string) $pageId,
+                    $tosStatus['page_name'] ?? null
+                ));
+            }
+        }
+    }
+
     /*
     |--------------------------------------------------------------------------
     | API REQUEST (auto-retry deprecated interests & targeting fallbacks)
@@ -932,6 +1035,11 @@ if (!is_array($targeting)) {
             return $response;
         } catch (Exception $e) {
             $lastException = $e;
+
+            if ($this->isLeadgenTosError($e)) {
+                throw $this->enrichLeadgenTosError($e, $payload);
+            }
+
             $message = $e->getMessage();
 
             $alternatives = $this->extractInterestAlternatives($message);

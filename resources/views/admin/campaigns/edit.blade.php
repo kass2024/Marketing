@@ -84,9 +84,8 @@ Daily Budget (CAD)
 <input
 type="number"
 name="daily_budget"
-value="{{ old('daily_budget', $campaign->daily_budget / 100) }}"
+value="{{ old('daily_budget', $campaign->daily_budget ? $campaign->daily_budget / 100 : '') }}"
 min="5"
-required
 class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500">
 </div>
 
@@ -101,19 +100,21 @@ Status
 name="status"
 class="w-full border rounded-xl px-4 py-3">
 
-<option value="draft" {{ $campaign->status == 'draft' ? 'selected' : '' }}>
-Draft
-</option>
+@php $status = strtoupper(old('status', $campaign->status ?? 'PAUSED')); @endphp
 
-<option value="active" {{ $campaign->status == 'active' ? 'selected' : '' }}>
-Active
-</option>
-
-<option value="paused" {{ $campaign->status == 'paused' ? 'selected' : '' }}>
+<option value="PAUSED" {{ $status === 'PAUSED' ? 'selected' : '' }}>
 Paused
 </option>
 
-<option value="completed" {{ $campaign->status == 'completed' ? 'selected' : '' }}>
+<option value="ACTIVE" {{ $status === 'ACTIVE' ? 'selected' : '' }}>
+Active
+</option>
+
+<option value="DRAFT" {{ $status === 'DRAFT' ? 'selected' : '' }}>
+Draft
+</option>
+
+<option value="COMPLETED" {{ $status === 'COMPLETED' ? 'selected' : '' }}>
 Completed
 </option>
 

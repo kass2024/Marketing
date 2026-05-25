@@ -287,6 +287,17 @@ class AdSetController extends Controller
 
             Log::info('META_ADSET_PAYLOAD', $payload);
 
+            if ($optimizationGoal === 'LEAD_GENERATION') {
+                $tosStatus = $this->meta->getPageLeadgenTosStatus($data['page_id']);
+
+                if (! $tosStatus['accepted']) {
+                    throw new Exception($this->meta->formatLeadgenTosError(
+                        $data['page_id'],
+                        $tosStatus['page_name'] ?? null
+                    ));
+                }
+            }
+
             /*
             |--------------------------------------------------------------------------
             | CREATE META ADSET

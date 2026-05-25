@@ -262,6 +262,12 @@ protected $casts = [
         return !empty($this->meta_ad_id);
     }
 
+    public function hasReachedDailyBudget(): bool
+    {
+        return (float) $this->daily_budget > 0
+            && (float) $this->daily_spend >= (float) $this->daily_budget;
+    }
+
 
     /**
      * Link to Meta Ads Manager

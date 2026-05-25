@@ -15,6 +15,7 @@ class SafeDeploy extends Command
     protected array $safeAlterMigrations = [
         'database/migrations/2026_05_25_100000_add_facebook_page_tenant_columns.php',
         'database/migrations/2026_05_25_110000_add_client_ad_account_name_and_relax_ad_accounts_unique.php',
+        'database/migrations/2026_05_26_100000_add_ads_budget_and_metrics_columns.php',
     ];
 
     protected $signature = 'deploy:safe

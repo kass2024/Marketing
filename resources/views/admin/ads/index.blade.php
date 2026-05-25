@@ -220,7 +220,13 @@ ALERTS
         @if($ad->status !== 'ACTIVE')
             <form method="POST" action="{{ route('admin.ads.publish',$ad->id) }}" class="m-0">
                 @csrf
-                <button type="submit" class="w-full rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">Publish</button>
+                <button type="submit" class="w-full rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">
+                    @if($ad->pause_reason === 'budget_limit')
+                        Publish again
+                    @else
+                        Publish
+                    @endif
+                </button>
             </form>
         @endif
         @if($ad->status === 'ACTIVE')
@@ -280,7 +286,8 @@ LIVE AJAX DASHBOARD UPDATE
 (function(){
 
 let running = false;
-const REFRESH_MS = 5000;
+const REFRESH_MS = 15000;
+const FETCH_TIMEOUT_MS = 25000;
 
 /* =============================
    FORMATTERS
@@ -294,7 +301,7 @@ function number(v){
     return Number(v || 0).toLocaleString();
 }
 
-function setLiveStatus(ok, refreshedAt){
+function setLiveStatus(ok, refreshedAt, warning){
     const status = document.getElementById('live-status');
     const dot = document.getElementById('live-indicator');
 
@@ -305,10 +312,11 @@ function setLiveStatus(ok, refreshedAt){
     if(ok){
         dot.className = 'inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse';
         const time = refreshedAt ? new Date(refreshedAt).toLocaleTimeString() : new Date().toLocaleTimeString();
-        status.textContent = 'Live from Meta — updated ' + time + ' (auto every ' + (REFRESH_MS / 1000) + 's)';
+        const suffix = warning ? ' — ' + warning : '';
+        status.textContent = 'Live from Meta — updated ' + time + ' (auto every ' + (REFRESH_MS / 1000) + 's)' + suffix;
     } else {
-        dot.className = 'inline-flex h-2 w-2 rounded-full bg-amber-500';
-        status.textContent = 'Live refresh paused — retrying…';
+        dot.className = 'inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse';
+        status.textContent = 'Reconnecting to Meta live feed…';
     }
 }
 
@@ -364,6 +372,8 @@ async function refreshAdsDashboard(){
     if(running) return;
 
     running = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try{
 
@@ -372,6 +382,7 @@ async function refreshAdsDashboard(){
             {
                 credentials: 'same-origin',
                 cache: 'no-store',
+                signal: controller.signal,
                 headers:{
                     'X-Requested-With':'XMLHttpRequest',
                     'Accept': 'application/json'
@@ -379,11 +390,18 @@ async function refreshAdsDashboard(){
             }
         );
 
-        if(!response.ok){
-            throw new Error('Network response failed');
+        clearTimeout(timeoutId);
+
+        const contentType = response.headers.get('content-type') || '';
+        if(!contentType.includes('application/json')){
+            throw new Error('Live endpoint returned non-JSON response');
         }
 
         const data = await response.json();
+
+        if(!response.ok && !data.ads){
+            throw new Error(data.error || 'Live refresh failed');
+        }
 
         /* =============================
            UPDATE METRICS
@@ -425,9 +443,7 @@ async function refreshAdsDashboard(){
 
         });
 
-        setLiveStatus(true, data.refreshed_at);
-
-        console.log('Ads dashboard refreshed', data);
+        setLiveStatus(true, data.refreshed_at, data.warning || (data.meta_synced === false ? 'using saved data' : ''));
 
     }
     catch(e){
@@ -436,8 +452,10 @@ async function refreshAdsDashboard(){
         setLiveStatus(false);
 
     }
-
-    running = false;
+    finally {
+        clearTimeout(timeoutId);
+        running = false;
+    }
 
 }
 

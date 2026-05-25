@@ -11,6 +11,7 @@ use App\Models\AdAccount;
 use App\Models\Campaign;
 use App\Models\AdSet;
 use App\Models\Ad;
+use App\Support\AdBudgetGuard;
 
 class SyncMetaAds extends Command
 {
@@ -171,64 +172,18 @@ class SyncMetaAds extends Command
                         ? round(($clicks / $impressions) * 100, 2)
                         : 0;
 
-                    /*
-                    |----------------------------------------------
-                    | 🔥 SMART BUDGET CONTROL
-                    |----------------------------------------------
-                    */
-                    $status = $ad->status;
-                    $pauseReason = $ad->pause_reason;
-
-                    if ($ad->daily_budget) {
-
-                        if ($todaySpend >= $ad->daily_budget) {
-
-                            if ($pauseReason !== 'budget') {
-
-                                Log::warning('AUTO_PAUSE', ['ad' => $metaAdId]);
-
-                                $this->safeMetaCall(fn() =>
-                                    $this->meta->updateAd($metaAdId, [
-                                        'status' => 'PAUSED'
-                                    ])
-                                );
-
-                                $status = 'PAUSED';
-                                $pauseReason = 'budget';
-                            }
-
-                        } else {
-
-                            if ($pauseReason === 'budget') {
-
-                                Log::info('AUTO_RESUME', ['ad' => $metaAdId]);
-
-                                $this->safeMetaCall(fn() =>
-                                    $this->meta->updateAd($metaAdId, [
-                                        'status' => 'ACTIVE'
-                                    ])
-                                );
-
-                                $status = 'ACTIVE';
-                                $pauseReason = null;
-                            }
-                        }
-                    }
-
-                    /*
-                    |----------------------------------------------
-                    | SAVE METRICS
-                    |----------------------------------------------
-                    */
                     $ad->update([
-                        'status' => $status,
-                        'pause_reason' => $pauseReason,
                         'impressions' => $impressions,
                         'clicks' => $clicks,
                         'ctr' => $ctr,
                         'daily_spend' => $todaySpend,
-                        'spend_date' => Carbon::today()->toDateString()
+                        'spend_date' => Carbon::today()->toDateString(),
                     ]);
+
+                    $ad->daily_spend = $todaySpend;
+                    AdBudgetGuard::enforce($ad, $this->meta);
+
+                    $ad->save();
 
                 } catch (\Throwable $e) {
 

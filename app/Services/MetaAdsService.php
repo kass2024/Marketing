@@ -435,10 +435,52 @@ protected function buildTargeting(array $targeting): array
         $targeting = $this->enrichPlacementTargeting($targeting);
     }
 
+    $targeting = $this->applyTargetingAutomation($targeting);
+
     Log::info('META_TARGETING_FINAL', $targeting);
 
     return $targeting;
 }
+
+    /**
+     * Meta requires targeting_automation.advantage_audience (0 or 1) on all ad sets.
+     */
+    protected function applyTargetingAutomation(array $targeting): array
+    {
+        if (isset($targeting['targeting_automation']['advantage_audience'])) {
+            $targeting['targeting_automation']['advantage_audience'] =
+                (int) $targeting['targeting_automation']['advantage_audience'] === 1 ? 1 : 0;
+
+            return $targeting;
+        }
+
+        $configured = config('services.meta.advantage_audience');
+
+        if ($configured !== null && $configured !== '') {
+            $advantageAudience = (int) $configured === 1 ? 1 : 0;
+        } else {
+            $hasManualAudience = ! empty($targeting['flexible_spec'])
+                || ! empty($targeting['publisher_platforms'])
+                || ! empty($targeting['exclusions']);
+
+            $advantageAudience = $hasManualAudience ? 0 : 1;
+        }
+
+        $targeting['targeting_automation'] = [
+            'advantage_audience' => $advantageAudience,
+        ];
+
+        return $targeting;
+    }
+
+    protected function isAdvantageAudienceError(Throwable $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, '1870227')
+            || str_contains($message, 'advantage_audience')
+            || str_contains($message, 'Advantage audience flag required');
+    }
 
     /**
      * Build geo_locations from country codes and optional city entries.
@@ -1040,6 +1082,18 @@ if (!is_array($targeting)) {
                 throw $this->enrichLeadgenTosError($e, $payload);
             }
 
+            if ($this->isAdvantageAudienceError($e)) {
+                $targeting = $this->applyTargetingAutomation($targeting);
+                $payload['targeting'] = json_encode($targeting);
+
+                Log::warning('META_ADSET_RETRY_WITH_ADVANTAGE_AUDIENCE', [
+                    'attempt' => $attempt,
+                    'targeting_automation' => $targeting['targeting_automation'] ?? null,
+                ]);
+
+                continue;
+            }
+
             $message = $e->getMessage();
 
             $alternatives = $this->extractInterestAlternatives($message);
@@ -1131,19 +1185,28 @@ if (!is_array($targeting)) {
 
     public function createCreative(string $accountId,array $data):array
     {
+        $this->ensureConfigured();
+
         $accountId = $this->formatAccount($accountId);
 
-        $payload = [
+        if (empty($data['object_story_spec']) || ! is_array($data['object_story_spec'])) {
+            throw new Exception('object_story_spec is required for Meta creatives.');
+        }
 
-            'name'=>$data['name'],
-'object_story_spec' => json_encode(
-    array_filter($data['object_story_spec'])
-)
+        $objectStorySpec = array_filter($data['object_story_spec']);
+
+        if (empty($objectStorySpec['page_id'])) {
+            throw new Exception('object_story_spec.page_id is required.');
+        }
+
+        $payload = [
+            'name' => $data['name'],
+            'object_story_spec' => json_encode($objectStorySpec),
         ];
 
         Log::info('META_CREATIVE_PAYLOAD',$payload);
 
-        return $this->post("{$accountId}/adcreatives",$payload);
+        return $this->post("{$accountId}/adcreatives", $payload, true);
     }
 
   
@@ -1156,6 +1219,8 @@ if (!is_array($targeting)) {
 
 public function createAd(string $accountId, array $data): array
 {
+    $this->ensureConfigured();
+
     $accountId = $this->formatAccount($accountId);
 
     /*
@@ -1217,7 +1282,7 @@ public function createAd(string $accountId, array $data): array
     |--------------------------------------------------------------------------
     */
 
-    $response = $this->post("{$accountId}/ads", $payload);
+    $response = $this->post("{$accountId}/ads", $payload, true);
 
     /*
     |--------------------------------------------------------------------------

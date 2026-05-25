@@ -206,6 +206,10 @@ class CreativeController extends Controller
                 ];
             }
 
+            if (empty($linkData['image_hash'])) {
+                unset($linkData['image_hash']);
+            }
+
 
             /*
             |--------------------------------------------------------------------------

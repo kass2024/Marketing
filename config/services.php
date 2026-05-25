@@ -58,6 +58,9 @@ return [
         'mutation_timeout' => (int) env('META_MUTATION_TIMEOUT', 25),
         'search_timeout' => (int) env('META_SEARCH_TIMEOUT', 15),
 
+        /** null = auto (0 when interests/placements set, else 1). Set 0 or 1 to force. */
+        'advantage_audience' => env('META_ADVANTAGE_AUDIENCE'),
+
         'refresh_before_days' => env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
 
         /*

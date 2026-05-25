@@ -23,6 +23,7 @@
         <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Ads Manager</h1>
         <p class="mt-1 text-sm text-slate-600">
             Create, publish and monitor ad delivery performance.
+            <span class="text-xs text-emerald-700">Live metrics from Meta refresh every 5 seconds.</span>
         </p>
     </div>
     <div class="flex flex-shrink-0 flex-wrap items-center gap-2 sm:gap-3">
@@ -62,19 +63,19 @@ ALERTS
 <div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
     <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
         <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Total ads</p>
-        <p class="mt-1 text-2xl font-bold tabular-nums text-slate-900" id="metric-total-ads">{{ $ads->total() }}</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-slate-900" id="metric-total-ads">{{ $metrics['total_ads'] }}</p>
     </div>
     <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
         <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Active</p>
-        <p class="mt-1 text-2xl font-bold tabular-nums text-emerald-600" id="metric-active-ads">{{ $ads->getCollection()->where('status','ACTIVE')->count() }}</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-emerald-600" id="metric-active-ads">{{ $metrics['active_ads'] }}</p>
     </div>
     <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
         <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Total spend</p>
-        <p class="mt-1 text-2xl font-bold tabular-nums text-xander-navy" id="metric-total-spend">${{ number_format($ads->getCollection()->sum('spend'),2) }}</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-xander-navy" id="metric-total-spend">${{ number_format($metrics['total_spend'], 2) }}</p>
     </div>
     <div class="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm ring-1 ring-slate-900/5 sm:p-5">
         <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Clicks</p>
-        <p class="mt-1 text-2xl font-bold tabular-nums text-slate-800" id="metric-total-clicks">{{ number_format($ads->getCollection()->sum('clicks')) }}</p>
+        <p class="mt-1 text-2xl font-bold tabular-nums text-slate-800" id="metric-total-clicks">{{ number_format($metrics['total_clicks']) }}</p>
     </div>
 </div>
 
@@ -182,9 +183,9 @@ ALERTS
 <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5" id="clk-{{ $ad->id }}">{{ number_format($ad->clicks ?? 0) }}</td>
 
 {{-- CTR --}}
-<td class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5">
+<td class="whitespace-nowrap px-4 py-3 text-right tabular-nums lg:px-5" id="ctr-{{ $ad->id }}">
 @php $ctr = $ad->ctr ?? 0; @endphp
-<span class="font-semibold @if($ctr > 3) text-emerald-600 @elseif($ctr > 1) text-amber-600 @else text-slate-600 @endif">{{ number_format($ctr,2) }}%</span>
+<span class="font-semibold ctr-value @if($ctr > 3) text-emerald-600 @elseif($ctr > 1) text-amber-600 @else text-slate-600 @endif">{{ number_format($ctr,2) }}%</span>
 </td>
 
 {{-- SPEND --}}
@@ -318,6 +319,20 @@ function renderStatus(status){
 }
 
 
+function renderCtr(ctr){
+    const value = Number(ctr || 0);
+    let color = 'text-slate-600';
+
+    if(value > 3){
+        color = 'text-emerald-600';
+    } else if(value > 1){
+        color = 'text-amber-600';
+    }
+
+    return '<span class="font-semibold ctr-value ' + color + '">' + value.toFixed(2) + '%</span>';
+}
+
+
 /* =============================
    MAIN REFRESH FUNCTION
 ============================= */
@@ -368,12 +383,14 @@ async function refreshAdsDashboard(){
 
             const imp = document.getElementById('imp-'+ad.id);
             const clk = document.getElementById('clk-'+ad.id);
+            const ctr = document.getElementById('ctr-'+ad.id);
             const spn = document.getElementById('spend-'+ad.id);
             const tdy = document.getElementById('today-'+ad.id);
             const sts = document.getElementById('status-'+ad.id);
 
             if(imp) imp.textContent = number(ad.impressions);
             if(clk) clk.textContent = number(ad.clicks);
+            if(ctr) ctr.innerHTML = renderCtr(ad.ctr);
             if(spn) spn.textContent = money(ad.spend);
             if(tdy) tdy.textContent = money(ad.daily_spend);
 

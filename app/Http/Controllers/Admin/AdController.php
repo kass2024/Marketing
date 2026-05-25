@@ -29,6 +29,109 @@ class AdController extends Controller
         $this->meta = $meta;
     }
 
+    /**
+     * Pull lifetime + today spend from Meta (same source as the insight dashboard).
+     */
+    protected function hydrateLiveMetricsFromMeta(iterable $ads): void
+    {
+        $ads = collect($ads)->filter(fn (Ad $ad) => $ad->meta_ad_id);
+
+        if ($ads->isEmpty()) {
+            return;
+        }
+
+        $accountId = TenantScope::adAccountMetaId();
+
+        if (! $accountId) {
+            return;
+        }
+
+        try {
+            $lifetime = $this->meta->getAdInsightsMap($accountId, 'maximum');
+            $today = $this->meta->getAdInsightsMap($accountId, 'today');
+
+            foreach ($ads as $ad) {
+                $metaId = (string) $ad->meta_ad_id;
+                $row = $lifetime[$metaId] ?? null;
+
+                if (! $row) {
+                    continue;
+                }
+
+                $impressions = (int) ($row['impressions'] ?? 0);
+                $clicks = (int) ($row['clicks'] ?? 0);
+                $spend = (float) ($row['spend'] ?? 0);
+                $ctr = $impressions > 0
+                    ? round(($clicks / $impressions) * 100, 2)
+                    : (float) ($row['ctr'] ?? 0);
+                $dailySpend = (float) ($today[$metaId]['spend'] ?? 0);
+
+                $ad->update([
+                    'impressions' => $impressions,
+                    'clicks' => $clicks,
+                    'spend' => $spend,
+                    'ctr' => $ctr,
+                    'daily_spend' => $dailySpend,
+                ]);
+
+                $ad->impressions = $impressions;
+                $ad->clicks = $clicks;
+                $ad->spend = $spend;
+                $ad->ctr = $ctr;
+                $ad->daily_spend = $dailySpend;
+            }
+        } catch (Throwable $e) {
+            Log::warning('ADS_LIVE_METRICS_REFRESH_FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    protected function adsListQuery()
+    {
+        return TenantScope::ads(
+            Ad::query()
+                ->with([
+                    'creative:id,name,image_url,image_hash,json_payload',
+                    'adSet:id,name,campaign_id',
+                    'adSet.campaign:id,name,ad_account_id',
+                    'adSet.campaign.adAccount:id,name,meta_id',
+                ])
+                ->select([
+                    'id',
+                    'name',
+                    'adset_id',
+                    'creative_id',
+                    'meta_ad_id',
+                    'status',
+                    'impressions',
+                    'clicks',
+                    'ctr',
+                    'spend',
+                    'daily_budget',
+                    'daily_spend',
+                    'pause_reason',
+                    'spend_date',
+                    'created_at',
+                ])
+                ->latest()
+        );
+    }
+
+    protected function buildAdsMetrics(iterable $ads, ?int $totalAds = null): array
+    {
+        $collection = collect($ads);
+
+        return [
+            'total_ads' => $totalAds ?? $collection->count(),
+            'active_ads' => $collection->where('status', 'ACTIVE')->count(),
+            'total_spend' => $collection->sum('spend'),
+            'total_clicks' => $collection->sum('clicks'),
+            'total_impressions' => $collection->sum('impressions'),
+            'avg_ctr' => $collection->avg('ctr'),
+        ];
+    }
+
     /*
     |--------------------------------------------------------------------------
     | LIST ADS
@@ -36,42 +139,15 @@ class AdController extends Controller
     */
 public function index(): View
 {
-    /*
-    |--------------------------------------------------------------------------
-    | Load Ads With Required Relations
-    |--------------------------------------------------------------------------
-    */
+    $ads = $this->adsListQuery()->paginate(20);
 
-    $ads = TenantScope::ads(
-        Ad::query()
-        ->with([
-            'creative:id,name,image_url,image_hash,json_payload',
-            'adSet:id,name,campaign_id',
-            'adSet.campaign:id,name,ad_account_id',
-            'adSet.campaign.adAccount:id,name,meta_id'
-        ])
-    )
-    ->select([
-'id',
-'name',
-'adset_id',
-'creative_id',
-'meta_ad_id',
-'status',
-'impressions',
-'clicks',
-'ctr',
-'spend',
+    $allAds = $this->adsListQuery()->get();
+    $this->hydrateLiveMetricsFromMeta($allAds);
 
-'daily_budget',
-'daily_spend',
-'pause_reason',
-'spend_date',
-
-'created_at'
-])
-        ->latest()
-        ->paginate(20);
+    $freshMap = $allAds->keyBy('id');
+    $ads->setCollection(
+        $ads->getCollection()->map(fn (Ad $ad) => $freshMap->get($ad->id, $ad))
+    );
 
     try {
         Creative::hydrateMetaImageUrls(
@@ -82,44 +158,11 @@ public function index(): View
         // Previews fall back to local storage URLs when Meta lookup fails.
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | Dashboard Metrics
-    |--------------------------------------------------------------------------
-    */
-
-    $collection = $ads->getCollection();
-
-    $metrics = [
-
-        'total_ads' => $ads->total(),
-
-        'active_ads' => $collection->where('status','ACTIVE')->count(),
-
-        'total_spend' => $collection->sum('spend'),
-
-        'total_clicks' => $collection->sum('clicks'),
-
-        'total_impressions' => $collection->sum('impressions'),
-
-        'avg_ctr' => $collection->avg('ctr')
-
-    ];
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Return View
-    |--------------------------------------------------------------------------
-    */
+    $metrics = $this->buildAdsMetrics($allAds);
 
     return view('admin.ads.index', [
-
         'ads' => $ads,
-
-        'metrics' => $metrics
-
+        'metrics' => $metrics,
     ]);
 }
 
@@ -862,6 +905,8 @@ public function duplicate(Ad $ad): RedirectResponse
 }
 public function sync(Ad $ad): RedirectResponse
 {
+    TenantScope::assertAd($ad);
+
     if (!$ad->meta_ad_id) {
         return back()->withErrors([
             'sync' => 'Ad not synced with Meta'
@@ -869,40 +914,29 @@ public function sync(Ad $ad): RedirectResponse
     }
 
     try {
+        $insights = $this->meta->getInsights($ad->meta_ad_id, 'maximum');
+        $today = $this->meta->getInsights($ad->meta_ad_id, 'today');
 
-        $insights = $this->meta->getInsights($ad->meta_ad_id);
-
-        $impressions = 0;
-        $clicks = 0;
-        $spend = 0;
-
-        if (!empty($insights['data'][0])) {
-
-            $row = $insights['data'][0];
-
-            $impressions = (int) ($row['impressions'] ?? 0);
-            $clicks = (int) ($row['clicks'] ?? 0);
-            $spend = (float) ($row['spend'] ?? 0);
-        }
+        $impressions = (int) ($insights['impressions'] ?? 0);
+        $clicks = (int) ($insights['clicks'] ?? 0);
+        $spend = (float) ($insights['spend'] ?? 0);
+        $dailySpend = (float) ($today['spend'] ?? 0);
 
         $ctr = $impressions > 0
             ? round(($clicks / $impressions) * 100, 2)
             : 0;
 
         $ad->update([
-
             'impressions' => $impressions,
             'clicks' => $clicks,
             'spend' => $spend,
-            'ctr' => $ctr
-
+            'ctr' => $ctr,
+            'daily_spend' => $dailySpend,
         ]);
 
-        return back()->with('success','Ad metrics refreshed.');
+        return back()->with('success','Ad metrics refreshed from Meta.');
 
-    }
-
-    catch(Throwable $e){
+    } catch (Throwable $e) {
 
         Log::error('AD_SYNC_FAILED',[
             'error'=>$e->getMessage()
@@ -1044,44 +1078,29 @@ public function publish(Ad $ad): RedirectResponse
 }
 public function live(): JsonResponse
 {
-    $ads = Ad::query()
-        ->with([
-            'creative:id,name,image_url',
-            'adSet:id,name'
-        ])
-        ->select([
-            'id',
-            'name',
-            'adset_id',
-            'creative_id',
-            'meta_ad_id',
-            'status',
-            'impressions',
-            'clicks',
-            'ctr',
-            'spend',
-            'daily_spend',
-            'daily_budget',
-            'pause_reason'
-        ])
-        ->latest()
-        ->get();
+    $ads = $this->adsListQuery()->get();
 
-    $metrics = [
+    $this->hydrateLiveMetricsFromMeta($ads);
 
-        'total_ads' => $ads->count(),
-
-        'active_ads' => $ads->where('status','ACTIVE')->count(),
-
-        'total_spend' => $ads->sum('spend'),
-
-        'total_clicks' => $ads->sum('clicks')
-
-    ];
+    $metrics = $this->buildAdsMetrics($ads);
 
     return response()->json([
         'metrics' => $metrics,
-        'ads' => $ads
+        'ads' => $ads->map(fn (Ad $ad) => [
+            'id' => $ad->id,
+            'name' => $ad->name,
+            'adset_id' => $ad->adset_id,
+            'creative_id' => $ad->creative_id,
+            'meta_ad_id' => $ad->meta_ad_id,
+            'status' => $ad->status,
+            'impressions' => $ad->impressions,
+            'clicks' => $ad->clicks,
+            'ctr' => $ad->ctr,
+            'spend' => $ad->spend,
+            'daily_spend' => $ad->daily_spend,
+            'daily_budget' => $ad->daily_budget,
+            'pause_reason' => $ad->pause_reason,
+        ])->values(),
     ]);
 }
 }

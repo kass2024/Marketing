@@ -32,10 +32,12 @@ class ResetDailyAdBudgets extends Command
                 if (! $ad->spend_date || $ad->spend_date < $today) {
                     $ad->update([
                         'daily_spend' => 0,
+                        'daily_spend_anchor' => 0,
                         'spend_date' => $today,
                     ]);
 
                     $ad->daily_spend = 0;
+                    $ad->daily_spend_anchor = 0;
                     $ad->spend_date = $today;
                     $reset++;
                 }

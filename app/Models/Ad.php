@@ -67,6 +67,7 @@ protected $fillable = [
     /* Budget control */
     'daily_budget',
     'daily_spend',
+    'daily_spend_anchor',
     'pause_reason',
     'spend_date',
 
@@ -103,6 +104,7 @@ protected $casts = [
 
     'daily_budget' => 'float',
     'daily_spend' => 'float',
+    'daily_spend_anchor' => 'float',
     'spend_date' => 'date',
 
     'impressions' => 'integer',

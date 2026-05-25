@@ -389,12 +389,9 @@ Route::middleware(['auth','verified','role:admin,client'])
         |--------------------------------------------------------------------------
         */
 
-        Route::resource('ads', AdController::class)->names('ads');
-
-        // Additional Ad routes
+        // Additional Ad routes (live + actions before resource {ad} wildcard)
 Route::prefix('ads')->name('ads.')->group(function () {
 
-    /* LIVE DASHBOARD — must stay before {ad} wildcard routes */
     Route::get('live', [AdController::class, 'live'])
         ->name('live');
 
@@ -417,6 +414,8 @@ Route::get('{ad}/preview', [AdController::class,'preview'])
     Route::post('{ad}/publish', [AdController::class, 'publish'])
         ->name('publish');
 });
+
+        Route::resource('ads', AdController::class)->names('ads');
 
         // Ad Set-specific Ad creation
         Route::get('adsets/{adset}/ads/create', 

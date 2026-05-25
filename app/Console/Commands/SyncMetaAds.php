@@ -164,7 +164,7 @@ class SyncMetaAds extends Command
 
                     $insight = $insightMap[$metaAdId] ?? [];
 
-                    $todaySpend = (float)($insight['spend'] ?? 0);
+                    $metaTodaySpend = (float)($insight['spend'] ?? 0);
                     $impressions = (int)($insight['impressions'] ?? 0);
                     $clicks = (int)($insight['clicks'] ?? 0);
 
@@ -172,16 +172,16 @@ class SyncMetaAds extends Command
                         ? round(($clicks / $impressions) * 100, 2)
                         : 0;
 
-                    $ad->update([
+                    $budgetPayload = AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend);
+
+                    $ad->update(array_merge([
                         'impressions' => $impressions,
                         'clicks' => $clicks,
                         'ctr' => $ctr,
-                        'daily_spend' => $todaySpend,
-                        'spend_date' => Carbon::today()->toDateString(),
-                    ]);
+                    ], $budgetPayload));
 
-                    $ad->daily_spend = $todaySpend;
-                    AdBudgetGuard::enforce($ad, $this->meta);
+                    $ad->daily_spend = (float) ($budgetPayload['daily_spend'] ?? 0);
+                    AdBudgetGuard::enforce($ad, $this->meta, $metaTodaySpend);
 
                     $ad->save();
 

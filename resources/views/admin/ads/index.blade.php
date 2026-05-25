@@ -286,8 +286,8 @@ LIVE AJAX DASHBOARD UPDATE
 (function(){
 
 let running = false;
-const REFRESH_MS = 15000;
-const FETCH_TIMEOUT_MS = 25000;
+const REFRESH_MS = 20000;
+const FETCH_TIMEOUT_MS = 45000;
 
 /* =============================
    FORMATTERS
@@ -393,14 +393,21 @@ async function refreshAdsDashboard(){
         clearTimeout(timeoutId);
 
         const contentType = response.headers.get('content-type') || '';
-        if(!contentType.includes('application/json')){
+        const raw = await response.text();
+        let data;
+
+        try {
+            data = JSON.parse(raw);
+        } catch (parseError) {
             throw new Error('Live endpoint returned non-JSON response');
         }
 
-        const data = await response.json();
+        if(!response.ok && (!data || !Array.isArray(data.ads))){
+            throw new Error((data && data.error) || 'Live refresh failed');
+        }
 
-        if(!response.ok && !data.ads){
-            throw new Error(data.error || 'Live refresh failed');
+        if(!data || !Array.isArray(data.ads)){
+            throw new Error('Live refresh returned invalid payload');
         }
 
         /* =============================
@@ -443,13 +450,18 @@ async function refreshAdsDashboard(){
 
         });
 
-        setLiveStatus(true, data.refreshed_at, data.warning || (data.meta_synced === false ? 'using saved data' : ''));
+        const warning = data.warning || (data.meta_synced === false ? 'using saved metrics' : '');
+        setLiveStatus(true, data.refreshed_at, warning);
 
     }
     catch(e){
 
         console.warn('Live dashboard update failed', e);
-        setLiveStatus(false);
+        if(e && e.name === 'AbortError'){
+            setLiveStatus(true, null, 'refresh slow — showing last saved metrics');
+        } else {
+            setLiveStatus(false);
+        }
 
     }
     finally {

@@ -52,7 +52,58 @@ class AdController extends Controller
         });
     }
 
-    protected function hydrateLiveMetricsFromMeta(iterable $ads, bool $enforceBudget = true): bool
+    protected function applyMetaInsightsToAds(iterable $ads, array $lifetime, array $today, bool $enforceBudget = true): void
+    {
+        foreach ($ads as $ad) {
+            $metaId = (string) $ad->meta_ad_id;
+            $row = $lifetime[$metaId] ?? null;
+
+            if (! $row) {
+                continue;
+            }
+
+            $impressions = (int) ($row['impressions'] ?? 0);
+            $clicks = (int) ($row['clicks'] ?? 0);
+            $spend = (float) ($row['spend'] ?? 0);
+            $ctr = $impressions > 0
+                ? round(($clicks / $impressions) * 100, 2)
+                : (float) ($row['ctr'] ?? 0);
+            $metaTodaySpend = (float) ($today[$metaId]['spend'] ?? 0);
+
+            $payload = [
+                'impressions' => $impressions,
+                'clicks' => $clicks,
+                'spend' => $spend,
+                'ctr' => $ctr,
+            ];
+
+            if (Schema::hasColumn('ads', 'spend_date')) {
+                $payload = array_merge($payload, AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend));
+            } else {
+                $payload['daily_spend'] = AdBudgetGuard::cappedSessionSpend($ad, $metaTodaySpend);
+            }
+
+            $ad->update($payload);
+
+            $ad->impressions = $impressions;
+            $ad->clicks = $clicks;
+            $ad->spend = $spend;
+            $ad->ctr = $ctr;
+            $ad->daily_spend = (float) ($payload['daily_spend'] ?? 0);
+            $ad->spend_date = isset($payload['spend_date']) ? $payload['spend_date'] : $ad->spend_date;
+            if (isset($payload['daily_spend_anchor'])) {
+                $ad->daily_spend_anchor = (float) $payload['daily_spend_anchor'];
+            }
+
+            AdBudgetGuard::reconcileBudgetLimitPause($ad, $metaTodaySpend);
+
+            if ($enforceBudget) {
+                AdBudgetGuard::enforce($ad, $this->meta, $metaTodaySpend);
+            }
+        }
+    }
+
+    protected function hydrateLiveMetricsFromMeta(iterable $ads, bool $enforceBudget = true, bool $cacheOnly = false): bool
     {
         $ads = collect($ads)->filter(fn (Ad $ad) => $ad->meta_ad_id);
 
@@ -67,52 +118,24 @@ class AdController extends Controller
         }
 
         try {
-            $maps = $this->metaInsightsMaps($accountId);
-            $lifetime = $maps['lifetime'];
-            $today = $maps['today'];
+            $cacheKey = 'meta_ad_insights_maps:'.md5($accountId);
 
-            foreach ($ads as $ad) {
-                $metaId = (string) $ad->meta_ad_id;
-                $row = $lifetime[$metaId] ?? null;
+            if ($cacheOnly) {
+                $maps = Cache::get($cacheKey);
 
-                if (! $row) {
-                    continue;
+                if (! is_array($maps) || empty($maps['lifetime'])) {
+                    return false;
                 }
-
-                $impressions = (int) ($row['impressions'] ?? 0);
-                $clicks = (int) ($row['clicks'] ?? 0);
-                $spend = (float) ($row['spend'] ?? 0);
-                $ctr = $impressions > 0
-                    ? round(($clicks / $impressions) * 100, 2)
-                    : (float) ($row['ctr'] ?? 0);
-                $dailySpend = (float) ($today[$metaId]['spend'] ?? 0);
-                $spendDate = now()->toDateString();
-
-                $payload = [
-                    'impressions' => $impressions,
-                    'clicks' => $clicks,
-                    'spend' => $spend,
-                    'ctr' => $ctr,
-                    'daily_spend' => $dailySpend,
-                ];
-
-                if (Schema::hasColumn('ads', 'spend_date')) {
-                    $payload['spend_date'] = $spendDate;
-                }
-
-                $ad->update($payload);
-
-                $ad->impressions = $impressions;
-                $ad->clicks = $clicks;
-                $ad->spend = $spend;
-                $ad->ctr = $ctr;
-                $ad->daily_spend = $dailySpend;
-                $ad->spend_date = $spendDate;
-
-                if ($enforceBudget) {
-                    AdBudgetGuard::enforce($ad, $this->meta);
-                }
+            } else {
+                $maps = $this->metaInsightsMaps($accountId);
             }
+
+            $this->applyMetaInsightsToAds(
+                $ads,
+                $maps['lifetime'] ?? [],
+                $maps['today'] ?? [],
+                $enforceBudget
+            );
 
             return true;
         } catch (Throwable $e) {
@@ -161,6 +184,7 @@ class AdController extends Controller
             'spend',
             Schema::hasColumn('ads', 'daily_budget') ? 'daily_budget' : null,
             Schema::hasColumn('ads', 'daily_spend') ? 'daily_spend' : null,
+            Schema::hasColumn('ads', 'daily_spend_anchor') ? 'daily_spend_anchor' : null,
             Schema::hasColumn('ads', 'pause_reason') ? 'pause_reason' : null,
             Schema::hasColumn('ads', 'spend_date') ? 'spend_date' : null,
             'created_at',
@@ -413,6 +437,7 @@ $ad = Ad::create([
 
             DB::commit();
 
+            AdBudgetGuard::syncMetaAdSetBudget($ad, $this->meta);
 
             Log::info('META_AD_CREATED', [
 
@@ -854,6 +879,9 @@ public function update(Request $request, Ad $ad): RedirectResponse
             'status' => $data['status']
         ]);
 
+        $ad->refresh();
+        AdBudgetGuard::syncMetaAdSetBudget($ad, $this->meta);
+
         return redirect()
             ->route('admin.ads.index')
             ->with('success','Ad updated successfully.');
@@ -884,6 +912,12 @@ public function activate(Ad $ad): RedirectResponse
     try {
 
         if ($ad->meta_ad_id) {
+
+            $todayInsights = $this->meta->getInsights($ad->meta_ad_id, 'today');
+            $metaTodaySpend = (float) ($todayInsights['spend'] ?? 0);
+
+            AdBudgetGuard::syncMetaAdSetBudget($ad, $this->meta);
+            AdBudgetGuard::beginNewSpendSession($ad, $metaTodaySpend);
 
             $this->meta->updateAd(
                 $ad->meta_ad_id,
@@ -977,19 +1011,28 @@ public function sync(Ad $ad): RedirectResponse
         $impressions = (int) ($insights['impressions'] ?? 0);
         $clicks = (int) ($insights['clicks'] ?? 0);
         $spend = (float) ($insights['spend'] ?? 0);
-        $dailySpend = (float) ($today['spend'] ?? 0);
+        $metaTodaySpend = (float) ($today['spend'] ?? 0);
 
         $ctr = $impressions > 0
             ? round(($clicks / $impressions) * 100, 2)
             : 0;
 
-        $ad->update([
+        $payload = [
             'impressions' => $impressions,
             'clicks' => $clicks,
             'spend' => $spend,
             'ctr' => $ctr,
-            'daily_spend' => $dailySpend,
-        ]);
+        ];
+
+        if (Schema::hasColumn('ads', 'spend_date')) {
+            $payload = array_merge($payload, AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend));
+        } else {
+            $payload['daily_spend'] = AdBudgetGuard::cappedSessionSpend($ad, $metaTodaySpend);
+        }
+
+        $ad->update($payload);
+
+        AdBudgetGuard::enforce($ad, $this->meta, $metaTodaySpend);
 
         return back()->with('success','Ad metrics refreshed from Meta.');
 
@@ -1111,14 +1154,15 @@ public function publish(Ad $ad): RedirectResponse
             );
         }
 
-        /*
-        |------------------------------------------------------------------
-        | Update Local Ad (IMPORTANT FIX)
-        |------------------------------------------------------------------
-        */
+        $todayInsights = $this->meta->getInsights($ad->meta_ad_id, 'today');
+        $metaTodaySpend = (float) ($todayInsights['spend'] ?? 0);
+
+        AdBudgetGuard::syncMetaAdSetBudget($ad, $this->meta);
+        AdBudgetGuard::beginNewSpendSession($ad, $metaTodaySpend);
+
         $ad->update([
             'status' => 'ACTIVE',
-            'pause_reason' => null // ✅ CRITICAL FIX
+            'pause_reason' => null,
         ]);
 
         Log::info('AD_PUBLISHED_SUCCESS', [
@@ -1145,7 +1189,7 @@ public function live(): JsonResponse
 {
     try {
         $ads = $this->adsMetricsQuery()->get();
-        $metaSynced = $this->hydrateLiveMetricsFromMeta($ads);
+        $metaSynced = $this->hydrateLiveMetricsFromMeta($ads, true, true);
         $metrics = $this->buildAdsMetrics($ads);
 
         return response()

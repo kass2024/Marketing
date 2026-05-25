@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Creative;
 use App\Models\AdSet;
 use App\Models\Campaign;
+use App\Services\MetaAdsService;
 use App\Support\TenantScope;
 
 use Illuminate\Http\Request;

@@ -13,11 +13,19 @@
                 </div>
             </div>
 
+            @unless (auth()->user()->isClient())
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <div class="max-w-xl">
                     @include('profile.partials.update-password-form')
                 </div>
             </div>
+            @else
+            <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
+                <div class="max-w-xl text-sm text-gray-600">
+                    Client accounts use a fixed login password managed by Parrot Canada. Contact support if you need help signing in.
+                </div>
+            </div>
+            @endunless
 
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <div class="max-w-xl">

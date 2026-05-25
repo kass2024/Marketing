@@ -48,6 +48,9 @@ use App\Http\Controllers\Admin\{
 
 Route::view('/', 'welcome')->name('home');
 
+Route::get('/register/facebook-pages', \App\Http\Controllers\Public\RegisterPagesController::class)
+    ->name('register.pages');
+
 
 /*
 |--------------------------------------------------------------------------
@@ -84,7 +87,7 @@ Route::middleware(['auth','verified'])
     }
 
     if ($user->isClient()) {
-        return redirect()->route('client.dashboard');
+        return redirect()->route('admin.campaigns.index');
     }
 
     abort(403);
@@ -217,10 +220,12 @@ Route::middleware(['auth','verified','role:client'])
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth','verified','role:admin'])
+Route::middleware(['auth','verified','role:admin,client'])
     ->prefix('admin')
     ->as('admin.')
     ->group(function () {
+
+        Route::middleware('role:admin')->group(function () {
 
         /*
         |--------------------------------------------------------------------------
@@ -306,6 +311,8 @@ Route::middleware(['auth','verified','role:admin'])
                 Route::post('{conversation}/close','close')->name('close');
                 Route::delete('{conversation}/delete', 'deleteConversation')->name('delete');
             });
+
+        }); // end admin-only management routes
 
         /*
         |--------------------------------------------------------------------------
@@ -521,6 +528,8 @@ Route::prefix('creatives')->name('creatives.')->group(function () {
         |--------------------------------------------------------------------------
         */
 
+        Route::middleware('role:admin')->group(function () {
+
         Route::prefix('system')->name('system.')->group(function () {
             
             Route::get('/', fn() => view('admin.system.index'))->name('index');
@@ -566,6 +575,8 @@ Route::prefix('creatives')->name('creatives.')->group(function () {
                 Route::get('/billing', [\App\Http\Controllers\Admin\BillingController::class, 'index'])
     ->name('billing');
         });
+
+        }); // end admin-only system + settings
 
     });
 

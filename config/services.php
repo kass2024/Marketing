@@ -43,8 +43,8 @@ return [
         'oauth_url'     => env('META_OAUTH_URL', 'https://www.facebook.com'),
 
         'token' => env('META_SYSTEM_USER_TOKEN'),
-        'ad_account_id' => env('META_AD_ACCOUNT_ID'),
-        'page_id' => env('META_PAGE_ID'),
+        'ad_account_id' => env('META_AD_ACCOUNT_ID'), // Shared by all businesses; pages differentiate tenants
+        'page_id' => env('META_PAGE_ID'), // Optional fallback when Graph API page list is unavailable
         /** Label for the page when using META_PAGE_ID fallback (create creative form). */
         'page_name' => env('META_PAGE_NAME', 'Facebook Page'),
 

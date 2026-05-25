@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 use App\Services\MetaAdsService;
+use App\Support\TenantScope;
 use Throwable;
 
 class Creative extends Model
@@ -303,9 +304,9 @@ class Creative extends Model
             return;
         }
 
-        $accountId = config('services.meta.ad_account_id') ?? env('META_AD_ACCOUNT_ID');
+        $accountId = TenantScope::adAccountMetaId();
 
-        if (!$accountId) {
+        if (! $accountId) {
             return;
         }
 

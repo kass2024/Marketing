@@ -1,7 +1,11 @@
 @props([
     'routeName' => '',
     'isSuperAdmin' => false,
+    'isClient' => false,
+    'canManageAds' => false,
     'unreadCount' => 0,
+    'brandName' => 'Dashboard',
+    'brandSubtitle' => 'Ads workspace',
 ])
 
 @php
@@ -26,17 +30,32 @@ $r = $routeName ?: Route::currentRouteName();
     {{-- Brand + mobile close --}}
     <div class="flex items-center gap-3 border-b border-white/10 px-3 py-3 sm:px-4 sm:py-4">
         <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/10 p-1.5 ring-1 ring-white/15 backdrop-blur-sm sm:h-[3.25rem] sm:w-[3.25rem]">
-            <img
-                src="{{ asset(config('branding.logo_path', 'img/logo.png')) }}"
-                alt="{{ config('app.name') }}"
-                class="h-full w-full object-contain"
-                width="48"
-                height="48"
-            />
+            @if($isSuperAdmin)
+                <img
+                    src="{{ asset(config('branding.logo_path', 'img/logo.png')) }}"
+                    alt="{{ config('app.name') }}"
+                    class="h-full w-full object-contain"
+                    width="48"
+                    height="48"
+                />
+            @else
+                <img
+                    src="{{ asset(config('branding.default_logo_path', 'img/default-logo.svg')) }}"
+                    alt="{{ $brandName }}"
+                    class="h-full w-full object-contain"
+                    width="48"
+                    height="48"
+                />
+            @endif
         </div>
         <div class="min-w-0 flex-1 leading-tight">
-            <p class="truncate text-sm font-bold tracking-tight text-white">{{ config('app.name') }}</p>
-            <p class="truncate text-[11px] font-medium text-white/55">Ads &amp; chatbot</p>
+            @if($isSuperAdmin)
+                <p class="truncate text-sm font-bold tracking-tight text-white">{{ config('app.name') }}</p>
+                <p class="truncate text-[11px] font-medium text-white/55">Ads &amp; chatbot</p>
+            @else
+                <p class="truncate text-sm font-bold tracking-tight text-white">{{ $brandName }}</p>
+                <p class="truncate text-[11px] font-medium text-white/55">{{ $brandSubtitle }}</p>
+            @endif
         </div>
         <button
             type="button"
@@ -64,6 +83,13 @@ $r = $routeName ?: Route::currentRouteName();
                 Overview
             </a>
 
+            <a href="{{ route('admin.clients.index') }}"
+               class="flex items-center gap-3 rounded-xl px-3 py-2.5 font-medium transition
+               {{ str_contains($r, 'admin.clients') ? 'bg-white/15 text-white shadow-inner ring-1 ring-xander-gold/35' : 'text-white/88 hover:bg-white/10' }}">
+                <span class="text-lg opacity-90" aria-hidden="true">👥</span>
+                Businesses
+            </a>
+
             <a href="{{ route('admin.meta.index') }}"
                class="flex items-center gap-3 rounded-xl px-3 py-2.5 font-medium transition
                {{ str_contains($r, 'admin.meta') ? 'bg-white/15 text-white shadow-inner ring-1 ring-xander-gold/35' : 'text-white/88 hover:bg-white/10' }}">
@@ -71,29 +97,34 @@ $r = $routeName ?: Route::currentRouteName();
                 Business Manager
             </a>
 
+        @endif
+
+        @if($canManageAds)
             <div class="pt-1.5">
                 <button type="button" @click="openAds = !openAds"
                     class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 font-semibold text-white/90 transition hover:bg-white/10">
                     <span class="flex items-center gap-3">
                         <span aria-hidden="true">🎯</span>
-                        Ads
+                        {{ $isClient ? 'My ads' : 'Ads' }}
                     </span>
                     <svg class="h-4 w-4 transition" :class="openAds ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
                 </button>
                 <div x-show="openAds" x-transition class="mt-1 space-y-0.5 border-l border-white/20 pl-3 ml-3">
-                    <a href="{{ route('admin.accounts.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.accounts') ? 'bg-white/10 text-xander-gold' : '' }}">Ad accounts</a>
+                    @if($isSuperAdmin)
+                        <a href="{{ route('admin.accounts.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.accounts') ? 'bg-white/10 text-xander-gold' : '' }}">Ad accounts</a>
+                    @endif
                     <a href="{{ route('admin.campaigns.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.campaigns') ? 'bg-white/10 text-xander-gold' : '' }}">Campaigns</a>
                     <a href="{{ route('admin.adsets.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.adsets') ? 'bg-white/10 text-xander-gold' : '' }}">Ad sets</a>
                     <a href="{{ route('admin.creatives.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.creatives') ? 'bg-white/10 text-xander-gold' : '' }}">Creatives</a>
                     <a href="{{ route('admin.ads.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.ads') && !str_contains($r, 'admin.ads-manager') ? 'bg-white/10 text-xander-gold' : '' }}">Ads</a>
                 </div>
             </div>
-
         @endif
 
-        <div class="pt-1.5">
+        @if($isSuperAdmin)
+            <div class="pt-1.5">
             <button type="button" @click="openAutomation = !openAutomation"
                 class="flex w-full items-center justify-between rounded-xl px-3 py-2.5 font-semibold text-white/90 transition hover:bg-white/10">
                 <span class="flex items-center gap-3">
@@ -111,12 +142,11 @@ $r = $routeName ?: Route::currentRouteName();
                         <span class="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">{{ $unreadCount }}</span>
                     @endif
                 </a>
-                @if($isSuperAdmin)
-                    <a href="{{ route('admin.faq.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.faq') ? 'bg-white/10 text-xander-gold' : '' }}">FAQ knowledge</a>
-                    <a href="{{ url('/admin/bulk') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white">Bulk send</a>
-                @endif
+                <a href="{{ route('admin.faq.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.faq') ? 'bg-white/10 text-xander-gold' : '' }}">FAQ knowledge</a>
+                <a href="{{ url('/admin/bulk') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white">Bulk send</a>
             </div>
-        </div>
+            </div>
+        @endif
 
         @if($isSuperAdmin)
             <div class="pt-1.5">
@@ -140,6 +170,6 @@ $r = $routeName ?: Route::currentRouteName();
     </nav>
 
     <div class="border-t border-white/10 p-3 text-[11px] text-white/40">
-        © {{ now()->year }} {{ config('app.name') }}
+        © {{ now()->year }} {{ $isSuperAdmin ? config('app.name') : $brandName }}
     </div>
 </div>

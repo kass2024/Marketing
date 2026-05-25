@@ -46,6 +46,7 @@
                     <th class="px-6 py-4">Email</th>
                     <th class="px-6 py-4">WhatsApp</th>
                     <th class="px-6 py-4">Role</th>
+                    <th class="px-6 py-4">Facebook Page</th>
                     <th class="px-6 py-4">Status</th>
                     <th class="px-6 py-4">Created</th>
                     <th class="px-6 py-4 text-right">Actions</th>
@@ -86,6 +87,15 @@
                             <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset {{ $roleColor }}">
                                 {{ Str::headline($user->role) }}
                             </span>
+                        </td>
+
+                        <td class="px-6 py-4 text-slate-600">
+                            @if($user->client?->meta_page_name)
+                                <div class="font-medium text-slate-800">{{ $user->client->meta_page_name }}</div>
+                                <div class="text-xs text-slate-500">{{ $user->client->company_name }}</div>
+                            @else
+                                —
+                            @endif
                         </td>
 
                         <td class="px-6 py-4">

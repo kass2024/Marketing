@@ -292,6 +292,82 @@ protected function handleError($response, $endpoint, $payload = [])
         return [];
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | GET AD ACCOUNTS
+    |--------------------------------------------------------------------------
+    */
+
+    public function getAdAccounts(): array
+    {
+        $this->ensureConfigured();
+
+        return $this->get('me/adaccounts', [
+            'fields' => 'id,account_id,name,account_status,currency',
+            'limit' => 100,
+        ]);
+    }
+
+    /**
+     * Ad accounts available for business self-registration (excludes platform main account).
+     *
+     * @return array<int, array{id:string,name:string,currency:?string,status:string}>
+     */
+    public function getBusinessAdAccounts(): array
+    {
+        try {
+            $response = $this->getAdAccounts();
+        } catch (Throwable $e) {
+            Log::warning('META_GET_AD_ACCOUNTS_FAILED', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        $platformId = $this->normalizeAccountId(config('services.meta.ad_account_id'));
+        $accounts = [];
+
+        foreach ($response['data'] ?? [] as $account) {
+            $id = (string) ($account['id'] ?? '');
+
+            if ($id === '') {
+                continue;
+            }
+
+            $normalized = $this->normalizeAccountId($id);
+
+            if ($platformId && $normalized === $platformId) {
+                continue;
+            }
+
+            $statusMap = [
+                1 => 'ACTIVE',
+                2 => 'DISABLED',
+                3 => 'UNSETTLED',
+                7 => 'PENDING',
+            ];
+
+            $accounts[] = [
+                'id' => $normalized,
+                'name' => (string) ($account['name'] ?? $normalized),
+                'currency' => $account['currency'] ?? null,
+                'status' => $statusMap[$account['account_status'] ?? null] ?? 'UNKNOWN',
+            ];
+        }
+
+        return $accounts;
+    }
+
+    protected function normalizeAccountId(?string $id): ?string
+    {
+        if (! $id) {
+            return null;
+        }
+
+        return str_starts_with($id, 'act_') ? $id : 'act_'.$id;
+    }
+
     public function leadgenTosAcceptUrl(string $pageId): string
     {
         return 'https://www.facebook.com/ads/leadgen/tos?page_id='.urlencode($pageId);

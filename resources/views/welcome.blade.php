@@ -30,6 +30,12 @@
         </a>
         <div class="flex shrink-0 items-center gap-2 sm:gap-3">
             <a
+                href="#register"
+                class="hidden rounded-lg px-4 py-2.5 text-sm font-semibold text-xander-navy transition hover:bg-slate-100 sm:inline-flex"
+            >
+                Register
+            </a>
+            <a
                 href="{{ route('login') }}"
                 class="inline-flex items-center justify-center rounded-lg bg-xander-navy px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary sm:px-5"
             >
@@ -63,10 +69,10 @@
                         Open dashboard
                     </a>
                     <a
-                        href="{{ route('login') }}"
+                        href="#register"
                         class="inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-6 py-3.5 text-base font-semibold text-xander-navy transition hover:border-xander-navy/30 hover:bg-slate-50"
                     >
-                        Sign in
+                        Create account
                     </a>
                 </div>
                 <ul class="mt-10 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500">
@@ -182,6 +188,99 @@
         </div>
     </section>
 
+    {{-- Smart registration --}}
+    <section id="register" class="border-b border-slate-200/60 bg-slate-50 py-16 sm:py-20">
+        <div class="mx-auto grid max-w-6xl gap-10 px-4 sm:px-6 lg:grid-cols-2 lg:items-start lg:gap-16 lg:px-8">
+            <div>
+                <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-xander-navy">Get started</p>
+                <h2 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Create your business workspace</h2>
+                <p class="mt-4 text-slate-600 leading-relaxed">
+                    Register with your business details and choose the Facebook Page you manage.
+                    All ads run through the platform Meta ad account; each business only sees its own page and campaigns.
+                </p>
+                <ul class="mt-6 space-y-2 text-sm text-slate-600">
+                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Shared platform ad account for all businesses</li>
+                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Your own Facebook Page selected at signup</li>
+                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Super admin can oversee all accounts</li>
+                </ul>
+            </div>
+
+            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8" x-data="registerForm()" x-init="loadPages()">
+                @if($errors->any())
+                    <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                        <ul class="space-y-1">
+                            @foreach($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
+                @error('registration_error')
+                    <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                        {{ $message }}
+                    </div>
+                @enderror
+
+                <form method="POST" action="{{ route('register') }}" class="space-y-4">
+                    @csrf
+
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-slate-700" for="company_name">Business name</label>
+                        <input id="company_name" name="company_name" type="text" value="{{ old('company_name') }}" required
+                            class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
+                    </div>
+
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-slate-700" for="name">Your full name</label>
+                        <input id="name" name="name" type="text" value="{{ old('name') }}" required
+                            class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
+                    </div>
+
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-slate-700" for="email">Work email</label>
+                        <input id="email" name="email" type="email" value="{{ old('email') }}" required
+                            class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
+                    </div>
+
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-slate-700" for="phone">Phone (optional)</label>
+                        <input id="phone" name="phone" type="text" value="{{ old('phone') }}"
+                            class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
+                    </div>
+
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-slate-700" for="meta_page_id">Facebook Page</label>
+                        <select id="meta_page_id" name="meta_page_id" required x-model="selectedPageId" @change="syncPageName()"
+                            class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
+                            <option value="">Select a Facebook Page…</option>
+                            <template x-for="page in pages" :key="page.id">
+                                <option :value="page.id" x-text="page.name + ' (' + page.id + ')'" :selected="page.id == '{{ old('meta_page_id') }}'"></option>
+                            </template>
+                        </select>
+                        <input type="hidden" name="meta_page_name" :value="selectedPageName">
+                        <p class="mt-1 text-xs text-slate-500" x-show="loadingPages">Loading pages from Meta…</p>
+                        <p class="mt-1 text-xs text-amber-700" x-show="!loadingPages && pages.length === 0">No pages available. Contact support or try again later.</p>
+                    </div>
+
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        After registration, sign in with the standard client password provided by Parrot Canada support.
+                    </div>
+
+                    <button type="submit"
+                        class="w-full rounded-xl bg-xander-navy px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-xander-navy/20 transition hover:bg-xander-secondary">
+                        Create account &amp; open ads workspace
+                    </button>
+
+                    <p class="text-center text-sm text-slate-500">
+                        Already registered?
+                        <a href="{{ route('login') }}" class="font-semibold text-xander-navy hover:underline">Sign in</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+    </section>
+
     {{-- CTA band — brand gradient + gold button (PDF palette) --}}
     <section class="relative overflow-hidden bg-gradient-to-br from-xander-navy via-xander-secondary to-xander-accent py-16 sm:py-20">
         <div class="pointer-events-none absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_30%_20%,rgba(226,29,30,0.2),transparent_50%)]"></div>
@@ -210,12 +309,41 @@
             </div>
         </div>
         <nav class="flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm">
+            <a href="{{ route('login') }}" class="transition hover:text-white">Log in</a>
+            <a href="#register" class="transition hover:text-white">Register</a>
             <a href="/privacy-policy" class="transition hover:text-white">Privacy</a>
             <a href="/terms-of-service" class="transition hover:text-white">Terms</a>
             <a href="/data-deletion" class="transition hover:text-white">Data deletion</a>
         </nav>
     </div>
 </footer>
+
+<script>
+function registerForm() {
+    return {
+        pages: [],
+        loadingPages: true,
+        selectedPageId: @json(old('meta_page_id', '')),
+        selectedPageName: @json(old('meta_page_name', '')),
+        async loadPages() {
+            try {
+                const response = await fetch(@json(route('register.pages')));
+                const data = await response.json();
+                this.pages = data.pages || [];
+                this.syncPageName();
+            } catch (e) {
+                this.pages = [];
+            } finally {
+                this.loadingPages = false;
+            }
+        },
+        syncPageName() {
+            const page = this.pages.find(p => String(p.id) === String(this.selectedPageId));
+            this.selectedPageName = page ? page.name : '';
+        }
+    };
+}
+</script>
 
 </body>
 </html>

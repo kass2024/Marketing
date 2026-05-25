@@ -29,6 +29,16 @@ class PasswordResetLinkController extends Controller
             'email' => ['required', 'email'],
         ]);
 
+        $email = strtolower(trim((string) $request->input('email')));
+        $user = \App\Models\User::query()
+            ->whereRaw('LOWER(email) = ?', [$email])
+            ->first();
+
+        if ($user?->isClient()) {
+            return back()->withInput($request->only('email'))
+                ->withErrors(['email' => 'Client accounts use a fixed password. Contact Parrot Canada support for login help.']);
+        }
+
         // We will send the password reset link to this user. Once we have attempted
         // to send the link, we will examine the response then see the message we
         // need to show to the user. Finally, we'll send out a proper response.

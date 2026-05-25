@@ -15,4 +15,11 @@ return [
 
     'logo_path' => 'img/logo.png',
 
+    /*
+    |--------------------------------------------------------------------------
+    | Neutral sidebar logo for non–super-admin users (clients, agents)
+    |--------------------------------------------------------------------------
+    */
+    'default_logo_path' => 'img/default-logo.svg',
+
 ];

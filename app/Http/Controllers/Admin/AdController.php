@@ -6,7 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Ad;
 use App\Models\AdSet;
 use App\Models\Creative;
-use App\Services\MetaAdsService;
+use App\Support\TenantScope;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -41,13 +41,15 @@ public function index(): View
     |--------------------------------------------------------------------------
     */
 
-    $ads = Ad::query()
+    $ads = TenantScope::ads(
+        Ad::query()
         ->with([
             'creative:id,name,image_url,image_hash,json_payload',
             'adSet:id,name,campaign_id',
             'adSet.campaign:id,name,ad_account_id',
             'adSet.campaign.adAccount:id,name,meta_id'
         ])
+    )
     ->select([
 'id',
 'name',
@@ -128,11 +130,11 @@ public function index(): View
 
     public function create(): View
     {
-        $adsets = AdSet::with('campaign.adAccount')
-            ->latest()
-            ->get();
+        $adsets = TenantScope::adSets(
+            AdSet::with('campaign.adAccount')
+        )->latest()->get();
 
-        $creatives = Creative::latest()->get();
+        $creatives = TenantScope::creatives(Creative::query())->latest()->get();
 
         try {
             Creative::hydrateMetaImageUrls($creatives, $this->meta);
@@ -383,6 +385,8 @@ $ad = Ad::create([
     */
 public function preview(Ad $ad): View
 {
+    TenantScope::assertAd($ad);
+
     $ad->load([
         'creative',
         'adSet',

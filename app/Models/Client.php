@@ -45,6 +45,10 @@ class Client extends Model
         'phone',
         'subscription_plan',
         'subscription_status',
+        'meta_page_id',
+        'meta_page_name',
+        'meta_ad_account_id',
+        'meta_ad_account_name',
     ];
 
     /*

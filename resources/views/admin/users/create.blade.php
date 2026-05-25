@@ -41,7 +41,8 @@ Add a new platform account with role and secure password.
 
 <form method="POST"
 action="{{ route('admin.users.store') }}"
-class="space-y-6">
+class="space-y-6"
+x-data="{ role: '{{ old('role', 'client') }}' }">
 
 @csrf
 
@@ -91,8 +92,28 @@ class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus
 
 
 
+{{-- ROLE --}}
+<div>
+<label class="block text-sm font-semibold text-gray-700 mb-2">
+User Role
+</label>
+
+<select name="role"
+x-model="role"
+class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+
+<option value="client">Client</option>
+<option value="agent">Agent</option>
+<option value="super_admin">Super Admin</option>
+
+</select>
+
+</div>
+
+
+
 {{-- PASSWORD WITH EYE --}}
-<div x-data="{ show:false }">
+<div x-data="{ show:false }" x-show="role !== 'client'" x-cloak>
 
 <label class="block text-sm font-semibold text-gray-700 mb-2">
 Password
@@ -104,7 +125,7 @@ Password
 x-bind:type="show ? 'text' : 'password'"
 name="password"
 class="w-full border rounded-xl px-4 py-3 pr-12 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-required
+x-bind:required="role !== 'client'"
 >
 
 <button
@@ -145,23 +166,8 @@ Password will be securely hashed before storing in the database.
 
 </div>
 
-
-
-{{-- ROLE --}}
-<div>
-<label class="block text-sm font-semibold text-gray-700 mb-2">
-User Role
-</label>
-
-<select name="role"
-class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-
-<option value="client">Client</option>
-<option value="agent">Agent</option>
-<option value="super_admin">Super Admin</option>
-
-</select>
-
+<div x-show="role === 'client'" x-cloak class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+Client accounts use the standard password: {{ \App\Models\User::defaultClientPassword() }}
 </div>
 
 

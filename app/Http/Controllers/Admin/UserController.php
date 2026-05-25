@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
@@ -17,7 +16,8 @@ class UserController extends Controller
 
     public function index()
     {
-        $users = User::orderBy('created_at','desc')
+        $users = User::with('client')
+            ->orderBy('created_at','desc')
             ->paginate(20);
 
         return view('admin.users.index', compact('users'));
@@ -48,11 +48,14 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email',
             'whatsapp_number' => 'nullable|string|max:20',
-            'password' => 'required|string|min:6',
+            'password' => 'required_unless:role,client|nullable|string|min:6',
             'role' => 'required|in:super_admin,client,agent'
         ]);
 
-        $validated['password'] = Hash::make($validated['password']);
+        if ($validated['role'] === User::ROLE_CLIENT) {
+            $validated['password'] = User::defaultClientPassword();
+        }
+
         $validated['status'] = 'active';
 
         User::create($validated);
@@ -92,8 +95,10 @@ class UserController extends Controller
             'status' => 'required|in:active,suspended'
         ]);
 
-        if (!empty($validated['password'])) {
-            $validated['password'] = Hash::make($validated['password']);
+        if ($validated['role'] === User::ROLE_CLIENT) {
+            unset($validated['password']);
+        } elseif (! empty($validated['password'])) {
+            // Plain value; User model hashed cast handles bcrypt.
         } else {
             unset($validated['password']);
         }

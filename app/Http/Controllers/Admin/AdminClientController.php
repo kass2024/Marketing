@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use App\Models\Client;
 use App\Models\User;
 
@@ -24,15 +23,19 @@ class AdminClientController extends Controller
     */
     public function index(Request $request)
     {
-        $query = Client::with('user', 'metaConnection');
+        $query = Client::with('user', 'metaConnection')
+            ->withCount('campaigns');
 
         if ($request->filled('search')) {
             $search = $request->search;
 
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%$search%")
+                $q->where('company_name', 'like', "%$search%")
+                  ->orWhere('meta_page_name', 'like', "%$search%")
+                  ->orWhere('meta_page_id', 'like', "%$search%")
                   ->orWhereHas('user', function ($u) use ($search) {
-                      $u->where('email', 'like', "%$search%");
+                      $u->where('email', 'like', "%$search%")
+                        ->orWhere('name', 'like', "%$search%");
                   });
             });
         }
@@ -62,7 +65,6 @@ class AdminClientController extends Controller
         $request->validate([
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|unique:users,email',
-            'password' => 'required|min:6',
             'plan'     => 'required|in:free,pro,enterprise',
         ]);
 
@@ -71,7 +73,7 @@ class AdminClientController extends Controller
             $user = User::create([
                 'name'     => $request->name,
                 'email'    => $request->email,
-                'password' => Hash::make($request->password),
+                'password' => User::defaultClientPassword(),
                 'role'     => 'client',
             ]);
 

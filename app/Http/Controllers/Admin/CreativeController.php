@@ -6,8 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Creative;
 use App\Models\AdSet;
 use App\Models\Campaign;
-use App\Models\AdAccount;
-use App\Services\MetaAdsService;
+use App\Support\TenantScope;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,7 +33,9 @@ class CreativeController extends Controller
 
     public function index()
     {
-        $creatives = Creative::with(['campaign','adset'])
+        $creatives = TenantScope::creatives(
+            Creative::with(['campaign','adset'])
+        )
             ->latest()
             ->paginate(20);
 
@@ -47,11 +48,11 @@ class CreativeController extends Controller
         return view('admin.creatives.index', [
             'creatives' => $creatives,
             'creativeStats' => [
-                'total' => Creative::count(),
-                'approved' => Creative::where('review_status', 'APPROVED')->count(),
-                'pending' => Creative::where('review_status', 'PENDING_REVIEW')->count(),
-                'rejected' => Creative::where('review_status', 'DISAPPROVED')->count(),
-                'active' => Creative::where('effective_status', 'ACTIVE')->count(),
+                'total' => TenantScope::creatives(Creative::query())->count(),
+                'approved' => TenantScope::creatives(Creative::query())->where('review_status', 'APPROVED')->count(),
+                'pending' => TenantScope::creatives(Creative::query())->where('review_status', 'PENDING_REVIEW')->count(),
+                'rejected' => TenantScope::creatives(Creative::query())->where('review_status', 'DISAPPROVED')->count(),
+                'active' => TenantScope::creatives(Creative::query())->where('effective_status', 'ACTIVE')->count(),
             ],
         ]);
     }
@@ -64,11 +65,11 @@ class CreativeController extends Controller
 
     public function create()
     {
-        $campaigns = Campaign::latest()->get();
+        $campaigns = TenantScope::campaigns(Campaign::query())->latest()->get();
 
-        $adsets = AdSet::latest()->get();
+        $adsets = TenantScope::adSets(AdSet::query())->latest()->get();
 
-        $pages = $this->meta->getPages();
+        $pages = TenantScope::filterPages($this->meta->getPages());
 
         return view('admin.creatives.create', compact(
             'campaigns',
@@ -120,13 +121,17 @@ class CreativeController extends Controller
 
             $campaign = Campaign::findOrFail($data['campaign_id']);
 
+            TenantScope::assertCampaign($campaign);
+
             $adset = AdSet::findOrFail($data['adset_id']);
 
-            $account = AdAccount::whereNotNull('meta_id')->first();
+            TenantScope::assertAdSet($adset);
 
-            if (!$account) {
-                throw new Exception('Meta Ad Account not connected.');
+            if ($tenantPageId = TenantScope::pageId()) {
+                $data['page_id'] = $tenantPageId;
             }
+
+            $account = TenantScope::requireAdAccount();
 
             $accountId = $account->meta_id;
 
@@ -529,9 +534,13 @@ public function sync($id)
 
         if (!$reviewStatus) {
 
-            $accountId =
-                config('services.meta.ad_account_id')
-                ?? env('META_AD_ACCOUNT_ID');
+            $accountId = TenantScope::adAccountMetaId();
+
+            if (! $accountId) {
+                return back()->withErrors([
+                    'meta' => 'Platform Meta ad account is not configured.',
+                ]);
+            }
 
             $ads = $this->meta->getAds($accountId);
 

@@ -7,10 +7,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-use App\Models\Campaign;
 use App\Models\AdAccount;
 use App\Models\AdSet;
+use App\Models\Campaign;
 use App\Services\MetaAdsService;
+use App\Support\TenantScope;
 
 use Throwable;
 
@@ -33,7 +34,9 @@ class CampaignController extends Controller
     {
         try {
 
-            $campaigns = Campaign::query()
+            $campaignQuery = TenantScope::campaigns(Campaign::query());
+
+            $campaigns = (clone $campaignQuery)
                 ->withCount('adSets')
                 ->latest()
                 ->paginate(20);
@@ -41,15 +44,15 @@ class CampaignController extends Controller
             return view('admin.campaigns.index', [
 
                 'campaigns' => $campaigns,
-                'totalAdSets' => AdSet::count(),
+                'totalAdSets' => TenantScope::adSets(AdSet::query())->count(),
 
                 'activeCampaigns' =>
-                    Campaign::where('status','ACTIVE')->count(),
+                    (clone $campaignQuery)->where('status','ACTIVE')->count(),
 
                 'pausedCampaigns' =>
-                    Campaign::where('status','PAUSED')->count(),
+                    (clone $campaignQuery)->where('status','PAUSED')->count(),
 
-                'hasAdAccount' => AdAccount::exists()
+                'hasAdAccount' => TenantScope::resolveAdAccount() !== null,
             ]);
 
         } catch (Throwable $e) {
@@ -76,6 +79,8 @@ class CampaignController extends Controller
                 'adSets' => fn($q) => $q->latest()
             ])->findOrFail($id);
 
+            TenantScope::assertCampaign($campaign);
+
             return view('admin.campaigns.show', compact('campaign'));
 
         } catch (Throwable $e) {
@@ -97,14 +102,15 @@ class CampaignController extends Controller
 
     public function create()
     {
-        $account = AdAccount::first();
-
-        if (!$account) {
-
+        try {
+            $account = TenantScope::requireAdAccount();
+        } catch (\Throwable) {
             return redirect()
-                ->route('admin.accounts.index')
+                ->route('admin.campaigns.index')
                 ->withErrors([
-                    'meta' => 'No Meta Ad Account connected.'
+                    'meta' => TenantScope::isScoped()
+                        ? 'Platform Meta ad account is not configured. Contact support.'
+                        : 'No Meta ad account is connected.',
                 ]);
         }
 
@@ -138,19 +144,11 @@ class CampaignController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $account = AdAccount::whereNotNull('meta_id')->first();
+            $account = TenantScope::requireAdAccount();
 
-            if (!$account) {
-                throw new \Exception('Meta ad account is not connected.');
-            }
+            $nameQuery = TenantScope::campaigns(Campaign::query());
 
-            /*
-            |--------------------------------------------------------------------------
-            | Prevent Duplicate Names
-            |--------------------------------------------------------------------------
-            */
-
-            if (Campaign::where('name',$data['name'])->exists()) {
+            if ($nameQuery->where('name',$data['name'])->exists()) {
 
                 return back()->withErrors([
                     'name' => 'Campaign name already exists.'
@@ -227,7 +225,7 @@ class CampaignController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            $campaign = Campaign::create([
+            $campaign = Campaign::create(array_merge([
 
                 'ad_account_id' => $account->id,
                 'meta_id' => $metaId,
@@ -236,7 +234,7 @@ class CampaignController extends Controller
                 'objective' => $data['objective'],
                 'status' => $data['status']
 
-            ]);
+            ], TenantScope::campaignAttributes()));
 
             DB::commit();
 
@@ -271,6 +269,8 @@ class CampaignController extends Controller
 
     public function edit(Campaign $campaign)
     {
+        TenantScope::assertCampaign($campaign);
+
         return view('admin.campaigns.edit', [
             'campaign' => $campaign,
         ]);

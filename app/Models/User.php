@@ -38,6 +38,8 @@ class User extends Authenticatable
     public const STATUS_ACTIVE    = 'active';
     public const STATUS_SUSPENDED = 'suspended';
 
+    public const DEFAULT_CLIENT_PASSWORD = 'Parrot@2026';
+
     public const STATUSES = [
         self::STATUS_ACTIVE,
         self::STATUS_SUSPENDED,
@@ -94,6 +96,10 @@ class User extends Authenticatable
     {
         static::creating(function ($user) {
 
+            if ($user->email) {
+                $user->email = strtolower(trim($user->email));
+            }
+
             if (!$user->role) {
                 $user->role = self::ROLE_CLIENT;
             }
@@ -102,6 +108,12 @@ class User extends Authenticatable
                 $user->status = self::STATUS_ACTIVE;
             }
 
+        });
+
+        static::updating(function ($user) {
+            if ($user->isDirty('email') && $user->email) {
+                $user->email = strtolower(trim($user->email));
+            }
         });
     }
 
@@ -180,6 +192,11 @@ class User extends Authenticatable
     public function isClient(): bool
     {
         return $this->role === self::ROLE_CLIENT;
+    }
+
+    public static function defaultClientPassword(): string
+    {
+        return self::DEFAULT_CLIENT_PASSWORD;
     }
 
 

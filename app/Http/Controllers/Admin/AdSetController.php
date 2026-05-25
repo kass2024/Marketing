@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use App\Models\Campaign;
 use App\Models\AdSet;
 use App\Services\MetaAdsService;
+use App\Support\TenantScope;
 
 use Throwable;
 use Exception;
@@ -31,17 +32,20 @@ class AdSetController extends Controller
 
     public function index()
     {
-        $adsets = AdSet::with('campaign')
+        $adsetQuery = TenantScope::adSets(AdSet::query());
+
+        $adsets = (clone $adsetQuery)
+            ->with('campaign')
             ->latest()
             ->paginate(20);
 
         return view('admin.adsets.index', [
             'adsets' => $adsets,
             'adsetStats' => [
-                'total' => AdSet::count(),
-                'active' => AdSet::where('status', 'ACTIVE')->count(),
-                'paused' => AdSet::where('status', 'PAUSED')->count(),
-                'draft' => AdSet::where('status', 'DRAFT')->count(),
+                'total' => (clone $adsetQuery)->count(),
+                'active' => (clone $adsetQuery)->where('status', 'ACTIVE')->count(),
+                'paused' => (clone $adsetQuery)->where('status', 'PAUSED')->count(),
+                'draft' => (clone $adsetQuery)->where('status', 'DRAFT')->count(),
             ],
         ]);
     }
@@ -51,6 +55,8 @@ class AdSetController extends Controller
      */
     public function indexByCampaign(Campaign $campaign)
     {
+        TenantScope::assertCampaign($campaign);
+
         $campaignId = $campaign->id;
 
         $adsets = AdSet::query()
@@ -80,6 +86,8 @@ class AdSetController extends Controller
      */
     public function show(AdSet $adset)
     {
+        TenantScope::assertAdSet($adset);
+
         return redirect()->route('admin.adsets.edit', $adset);
     }
 
@@ -93,7 +101,7 @@ class AdSetController extends Controller
     {
         return view('admin.adsets.create', [
 
-            'campaigns' => Campaign::latest()->get(),
+            'campaigns' => TenantScope::campaigns(Campaign::query())->latest()->get(),
 
             'selectedCampaign' => $campaignId,
 
@@ -101,7 +109,7 @@ class AdSetController extends Controller
 
             'languages' => config('meta.languages'),
 
-            'pages' => $this->meta->getPages()
+            'pages' => TenantScope::filterPages($this->meta->getPages())
 
         ]);
     }
@@ -164,6 +172,12 @@ class AdSetController extends Controller
 
             $campaign = Campaign::with('adAccount')
                 ->findOrFail($data['campaign_id']);
+
+            TenantScope::assertCampaign($campaign);
+
+            if ($tenantPageId = TenantScope::pageId()) {
+                $data['page_id'] = $tenantPageId;
+            }
 
             if (!$campaign->meta_id) {
                 throw new Exception('Campaign not synced with Meta');
@@ -540,9 +554,11 @@ public function sync(AdSet $adset)
 }
 public function edit(AdSet $adset)
 {
+    TenantScope::assertAdSet($adset);
+
     $adset->load('campaign');
 
-    $campaigns = Campaign::latest()->get();
+    $campaigns = TenantScope::campaigns(Campaign::query())->latest()->get();
 
     $countries = config('meta.countries', []);
     $languages = config('meta.languages', []);
@@ -555,7 +571,7 @@ public function edit(AdSet $adset)
 
     try {
 
-        $pages = $this->meta->getPages();
+        $pages = TenantScope::filterPages($this->meta->getPages());
 
     } catch (\Throwable $e) {
 

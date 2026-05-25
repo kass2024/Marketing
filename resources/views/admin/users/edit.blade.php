@@ -41,7 +41,8 @@ Update profile, role, status, or set a new password.
 
 <form method="POST"
 action="{{ route('admin.users.update',$user->id) }}"
-class="space-y-6">
+class="space-y-6"
+x-data="{ role: '{{ old('role', $user->role) }}' }">
 
 @csrf
 @method('PUT')
@@ -96,7 +97,7 @@ class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus
 
 
 {{-- PASSWORD WITH EYE --}}
-<div x-data="{ show:false }">
+<div x-data="{ show:false }" x-show="role !== 'client'" x-cloak>
 
 <label class="block text-sm font-semibold text-gray-700 mb-2">
 New Password
@@ -170,6 +171,10 @@ Leave blank if you do not want to change the password.
 
 </div>
 
+<div x-show="role === 'client'" x-cloak class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+Client accounts use the standard password: {{ \App\Models\User::defaultClientPassword() }}
+</div>
+
 
 
 {{-- ROLE --}}
@@ -180,6 +185,7 @@ User Role
 </label>
 
 <select name="role"
+x-model="role"
 class="w-full border rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
 
 <option value="client" {{ $user->role == 'client' ? 'selected' : '' }}>

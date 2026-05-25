@@ -42,6 +42,8 @@ class Campaign extends Model
 
     protected $fillable = [
         'ad_account_id',
+        'client_id',
+        'meta_page_id',
 
         // Meta API ID
         'meta_id',

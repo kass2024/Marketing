@@ -1084,23 +1084,26 @@ public function live(): JsonResponse
 
     $metrics = $this->buildAdsMetrics($ads);
 
-    return response()->json([
-        'metrics' => $metrics,
-        'ads' => $ads->map(fn (Ad $ad) => [
-            'id' => $ad->id,
-            'name' => $ad->name,
-            'adset_id' => $ad->adset_id,
-            'creative_id' => $ad->creative_id,
-            'meta_ad_id' => $ad->meta_ad_id,
-            'status' => $ad->status,
-            'impressions' => $ad->impressions,
-            'clicks' => $ad->clicks,
-            'ctr' => $ad->ctr,
-            'spend' => $ad->spend,
-            'daily_spend' => $ad->daily_spend,
-            'daily_budget' => $ad->daily_budget,
-            'pause_reason' => $ad->pause_reason,
-        ])->values(),
-    ]);
+    return response()
+        ->json([
+            'metrics' => $metrics,
+            'ads' => $ads->map(fn (Ad $ad) => [
+                'id' => $ad->id,
+                'name' => $ad->name,
+                'adset_id' => $ad->adset_id,
+                'creative_id' => $ad->creative_id,
+                'meta_ad_id' => $ad->meta_ad_id,
+                'status' => $ad->status,
+                'impressions' => $ad->impressions,
+                'clicks' => $ad->clicks,
+                'ctr' => $ad->ctr,
+                'spend' => $ad->spend,
+                'daily_spend' => $ad->daily_spend,
+                'daily_budget' => $ad->daily_budget,
+                'pause_reason' => $ad->pause_reason,
+            ])->values(),
+            'refreshed_at' => now()->toIso8601String(),
+        ])
+        ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
 }
 }

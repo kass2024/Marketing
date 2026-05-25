@@ -23,7 +23,10 @@
         <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Ads Manager</h1>
         <p class="mt-1 text-sm text-slate-600">
             Create, publish and monitor ad delivery performance.
-            <span class="text-xs text-emerald-700">Live metrics from Meta refresh every 5 seconds.</span>
+        </p>
+        <p class="mt-2 inline-flex items-center gap-2 text-xs text-slate-500">
+            <span id="live-indicator" class="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
+            <span id="live-status">Live from Meta — updating…</span>
         </p>
     </div>
     <div class="flex flex-shrink-0 flex-wrap items-center gap-2 sm:gap-3">
@@ -277,6 +280,7 @@ LIVE AJAX DASHBOARD UPDATE
 (function(){
 
 let running = false;
+const REFRESH_MS = 5000;
 
 /* =============================
    FORMATTERS
@@ -288,6 +292,24 @@ function money(v){
 
 function number(v){
     return Number(v || 0).toLocaleString();
+}
+
+function setLiveStatus(ok, refreshedAt){
+    const status = document.getElementById('live-status');
+    const dot = document.getElementById('live-indicator');
+
+    if(!status || !dot){
+        return;
+    }
+
+    if(ok){
+        dot.className = 'inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse';
+        const time = refreshedAt ? new Date(refreshedAt).toLocaleTimeString() : new Date().toLocaleTimeString();
+        status.textContent = 'Live from Meta — updated ' + time + ' (auto every ' + (REFRESH_MS / 1000) + 's)';
+    } else {
+        dot.className = 'inline-flex h-2 w-2 rounded-full bg-amber-500';
+        status.textContent = 'Live refresh paused — retrying…';
+    }
 }
 
 
@@ -348,8 +370,11 @@ async function refreshAdsDashboard(){
         const response = await fetch(
             "{{ route('admin.ads.live') }}?t="+Date.now(),
             {
+                credentials: 'same-origin',
+                cache: 'no-store',
                 headers:{
-                    'X-Requested-With':'XMLHttpRequest'
+                    'X-Requested-With':'XMLHttpRequest',
+                    'Accept': 'application/json'
                 }
             }
         );
@@ -400,12 +425,15 @@ async function refreshAdsDashboard(){
 
         });
 
+        setLiveStatus(true, data.refreshed_at);
+
         console.log('Ads dashboard refreshed', data);
 
     }
     catch(e){
 
         console.warn('Live dashboard update failed', e);
+        setLiveStatus(false);
 
     }
 
@@ -420,12 +448,13 @@ async function refreshAdsDashboard(){
 
 refreshAdsDashboard();
 
+setInterval(refreshAdsDashboard, REFRESH_MS);
 
-/* =============================
-   AUTO REFRESH (5s)
-============================= */
-
-setInterval(refreshAdsDashboard, 5000);
+document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible'){
+        refreshAdsDashboard();
+    }
+});
 
 
 })();

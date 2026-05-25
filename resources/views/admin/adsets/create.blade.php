@@ -369,6 +369,10 @@ id="interest-select"
 multiple
 class="w-full border rounded-xl px-4 py-3"></select>
 
+<p class="mt-2 text-sm text-slate-500">
+Optional. Lead ad sets may ignore interests because Meta often rejects detailed targeting for lead generation.
+</p>
+
 </div>
 
 
@@ -427,8 +431,8 @@ class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:borde
 
 <div class="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
     <a href="{{ route('admin.adsets.index') }}" class="text-center text-sm font-semibold text-slate-600 transition hover:text-xander-navy sm:text-left">Cancel</a>
-    <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl bg-xander-navy px-8 py-3 font-semibold text-white shadow-sm transition hover:bg-xander-secondary sm:w-auto">
-        Create ad set
+    <button type="submit" id="adset-submit-btn" class="inline-flex w-full items-center justify-center rounded-xl bg-xander-navy px-8 py-3 font-semibold text-white shadow-sm transition hover:bg-xander-secondary sm:w-auto">
+        <span id="adset-submit-label">Create ad set</span>
     </button>
 </div>
 
@@ -639,7 +643,16 @@ if(min >= max){
 e.preventDefault();
 
 alert("Minimum age cannot be greater than maximum age");
+return;
+}
 
+const submitBtn = document.getElementById("adset-submit-btn");
+const submitLabel = document.getElementById("adset-submit-label");
+
+if (submitBtn && submitLabel) {
+    submitBtn.disabled = true;
+    submitBtn.classList.add("opacity-70", "cursor-wait");
+    submitLabel.textContent = "Creating ad set…";
 }
 
 });

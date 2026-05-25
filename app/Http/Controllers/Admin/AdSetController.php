@@ -308,6 +308,10 @@ class AdSetController extends Controller
                 );
             }
 
+            if (! empty($response['_meta_interests_removed'])) {
+                unset($targeting['flexible_spec']);
+            }
+
             /*
             |--------------------------------------------------------------------------
             | SAVE LOCAL
@@ -337,9 +341,14 @@ $adset = AdSet::create([
 
             DB::commit();
 
+            $successMessage = 'Ad Set created successfully.';
+            if (! empty($response['_meta_interests_removed'])) {
+                $successMessage .= ' Meta does not support interest targeting for lead ad sets, so it was created with location and demographic targeting only.';
+            }
+
             return redirect()
                 ->route('admin.campaigns.index')
-                ->with('success', 'Ad Set created successfully');
+                ->with('success', $successMessage);
 
         }
 

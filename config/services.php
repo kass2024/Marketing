@@ -55,6 +55,8 @@ return [
         */
         'http_timeout' => (int) env('META_HTTP_TIMEOUT', 90),
         'http_connect_timeout' => (int) env('META_HTTP_CONNECT_TIMEOUT', 45),
+        'mutation_timeout' => (int) env('META_MUTATION_TIMEOUT', 25),
+        'search_timeout' => (int) env('META_SEARCH_TIMEOUT', 15),
 
         'refresh_before_days' => env('META_TOKEN_REFRESH_BEFORE_DAYS', 5),
 

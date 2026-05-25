@@ -57,10 +57,28 @@ class MetaAdsService
     |--------------------------------------------------------------------------
     */
 
-    protected function client()
+    protected function client(bool $forMutation = false, bool $forSearch = false)
     {
-        $timeout = (int) config('services.meta.http_timeout', 90);
         $connectTimeout = (int) config('services.meta.http_connect_timeout', 45);
+
+        if ($forMutation) {
+            $timeout = (int) config('services.meta.mutation_timeout', 25);
+
+            return Http::timeout($timeout)
+                ->connectTimeout(min($connectTimeout, 15))
+                ->acceptJson();
+        }
+
+        if ($forSearch) {
+            $timeout = (int) config('services.meta.search_timeout', 15);
+
+            return Http::timeout($timeout)
+                ->connectTimeout(min($connectTimeout, 10))
+                ->retry(1, 500)
+                ->acceptJson();
+        }
+
+        $timeout = (int) config('services.meta.http_timeout', 90);
 
         return Http::timeout($timeout)
             ->connectTimeout($connectTimeout)
@@ -144,7 +162,7 @@ protected function handleError($response, $endpoint, $payload = [])
     |--------------------------------------------------------------------------
     */
 
-    protected function request(string $method,string $endpoint,array $payload=[],bool $asForm=true)
+    protected function request(string $method,string $endpoint,array $payload=[],bool $asForm=true, bool $forMutation = false)
     {
         $payload['access_token'] = $this->accessToken;
 
@@ -153,7 +171,7 @@ protected function handleError($response, $endpoint, $payload = [])
             'payload'=>$payload
         ]);
 
-        $client = $this->client();
+        $client = $this->client($forMutation);
 
         if($asForm){
             $client = $client->asForm();
@@ -188,9 +206,9 @@ protected function handleError($response, $endpoint, $payload = [])
     |--------------------------------------------------------------------------
     */
 
-    protected function post(string $endpoint,array $payload=[]):array
+    protected function post(string $endpoint,array $payload=[], bool $forMutation = false):array
     {
-        return $this->request('post',$endpoint,$payload,true);
+        return $this->request('post',$endpoint,$payload,true, $forMutation);
     }
 
     /*
@@ -469,31 +487,24 @@ protected function buildTargeting(array $targeting): array
             return $targeting;
         }
 
-        $validIds = $this->validateInterestIds($interestIds);
-
-        if ($validIds === []) {
-            Log::warning('META_INTERESTS_REMOVED', [
-                'removed' => $interestIds,
-            ]);
-            unset($targeting['flexible_spec']);
-            return $targeting;
-        }
-
-        if (count($validIds) !== count($interestIds)) {
-            Log::warning('META_INTERESTS_FILTERED', [
-                'requested' => $interestIds,
-                'valid' => $validIds,
-            ]);
-        }
-
         $targeting['flexible_spec'] = [[
             'interests' => array_map(
                 fn ($id) => ['id' => (string) $id],
-                $validIds
+                $interestIds
             ),
         ]];
 
         return $targeting;
+    }
+
+    protected function isDetailedTargetingError(Throwable $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, '2446394')
+            || str_contains($message, '2446395')
+            || str_contains($message, 'detailed targeting')
+            || str_contains($message, 'no longer available');
     }
 
     /**
@@ -511,7 +522,7 @@ protected function buildTargeting(array $targeting): array
         }
 
         try {
-            $response = $this->client()->get("{$this->baseUrl}/search", [
+            $response = $this->client(forSearch: true)->get("{$this->baseUrl}/search", [
                 'type' => 'adinterestvalid',
                 'interest_list' => json_encode($interestIds),
                 'access_token' => $this->accessToken,
@@ -577,7 +588,7 @@ protected function buildTargeting(array $targeting): array
             $params['country_code'] = strtoupper(trim($countryCode));
         }
 
-        $response = $this->client()->get("{$this->baseUrl}/search", $params);
+        $response = $this->client(forSearch: true)->get("{$this->baseUrl}/search", $params);
 
         if ($response->failed()) {
             Log::warning('META_GEO_SEARCH_FAILED', [
@@ -805,7 +816,38 @@ if (!is_array($targeting)) {
     |--------------------------------------------------------------------------
     */
 
-    $response = $this->post("{$accountId}/adsets", $payload);
+    $optimizationGoal = strtoupper((string) ($payload['optimization_goal'] ?? ''));
+    $hadInterests = ! empty($targeting['flexible_spec']);
+    $interestsRemoved = false;
+
+    if ($hadInterests && in_array($optimizationGoal, ['LEAD_GENERATION', 'QUALITY_LEAD'], true)) {
+        unset($targeting['flexible_spec']);
+        $payload['targeting'] = json_encode($targeting);
+        $interestsRemoved = true;
+        $hadInterests = false;
+
+        Log::info('META_LEAD_ADSET_OMIT_INTERESTS', [
+            'optimization_goal' => $optimizationGoal,
+        ]);
+    }
+
+    try {
+        $response = $this->post("{$accountId}/adsets", $payload, true);
+    } catch (Exception $e) {
+        if ($this->isDetailedTargetingError($e) && $hadInterests) {
+            unset($targeting['flexible_spec']);
+            $payload['targeting'] = json_encode($targeting);
+            $interestsRemoved = true;
+
+            Log::warning('META_ADSET_RETRY_WITHOUT_INTERESTS', [
+                'reason' => $e->getMessage(),
+            ]);
+
+            $response = $this->post("{$accountId}/adsets", $payload, true);
+        } else {
+            throw $e;
+        }
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -816,6 +858,10 @@ if (!is_array($targeting)) {
     Log::info('META_ADSET_CREATED', [
         'response' => $response
     ]);
+
+    if ($interestsRemoved) {
+        $response['_meta_interests_removed'] = true;
+    }
 
     return $response;
 }

@@ -308,6 +308,13 @@ class AdSetController extends Controller
                 );
             }
 
+            if (! empty($response['_meta_interest_replacements'])) {
+                $targeting = $this->meta->applyInterestReplacements(
+                    $targeting,
+                    $response['_meta_interest_replacements']
+                ) ?? $targeting;
+            }
+
             if (! empty($response['_meta_interests_removed'])) {
                 unset($targeting['flexible_spec']);
             }
@@ -342,8 +349,12 @@ $adset = AdSet::create([
             DB::commit();
 
             $successMessage = 'Ad Set created successfully.';
+            if (! empty($response['_meta_interest_replacements'])) {
+                $count = count($response['_meta_interest_replacements']);
+                $successMessage .= " Meta replaced {$count} deprecated interest(s) with current alternatives automatically.";
+            }
             if (! empty($response['_meta_interests_removed'])) {
-                $successMessage .= ' Meta does not support interest targeting for lead ad sets, so it was created with location and demographic targeting only.';
+                $successMessage .= ' Remaining interest targeting was removed because Meta rejected it for this ad set.';
             }
 
             return redirect()

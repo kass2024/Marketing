@@ -10,30 +10,39 @@ use Throwable;
 class MetaAdsService
 {
     protected string $baseUrl;
-    protected string $accessToken;
-    protected string $defaultAccount;
+    protected ?string $accessToken;
+    protected ?string $defaultAccount;
     protected bool $debug;
 
     public function __construct()
     {
-        $version = config('services.meta.graph_version','v19.0');
+        $version = config('services.meta.graph_version', 'v19.0');
 
         $this->baseUrl = "https://graph.facebook.com/{$version}";
-        $this->accessToken = config('services.meta.token');
-        $this->defaultAccount = $this->formatAccount(
-            config('services.meta.ad_account_id')
-        );
+        $this->accessToken = config('services.meta.token') ?: null;
 
-        $this->debug = config('app.debug',false);
+        $accountId = config('services.meta.ad_account_id');
+        $this->defaultAccount = $accountId
+            ? $this->formatAccount($accountId)
+            : null;
 
-        if(!$this->accessToken){
-            throw new Exception('Meta access token missing in config/services.php');
+        $this->debug = config('app.debug', false);
+
+        if ($this->accessToken && $this->defaultAccount) {
+            Log::info('META_SERVICE_INITIALIZED', [
+                'account' => $this->defaultAccount,
+                'graph_version' => $version,
+            ]);
         }
+    }
 
-        Log::info('META_SERVICE_INITIALIZED',[
-            'account'=>$this->defaultAccount,
-            'graph_version'=>$version
-        ]);
+    protected function ensureConfigured(): void
+    {
+        if (! $this->accessToken) {
+            throw new Exception(
+                'Meta access token missing. Copy .env.example to .env and set META_SYSTEM_USER_TOKEN.'
+            );
+        }
     }
 
     /*
@@ -164,6 +173,8 @@ protected function handleError($response, $endpoint, $payload = [])
 
     protected function request(string $method,string $endpoint,array $payload=[],bool $asForm=true, bool $forMutation = false)
     {
+        $this->ensureConfigured();
+
         $payload['access_token'] = $this->accessToken;
 
         Log::info("META_API_{$method}",[
@@ -503,8 +514,84 @@ protected function buildTargeting(array $targeting): array
 
         return str_contains($message, '2446394')
             || str_contains($message, '2446395')
+            || str_contains($message, '1870247')
+            || str_contains($message, '1487694')
+            || str_contains($message, 'deprecated_interest')
             || str_contains($message, 'detailed targeting')
-            || str_contains($message, 'no longer available');
+            || str_contains($message, 'no longer available')
+            || str_contains($message, 'alternative options');
+    }
+
+    /**
+     * Parse Meta's deprecated-interest alternatives from an API error message.
+     *
+     * @return array<string, string> Map of deprecated_interest_id => alternative_interest_id
+     */
+    protected function extractInterestAlternatives(string $message): array
+    {
+        $replacements = [];
+
+        if (preg_match('/Relevant alternative options:\s*(\[.*\])\s*(?:\(|$)/s', $message, $matches)) {
+            $options = json_decode($matches[1], true);
+        } elseif (preg_match('/(\[{"deprecated_interest_id".*?\}])/s', $message, $matches)) {
+            $options = json_decode($matches[1], true);
+        } else {
+            $options = null;
+        }
+
+        if (! is_array($options)) {
+            return $replacements;
+        }
+
+        foreach ($options as $option) {
+            if (! is_array($option)) {
+                continue;
+            }
+
+            $deprecated = trim((string) ($option['deprecated_interest_id'] ?? ''));
+            $alternative = trim((string) ($option['alternative_interest_id'] ?? ''));
+
+            if ($deprecated !== '' && $alternative !== '') {
+                $replacements[$deprecated] = $alternative;
+            }
+        }
+
+        return $replacements;
+    }
+
+    /**
+     * Swap deprecated interest IDs for Meta-suggested alternatives.
+     */
+    public function applyInterestReplacements(array $targeting, array $replacements): ?array
+    {
+        if ($replacements === [] || empty($targeting['flexible_spec'])) {
+            return null;
+        }
+
+        $changed = false;
+
+        foreach ($targeting['flexible_spec'] as $specIndex => $spec) {
+            foreach ($spec['interests'] ?? [] as $interestIndex => $interest) {
+                $id = trim((string) ($interest['id'] ?? ''));
+
+                if ($id === '' || ! isset($replacements[$id])) {
+                    continue;
+                }
+
+                $targeting['flexible_spec'][$specIndex]['interests'][$interestIndex]['id']
+                    = (string) $replacements[$id];
+                $changed = true;
+            }
+        }
+
+        return $changed ? $targeting : null;
+    }
+
+    protected function stripInterestTargeting(array $targeting): array
+    {
+        unset($targeting['flexible_spec']);
+
+        return $targeting;
     }
 
     /**
@@ -520,6 +607,8 @@ protected function buildTargeting(array $targeting): array
         if ($interestIds === []) {
             return [];
         }
+
+        $this->ensureConfigured();
 
         try {
             $response = $this->client(forSearch: true)->get("{$this->baseUrl}/search", [
@@ -570,6 +659,8 @@ protected function buildTargeting(array $targeting): array
         if (strlen($query) < 2) {
             return [];
         }
+
+        $this->ensureConfigured();
 
         $allowedTypes = ['city', 'country', 'region', 'zip'];
         if (! in_array($locationType, $allowedTypes, true)) {
@@ -812,58 +903,74 @@ if (!is_array($targeting)) {
 
     /*
     |--------------------------------------------------------------------------
-    | API REQUEST
+    | API REQUEST (auto-retry deprecated interests & targeting fallbacks)
     |--------------------------------------------------------------------------
     */
 
-    $optimizationGoal = strtoupper((string) ($payload['optimization_goal'] ?? ''));
-    $hadInterests = ! empty($targeting['flexible_spec']);
+    $interestReplacements = [];
     $interestsRemoved = false;
+    $lastException = null;
+    $maxAttempts = 5;
 
-    if ($hadInterests && in_array($optimizationGoal, ['LEAD_GENERATION', 'QUALITY_LEAD'], true)) {
-        unset($targeting['flexible_spec']);
-        $payload['targeting'] = json_encode($targeting);
-        $interestsRemoved = true;
-        $hadInterests = false;
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        try {
+            $response = $this->post("{$accountId}/adsets", $payload, true);
 
-        Log::info('META_LEAD_ADSET_OMIT_INTERESTS', [
-            'optimization_goal' => $optimizationGoal,
-        ]);
-    }
-
-    try {
-        $response = $this->post("{$accountId}/adsets", $payload, true);
-    } catch (Exception $e) {
-        if ($this->isDetailedTargetingError($e) && $hadInterests) {
-            unset($targeting['flexible_spec']);
-            $payload['targeting'] = json_encode($targeting);
-            $interestsRemoved = true;
-
-            Log::warning('META_ADSET_RETRY_WITHOUT_INTERESTS', [
-                'reason' => $e->getMessage(),
+            Log::info('META_ADSET_CREATED', [
+                'response' => $response,
+                'attempt' => $attempt,
             ]);
 
-            $response = $this->post("{$accountId}/adsets", $payload, true);
-        } else {
+            if ($interestReplacements !== []) {
+                $response['_meta_interest_replacements'] = $interestReplacements;
+            }
+
+            if ($interestsRemoved) {
+                $response['_meta_interests_removed'] = true;
+            }
+
+            return $response;
+        } catch (Exception $e) {
+            $lastException = $e;
+            $message = $e->getMessage();
+
+            $alternatives = $this->extractInterestAlternatives($message);
+            $updatedTargeting = $this->applyInterestReplacements($targeting, $alternatives);
+
+            if ($updatedTargeting !== null) {
+                foreach ($alternatives as $deprecatedId => $alternativeId) {
+                    $interestReplacements[$deprecatedId] = $alternativeId;
+                }
+
+                $targeting = $updatedTargeting;
+                $payload['targeting'] = json_encode($targeting);
+
+                Log::warning('META_ADSET_RETRY_WITH_INTEREST_ALTERNATIVES', [
+                    'attempt' => $attempt,
+                    'replacements' => $alternatives,
+                ]);
+
+                continue;
+            }
+
+            if (! empty($targeting['flexible_spec']) && $this->isDetailedTargetingError($e)) {
+                $targeting = $this->stripInterestTargeting($targeting);
+                $payload['targeting'] = json_encode($targeting);
+                $interestsRemoved = true;
+
+                Log::warning('META_ADSET_RETRY_WITHOUT_INTERESTS', [
+                    'attempt' => $attempt,
+                    'reason' => $message,
+                ]);
+
+                continue;
+            }
+
             throw $e;
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | RESPONSE LOG
-    |--------------------------------------------------------------------------
-    */
-
-    Log::info('META_ADSET_CREATED', [
-        'response' => $response
-    ]);
-
-    if ($interestsRemoved) {
-        $response['_meta_interests_removed'] = true;
-    }
-
-    return $response;
+    throw $lastException ?? new Exception('Meta ad set creation failed after retries.');
 }
     public function deleteAdSet(string $adsetId):array
     {
@@ -878,6 +985,8 @@ if (!is_array($targeting)) {
 
     public function uploadImage(string $accountId,string $filePath):array
     {
+        $this->ensureConfigured();
+
         $accountId = $this->formatAccount($accountId);
 
         Log::info('META_UPLOAD_IMAGE',[
@@ -1285,6 +1394,8 @@ public function updateAdSet(string $adsetId, array $data): array
 
 protected function getAccessToken(): string
 {
+    $this->ensureConfigured();
+
     return $this->accessToken;
 }
 public function updateCreative(string $creativeId,array $data):array
@@ -1300,6 +1411,8 @@ public function getCreativeInsights(string $creativeId): array
 }
 public function getBillingInfo(string $accountId)
 {
+    $this->ensureConfigured();
+
     $accountId = $this->formatAccount($accountId);
 
     $timeout = (int) config('services.meta.http_timeout', 90);
@@ -1356,6 +1469,8 @@ public function getInsightsBatch(string $accountId): array
 }
 public function getAccountStatus($accountId)
 {
+    $this->ensureConfigured();
+
     $accountId = str_starts_with($accountId, 'act_')
         ? $accountId
         : "act_{$accountId}";

@@ -370,7 +370,7 @@ multiple
 class="w-full border rounded-xl px-4 py-3"></select>
 
 <p class="mt-2 text-sm text-slate-500">
-Optional. Lead ad sets may ignore interests because Meta often rejects detailed targeting for lead generation.
+Optional. Deprecated interests are replaced automatically with Meta's suggested alternatives when needed.
 </p>
 
 </div>

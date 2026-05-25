@@ -27,7 +27,7 @@ php artisan route:clear
 php artisan view:clear
 
 echo "==> Checking database connection"
-php artisan db:show || {
+php artisan db:recover-check || {
   echo "Database still unreachable. Verify .env values:"
   echo "  DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD DB_SOCKET"
   exit 1

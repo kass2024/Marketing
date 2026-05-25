@@ -42,15 +42,11 @@ class Handler extends ExceptionHandler
                 ], 503);
             }
 
-            if ($request->is('login', 'register', 'forgot-password', 'reset-password*')) {
-                return redirect()
-                    ->route('login')
-                    ->withErrors([
-                        'email' => 'The database is temporarily unavailable. Please try again shortly.',
-                    ]);
-            }
-
-            return response()->view('errors.database-unavailable', [], 503);
+            return redirect()
+                ->to('/login')
+                ->withErrors([
+                    'email' => 'MySQL is not running or .env database settings are wrong. Restart MySQL on the server, then try again.',
+                ]);
         }
 
         return parent::render($request, $e);

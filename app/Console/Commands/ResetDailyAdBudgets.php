@@ -30,15 +30,21 @@ class ResetDailyAdBudgets extends Command
         foreach (Ad::whereNotNull('meta_ad_id')->get() as $ad) {
             try {
                 if (! $ad->spend_date || $ad->spend_date < $today) {
-                    $ad->update([
+                    $payload = AdBudgetGuard::filterPersistablePayload([
                         'daily_spend' => 0,
                         'daily_spend_anchor' => 0,
                         'spend_date' => $today,
                     ]);
 
+                    $ad->update($payload);
+
                     $ad->daily_spend = 0;
-                    $ad->daily_spend_anchor = 0;
                     $ad->spend_date = $today;
+
+                    if (AdBudgetGuard::hasAnchorColumn()) {
+                        $ad->daily_spend_anchor = 0;
+                    }
+
                     $reset++;
                 }
 

@@ -174,11 +174,11 @@ class SyncMetaAds extends Command
 
                     $budgetPayload = AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend);
 
-                    $ad->update(array_merge([
+                    $ad->update(AdBudgetGuard::filterPersistablePayload(array_merge([
                         'impressions' => $impressions,
                         'clicks' => $clicks,
                         'ctr' => $ctr,
-                    ], $budgetPayload));
+                    ], $budgetPayload)));
 
                     $ad->daily_spend = (float) ($budgetPayload['daily_spend'] ?? 0);
                     AdBudgetGuard::enforce($ad, $this->meta, $metaTodaySpend);

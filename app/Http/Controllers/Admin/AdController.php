@@ -80,10 +80,12 @@ class AdController extends Controller
             if (Schema::hasColumn('ads', 'spend_date')) {
                 $payload = array_merge($payload, AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend));
             } else {
-                $payload['daily_spend'] = AdBudgetGuard::cappedSessionSpend($ad, $metaTodaySpend);
+                $payload['daily_spend'] = AdBudgetGuard::isBudgetLimitPaused($ad)
+                    ? 0
+                    : AdBudgetGuard::cappedSessionSpend($ad, $metaTodaySpend);
             }
 
-            $ad->update($payload);
+            $ad->update(AdBudgetGuard::filterPersistablePayload($payload));
 
             $ad->impressions = $impressions;
             $ad->clicks = $clicks;
@@ -1027,10 +1029,12 @@ public function sync(Ad $ad): RedirectResponse
         if (Schema::hasColumn('ads', 'spend_date')) {
             $payload = array_merge($payload, AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend));
         } else {
-            $payload['daily_spend'] = AdBudgetGuard::cappedSessionSpend($ad, $metaTodaySpend);
+            $payload['daily_spend'] = AdBudgetGuard::isBudgetLimitPaused($ad)
+                ? 0
+                : AdBudgetGuard::cappedSessionSpend($ad, $metaTodaySpend);
         }
 
-        $ad->update($payload);
+        $ad->update(AdBudgetGuard::filterPersistablePayload($payload));
 
         AdBudgetGuard::enforce($ad, $this->meta, $metaTodaySpend);
 
@@ -1246,7 +1250,7 @@ protected function formatAdForLiveJson(Ad $ad): array
         'clicks' => (int) ($ad->clicks ?? 0),
         'ctr' => (float) ($ad->ctr ?? 0),
         'spend' => (float) ($ad->spend ?? 0),
-        'daily_spend' => (float) ($ad->daily_spend ?? 0),
+        'daily_spend' => $ad->displayDailySpend(),
         'daily_budget' => (float) ($ad->daily_budget ?? 0),
         'pause_reason' => $ad->pause_reason ?? null,
     ];

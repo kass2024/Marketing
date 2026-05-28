@@ -449,6 +449,285 @@ protected function handleError($response, $endpoint, $payload = [])
         ));
     }
 
+    public function normalizeLandingUrlForMeta(string $url, bool $strict = false): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            throw new Exception('Website URL is empty.');
+        }
+
+        if (! preg_match('#^https?://#i', $url)) {
+            $url = 'https://'.ltrim($url, '/');
+        }
+
+        $url = preg_replace('#^http://#i', 'https://', $url, 1);
+
+        $parts = parse_url($url);
+        $host = strtolower((string) ($parts['host'] ?? ''));
+
+        if ($host === '') {
+            throw new Exception('Website URL must include a hostname.');
+        }
+
+        if ($strict) {
+            if (! str_contains($host, '.')) {
+                throw new Exception('Website URL must be a valid hostname (e.g. https://www.example.com/path).');
+            }
+
+            $blocked = ['facebook.com', 'fb.com', 'fb.me', 'messenger.com'];
+            foreach ($blocked as $b) {
+                if ($host === $b || str_ends_with($host, '.'.$b)) {
+                    throw new Exception('Use your own website as the destination, not '.$b.'.');
+                }
+            }
+
+            if (strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+                throw new Exception('Website URL must use https://.');
+            }
+        }
+
+        return rtrim($url, '/');
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function landingUrlCandidates(string $url): array
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return [];
+        }
+
+        try {
+            $primary = $this->normalizeLandingUrlForMeta($url, false);
+        } catch (Exception) {
+            return [];
+        }
+
+        $candidates = [$primary];
+        $parts = parse_url($primary);
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $path = (string) ($parts['path'] ?? '');
+        $query = isset($parts['query']) ? '?'.$parts['query'] : '';
+
+        if ($host !== '' && ! str_starts_with($host, 'www.')) {
+            $candidates[] = 'https://www.'.$host.$path.$query;
+        }
+
+        if (str_starts_with($host, 'www.')) {
+            $candidates[] = 'https://'.substr($host, 4).$path.$query;
+        }
+
+        return array_values(array_unique(array_map(fn ($u) => rtrim($u, '/'), $candidates)));
+    }
+
+    public function getConnectedInstagramUserId(string $pageId): ?string
+    {
+        return $this->resolveInstagramUserId($pageId);
+    }
+
+    public function resolveInstagramUserId(?string $pageId = null, ?string $accountId = null): ?string
+    {
+        foreach ($this->instagramPageIdCandidates($pageId) as $candidate) {
+            $found = $this->lookupInstagramIdFromPage($candidate);
+            if ($found !== null) {
+                return $found;
+            }
+        }
+
+        $fromAccount = $this->lookupInstagramIdFromAdAccount($accountId);
+        if ($fromAccount !== null) {
+            return $fromAccount;
+        }
+
+        $fromEnv = trim((string) config('services.meta.instagram_user_id', ''));
+
+        return $fromEnv !== '' ? $fromEnv : null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function diagnoseInstagramConnection(?string $pageId = null, ?string $accountId = null): array
+    {
+        $pageId = trim((string) ($pageId ?? \App\Support\TenantScope::pageId() ?? config('services.meta.page_id', '')));
+        $accountId = $accountId ?? \App\Support\TenantScope::adAccountMetaId() ?? config('services.meta.ad_account_id');
+        $report = [
+            'page_id' => $pageId,
+            'ad_account_id' => $accountId,
+            'app' => 'WABA',
+            'instagram_user_id' => null,
+            'source' => null,
+            'page_connected' => false,
+            'env_fallback' => trim((string) config('services.meta.instagram_user_id', '')) !== '',
+            'ready' => false,
+            'hints' => [],
+        ];
+
+        if ($pageId !== '') {
+            foreach (['connected_instagram_account{id,username}', 'instagram_business_account{id,username}'] as $fields) {
+                try {
+                    $res = $this->get($pageId, ['fields' => $fields]);
+                    $key = str_contains($fields, 'connected') ? 'connected_instagram_account' : 'instagram_business_account';
+                    $account = $res[$key] ?? null;
+                    if (is_array($account) && ! empty($account['id'])) {
+                        $report['page_connected'] = true;
+                        $report['instagram_user_id'] = (string) $account['id'];
+                        $report['instagram_username'] = $account['username'] ?? null;
+                        $report['source'] = 'page:'.$key;
+                        break;
+                    }
+                } catch (Exception $e) {
+                    $report['page_errors'][] = $fields.': '.$e->getMessage();
+                }
+            }
+        }
+
+        if ($report['instagram_user_id'] === null) {
+            $fromAccount = $this->lookupInstagramIdFromAdAccount($accountId);
+            if ($fromAccount !== null) {
+                $report['instagram_user_id'] = $fromAccount;
+                $report['source'] = 'ad_account:instagram_accounts';
+            }
+        }
+
+        if ($report['instagram_user_id'] === null && $report['env_fallback']) {
+            $report['instagram_user_id'] = trim((string) config('services.meta.instagram_user_id', ''));
+            $report['source'] = 'env:META_INSTAGRAM_USER_ID';
+        }
+
+        $report['ready'] = $report['instagram_user_id'] !== null && $report['instagram_user_id'] !== '';
+
+        if (! $report['ready']) {
+            $report['hints'] = [
+                'WABA uses its own .env (META_AD_ACCOUNT_ID, META_PAGE_ID) — not xanderbot credentials.',
+                'Link this WABA Page to Instagram in Meta Business Suite, or set META_INSTAGRAM_USER_ID in WABA .env only.',
+                'Per-business: set meta_page_id on the client record so IG lookup uses the correct Page.',
+            ];
+        }
+
+        return $report;
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function instagramPageIdCandidates(?string $pageId): array
+    {
+        $ids = [
+            trim((string) $pageId),
+            trim((string) (\App\Support\TenantScope::pageId() ?? '')),
+            trim((string) config('services.meta.page_id', '')),
+        ];
+
+        return array_values(array_unique(array_filter($ids)));
+    }
+
+    protected function lookupInstagramIdFromPage(string $pageId): ?string
+    {
+        foreach (['connected_instagram_account{id}', 'instagram_business_account{id}'] as $fields) {
+            try {
+                $res = $this->get($pageId, ['fields' => $fields]);
+                $key = str_contains($fields, 'connected') ? 'connected_instagram_account' : 'instagram_business_account';
+                $account = $res[$key] ?? null;
+
+                if (is_array($account) && ! empty($account['id'])) {
+                    return (string) $account['id'];
+                }
+            } catch (Exception $e) {
+                Log::warning('META_PAGE_INSTAGRAM_LOOKUP_FAILED', [
+                    'page_id' => $pageId,
+                    'fields' => $fields,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    protected function lookupInstagramIdFromAdAccount(?string $accountId = null): ?string
+    {
+        try {
+            $accountId = $this->formatAccount($accountId ?? config('services.meta.ad_account_id'));
+            $res = $this->get("{$accountId}/instagram_accounts", [
+                'fields' => 'id,username',
+                'limit' => 5,
+            ]);
+
+            foreach ($res['data'] ?? [] as $row) {
+                if (! empty($row['id'])) {
+                    return (string) $row['id'];
+                }
+            }
+        } catch (Exception $e) {
+            Log::warning('META_AD_ACCOUNT_INSTAGRAM_LOOKUP_FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $targeting
+     * @return array<string, mixed>
+     */
+    public function applyFacebookInstagramPlacements(array $targeting): array
+    {
+        $platforms = $targeting['publisher_platforms'] ?? [];
+
+        if (! is_array($platforms)) {
+            $platforms = [];
+        }
+
+        $merged = array_values(array_unique(array_merge($platforms, ['facebook', 'instagram'])));
+
+        $targeting['publisher_platforms'] = $merged;
+
+        return $this->enrichPlacementTargeting($targeting);
+    }
+
+    public function ensureAdSetTargetsInstagram(string $adsetMetaId): bool
+    {
+        $meta = $this->getAdSet($adsetMetaId);
+        $targeting = $meta['targeting'] ?? [];
+
+        if (is_string($targeting)) {
+            $decoded = json_decode($targeting, true);
+            $targeting = is_array($decoded) ? $decoded : [];
+        }
+
+        if (! is_array($targeting)) {
+            $targeting = [];
+        }
+
+        $platforms = $targeting['publisher_platforms'] ?? [];
+
+        if (is_array($platforms) && in_array('instagram', $platforms, true)) {
+            return false;
+        }
+
+        $patched = $this->applyFacebookInstagramPlacements($targeting);
+
+        $this->updateAdSet($adsetMetaId, [
+            'targeting' => json_encode($patched, JSON_THROW_ON_ERROR),
+        ]);
+
+        return true;
+    }
+
+    public function attachCreativeToAd(string $adId, string $creativeId): array
+    {
+        return $this->updateAd($adId, [
+            'creative' => json_encode(
+                ['creative_id' => (string) $creativeId],
+                JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            ),
+        ]);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | CAMPAIGN
@@ -970,6 +1249,15 @@ protected function buildTargeting(array $targeting): array
         }
 
         return $this->enrichPlacementTargeting($targeting);
+    }
+
+    /**
+     * @param  array<string, mixed>  $targeting
+     * @return array<string, mixed>
+     */
+    public function targetingWithFacebookAndInstagram(array $targeting): array
+    {
+        return $this->applyFacebookInstagramPlacements($targeting);
     }
 
    /*
@@ -1652,6 +1940,27 @@ public function getCampaign(string $campaignId): array
         'fields' => 'id,name,status,objective'
     ]);
 }
+/**
+ * Get a single ad set with fields used for validation.
+ */
+public function getAdSet(string $adsetId): array
+{
+    $this->ensureConfigured();
+
+    return $this->get($adsetId, [
+        'fields' => implode(',', [
+            'id',
+            'name',
+            'status',
+            'optimization_goal',
+            'billing_event',
+            'promoted_object',
+            'targeting',
+            'destination_type',
+        ]),
+    ]);
+}
+
 /*
 |--------------------------------------------------------------------------
 | UPDATE ADSET
@@ -1769,6 +2078,50 @@ public function getAdInsightsMap(?string $accountId = null, string $preset = 'ma
 
     return $map;
 }
+
+/**
+ * Ad-level insights split by publisher_platform (facebook, instagram, …).
+ *
+ * @return array<string, array<string, array{impressions: int, clicks: int, spend: float}>>
+ */
+public function getAdPlacementInsightsMap(?string $accountId = null, string $preset = 'maximum'): array
+{
+    $this->ensureConfigured();
+
+    $accountId = $this->formatAccount($accountId ?? $this->defaultAccount);
+
+    $response = $this->get("{$accountId}/insights", [
+        'level' => 'ad',
+        'breakdowns' => 'publisher_platform',
+        'fields' => implode(',', ['ad_id', 'impressions', 'clicks', 'spend']),
+        'date_preset' => $preset,
+        'limit' => 500,
+    ]);
+
+    $map = [];
+
+    foreach ($response['data'] ?? [] as $row) {
+        $adId = (string) ($row['ad_id'] ?? '');
+        $platform = strtolower((string) ($row['publisher_platform'] ?? 'unknown'));
+
+        if ($adId === '') {
+            continue;
+        }
+
+        if (! isset($map[$adId])) {
+            $map[$adId] = [];
+        }
+
+        $map[$adId][$platform] = [
+            'impressions' => (int) ($row['impressions'] ?? 0),
+            'clicks' => (int) ($row['clicks'] ?? 0),
+            'spend' => (float) ($row['spend'] ?? 0),
+        ];
+    }
+
+    return $map;
+}
+
 public function getAccountStatus($accountId)
 {
     $this->ensureConfigured();

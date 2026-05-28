@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Ad;
 use App\Models\AdSet;
 use App\Models\Creative;
+use App\Services\InstagramDeliveryService;
 use App\Services\MetaAdsService;
 use App\Support\AdBudgetGuard;
+use App\Models\AdAccount;
 use App\Support\TenantScope;
 
 use Illuminate\Http\Request;
@@ -27,9 +29,18 @@ class AdController extends Controller
 {
     protected MetaAdsService $meta;
 
-    public function __construct(MetaAdsService $meta)
+    protected InstagramDeliveryService $instagramDelivery;
+
+    public function __construct(MetaAdsService $meta, InstagramDeliveryService $instagramDelivery)
     {
         $this->meta = $meta;
+        $this->instagramDelivery = $instagramDelivery;
+    }
+
+    protected function resolveMetaAccountId(): ?string
+    {
+        return TenantScope::adAccountMetaId()
+            ?? AdAccount::query()->whereNotNull('meta_id')->value('meta_id');
     }
 
     /**
@@ -50,6 +61,102 @@ class AdController extends Controller
                 'today' => $this->meta->getAdInsightsMap($accountId, 'today'),
             ];
         });
+    }
+
+    /**
+     * @return array<string, array<string, array{impressions: int, clicks: int, spend: float}>>
+     */
+    protected function placementInsightsMap(string $accountId): array
+    {
+        $cacheKey = 'meta_ad_placement_maps:'.md5($accountId);
+
+        return Cache::remember($cacheKey, now()->addSeconds(60), function () use ($accountId) {
+            return $this->meta->getAdPlacementInsightsMap($accountId, 'maximum');
+        });
+    }
+
+    /**
+     * @param  array<string, array<string, array{impressions: int, clicks: int, spend: float}>>  $placementMap
+     */
+    protected function applyPlacementDeliveryToAds(iterable $ads, array $placementMap): void
+    {
+        foreach ($ads as $ad) {
+            $metaId = (string) ($ad->meta_ad_id ?? '');
+            $delivery = $metaId !== '' ? ($placementMap[$metaId] ?? []) : [];
+            $ad->setAttribute('placement_delivery', $delivery);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function buildPlacementPayloadForAd(Ad $ad): array
+    {
+        $ad->loadMissing('adSet');
+        $delivery = is_array($ad->getAttribute('placement_delivery'))
+            ? $ad->getAttribute('placement_delivery')
+            : [];
+
+        $ig = $delivery['instagram'] ?? [];
+        $fb = $delivery['facebook'] ?? [];
+        $igImpressions = (int) ($ig['impressions'] ?? 0);
+        $fbImpressions = (int) ($fb['impressions'] ?? 0);
+
+        return [
+            'targets' => $ad->adSet?->placementTargetLabels() ?? [],
+            'targets_instagram' => $ad->adSet?->targetsInstagram() ?? false,
+            'delivers_instagram' => $igImpressions > 0,
+            'delivers_facebook' => $fbImpressions > 0,
+            'instagram_impressions' => $igImpressions,
+            'instagram_clicks' => (int) ($ig['clicks'] ?? 0),
+            'facebook_impressions' => $fbImpressions,
+            'facebook_clicks' => (int) ($fb['clicks'] ?? 0),
+            'summary' => $this->formatPlacementSummary($ad->adSet, $delivery),
+        ];
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $delivery
+     */
+    protected function formatPlacementSummary(?AdSet $adSet, array $delivery): string
+    {
+        $igImpressions = (int) ($delivery['instagram']['impressions'] ?? 0);
+        $fbImpressions = (int) ($delivery['facebook']['impressions'] ?? 0);
+
+        if ($igImpressions > 0 && $fbImpressions > 0) {
+            return 'Delivering on Facebook & Instagram';
+        }
+
+        if ($igImpressions > 0) {
+            return 'Delivering on Instagram';
+        }
+
+        if ($fbImpressions > 0) {
+            return 'Facebook only (no IG impressions yet)';
+        }
+
+        if ($adSet?->targetsInstagram()) {
+            return 'IG targeted — no impressions yet';
+        }
+
+        return 'No platform data from Meta';
+    }
+
+    protected function hydratePlacementDeliveryFromMeta(iterable $ads): void
+    {
+        $accountId = $this->resolveMetaAccountId();
+
+        if (! $accountId) {
+            return;
+        }
+
+        try {
+            $this->applyPlacementDeliveryToAds($ads, $this->placementInsightsMap($accountId));
+        } catch (Throwable $e) {
+            Log::warning('ADS_PLACEMENT_INSIGHTS_FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     protected function applyMetaInsightsToAds(iterable $ads, array $lifetime, array $today, bool $enforceBudget = true): void
@@ -152,7 +259,10 @@ class AdController extends Controller
     protected function adsMetricsQuery()
     {
         return TenantScope::ads(
-            Ad::query()->select($this->adsSelectColumns())->latest()
+            Ad::query()
+                ->with(['adSet:id,name,campaign_id,targeting'])
+                ->select($this->adsSelectColumns())
+                ->latest()
         );
     }
 
@@ -162,7 +272,7 @@ class AdController extends Controller
             Ad::query()
                 ->with([
                     'creative:id,name,image_url,image_hash,json_payload',
-                    'adSet:id,name,campaign_id',
+                    'adSet:id,name,campaign_id,targeting',
                     'adSet.campaign:id,name,ad_account_id',
                     'adSet.campaign.adAccount:id,name,meta_id',
                 ])
@@ -217,7 +327,8 @@ public function index(): View
     $ads = $this->adsListQuery()->paginate(20);
 
     $allAds = $this->adsMetricsQuery()->get();
-    $this->hydrateLiveMetricsFromMeta($allAds);
+    $this->hydrateLiveMetricsFromMeta($allAds, true, false);
+    $this->hydratePlacementDeliveryFromMeta($allAds);
 
     $freshMap = $allAds->keyBy('id');
     $ads->setCollection(
@@ -319,6 +430,12 @@ public function index(): View
                 throw new Exception('Meta Ad Account not connected.');
             }
 
+            $this->instagramDelivery->assertInstagramConfigured(
+                $campaign->meta_page_id ?? TenantScope::pageId(),
+                $adAccount->meta_id
+            );
+
+            $this->assertCreativeEligibleForMetaAd($creative, $adset);
 
             /*
             |--------------------------------------------------------------------------
@@ -398,15 +515,16 @@ Log::info('META_AD_CREATE_REQUEST', [
 ]);
             /*
             |--------------------------------------------------------------------------
-            | CREATE AD ON META
+            | CREATE AD ON META (IG-enabled creative first)
             |--------------------------------------------------------------------------
             */
 
-            $response = $this->meta->createAd(
+            $response = $this->createMetaAdWithLinkFallbacks(
                 $accountId,
-                $payload
+                $payload,
+                $creative,
+                $adset
             );
-
 
             Log::info('META_AD_CREATE_RESPONSE', $response);
 
@@ -1193,7 +1311,14 @@ public function live(): JsonResponse
 {
     try {
         $ads = $this->adsMetricsQuery()->get();
-        $metaSynced = $this->hydrateLiveMetricsFromMeta($ads, true, true);
+        $metaSynced = $this->hydrateLiveMetricsFromMeta($ads, true, false);
+
+        if (! $metaSynced) {
+            $metaSynced = $this->hydrateLiveMetricsFromMeta($ads, true, true);
+        }
+
+        $this->hydratePlacementDeliveryFromMeta($ads);
+
         $metrics = $this->buildAdsMetrics($ads);
 
         return response()
@@ -1239,7 +1364,7 @@ public function live(): JsonResponse
 
 protected function formatAdForLiveJson(Ad $ad): array
 {
-    return [
+    return array_merge([
         'id' => $ad->id,
         'name' => $ad->name,
         'adset_id' => $ad->adset_id,
@@ -1253,6 +1378,148 @@ protected function formatAdForLiveJson(Ad $ad): array
         'daily_spend' => $ad->displayDailySpend(),
         'daily_budget' => (float) ($ad->daily_budget ?? 0),
         'pause_reason' => $ad->pause_reason ?? null,
-    ];
+    ], [
+        'placement' => $this->buildPlacementPayloadForAd($ad),
+    ]);
+}
+
+/**
+ * Patch ad set placements + swap in an Instagram-enabled creative on Meta.
+ */
+public function enableInstagram(Ad $ad): RedirectResponse
+{
+    try {
+        $this->instagramDelivery->repairAd($ad, true);
+
+        return back()->with(
+            'success',
+            'Instagram delivery enabled for this ad. IG impressions may take a few hours to show in the Platforms column.'
+        );
+    } catch (Throwable $e) {
+        Log::error('AD_ENABLE_INSTAGRAM_FAILED', [
+            'ad_id' => $ad->id,
+            'error' => $e->getMessage(),
+        ]);
+
+        return back()->withErrors([
+            'enable_instagram' => $e->getMessage(),
+        ]);
+    }
+}
+
+/**
+ * Enable Instagram on all existing campaigns (ad sets), creatives, and ads on Meta.
+ */
+public function enableInstagramAll(): RedirectResponse
+{
+    try {
+        $stats = $this->instagramDelivery->repairAll();
+
+        if ($stats['ads']['updated'] === 0 && $stats['errors'] !== []) {
+            return back()->withErrors([
+                'enable_instagram' => implode(' | ', array_slice($stats['errors'], 0, 3)),
+            ]);
+        }
+
+        return back()->with('success', $this->instagramDelivery->summaryMessage($stats));
+    } catch (Throwable $e) {
+        Log::error('AD_ENABLE_INSTAGRAM_ALL_FAILED', ['error' => $e->getMessage()]);
+
+        return back()->withErrors([
+            'enable_instagram' => $e->getMessage(),
+        ]);
+    }
+}
+
+private function assertCreativeEligibleForMetaAd(Creative $creative, AdSet $adset): void
+{
+    $creative->loadMissing('campaign');
+    $adset->loadMissing('campaign');
+
+    if (! $creative->campaign || ! $adset->campaign) {
+        throw new Exception('Creative and ad set must both be linked to a campaign.');
+    }
+
+    if ((int) $creative->campaign->ad_account_id !== (int) $adset->campaign->ad_account_id) {
+        throw new Exception(
+            'This creative belongs to a different Meta ad account than the selected ad set.'
+        );
+    }
+
+    $goal = strtoupper((string) ($adset->optimization_goal ?? ''));
+    $goalsRequiringHttpsWebsite = ['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'OFFSITE_CONVERSIONS'];
+
+    if (! in_array($goal, $goalsRequiringHttpsWebsite, true)) {
+        return;
+    }
+
+    $url = trim((string) ($creative->destination_url ?? ''));
+    if ($url === '') {
+        throw new Exception(
+            'This ad set optimizes for website visits. Add a destination URL on the creative, then create the ad again.'
+        );
+    }
+}
+
+/**
+ * @param  array<string, mixed>  $payload
+ * @return array<string, mixed>
+ */
+private function createMetaAdWithLinkFallbacks(
+    string $accountId,
+    array $payload,
+    Creative $creative,
+    AdSet $adset
+): array {
+    $strategies = [];
+    $urls = $this->meta->landingUrlCandidates((string) ($creative->destination_url ?? ''));
+
+    foreach ($urls as $url) {
+        try {
+            $newId = $this->instagramDelivery->createInstagramCreativeOnMeta($accountId, $creative, $adset, $url);
+            $strategies[] = [
+                'label' => 'fresh_creative:'.$url,
+                'payload' => array_merge($payload, [
+                    'creative' => ['id' => $newId],
+                ]),
+            ];
+        } catch (Throwable $e) {
+            Log::warning('META_CREATIVE_RECREATE_SKIPPED', [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    foreach ($urls as $url) {
+        $strategies[] = [
+            'label' => 'inline_spec:'.$url,
+            'payload' => array_merge($payload, [
+                'creative' => [
+                    'spec' => $this->instagramDelivery->buildInlineLinkCreativeSpec($creative, $adset, $url),
+                ],
+            ]),
+        ];
+    }
+
+    $strategies[] = ['label' => 'creative_id', 'payload' => $payload];
+
+    $lastError = null;
+
+    foreach ($strategies as $strategy) {
+        try {
+            Log::info('META_AD_CREATE_ATTEMPT', ['strategy' => $strategy['label']]);
+
+            return $this->meta->createAd($accountId, $strategy['payload']);
+        } catch (Throwable $e) {
+            $lastError = $e;
+            Log::warning('META_AD_CREATE_ATTEMPT_FAILED', [
+                'strategy' => $strategy['label'],
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    throw $lastError ?? new Exception('Meta ad creation failed.');
 }
 }

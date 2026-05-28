@@ -57,21 +57,30 @@ class TenantScope
     }
 
     /**
-     * All businesses advertise through the platform main Meta ad account.
+     * WABA platform default ad account from .env (not shared with xanderbot).
      */
     public static function platformAdAccountMetaId(): ?string
     {
         return self::formatMetaAccountId(config('services.meta.ad_account_id'));
     }
 
+    /**
+     * Meta ad account for API calls: logged-in client's account if set, else platform .env.
+     */
     public static function adAccountMetaId(): ?string
     {
+        $client = self::currentClient();
+
+        if ($client?->meta_ad_account_id) {
+            return self::formatMetaAccountId($client->meta_ad_account_id);
+        }
+
         return self::platformAdAccountMetaId();
     }
 
     public static function resolveAdAccount(): ?AdAccount
     {
-        $metaId = self::platformAdAccountMetaId();
+        $metaId = self::adAccountMetaId();
 
         if (! $metaId) {
             return AdAccount::query()->whereNotNull('meta_id')->first();

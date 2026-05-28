@@ -413,6 +413,12 @@ Route::get('{ad}/preview', [AdController::class,'preview'])
     ->name('preview');
     Route::post('{ad}/publish', [AdController::class, 'publish'])
         ->name('publish');
+
+    Route::post('enable-instagram-all', [AdController::class, 'enableInstagramAll'])
+        ->name('enable-instagram-all');
+
+    Route::post('{ad}/enable-instagram', [AdController::class, 'enableInstagram'])
+        ->name('enable-instagram');
 });
 
         Route::resource('ads', AdController::class)->names('ads');

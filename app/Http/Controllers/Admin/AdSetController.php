@@ -836,6 +836,8 @@ public function update(Request $request, AdSet $adset)
             if (! empty($targeting['publisher_platforms'])) {
                 $targeting = $this->meta->enrichPlacementsForTargeting($targeting);
             }
+        } else {
+            $targeting = $this->meta->targetingWithFacebookAndInstagram($targeting);
         }
 
         return $targeting;

@@ -43,10 +43,14 @@ return [
         'oauth_url'     => env('META_OAUTH_URL', 'https://www.facebook.com'),
 
         'token' => env('META_SYSTEM_USER_TOKEN'),
-        'ad_account_id' => env('META_AD_ACCOUNT_ID'), // Shared by all businesses; pages differentiate tenants
-        'page_id' => env('META_PAGE_ID'), // Optional fallback when Graph API page list is unavailable
+        /** WABA platform ad account only — not shared with xanderbot or other apps. */
+        'ad_account_id' => env('META_AD_ACCOUNT_ID'),
+        /** Default Page for this WABA deployment (each client may have its own meta_page_id). */
+        'page_id' => env('META_PAGE_ID'),
         /** Label for the page when using META_PAGE_ID fallback (create creative form). */
         'page_name' => env('META_PAGE_NAME', 'Facebook Page'),
+        /** WABA-only Instagram business account ID if Page lookup fails (do not copy from xanderbot). */
+        'instagram_user_id' => env('META_INSTAGRAM_USER_ID'),
 
         /*
         |--------------------------------------------------------------------------

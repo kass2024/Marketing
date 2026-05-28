@@ -639,6 +639,10 @@ let section=document.getElementById("platform-section");
 
 if(this.value==="manual"){
 section.classList.remove("hidden");
+const platformEl = document.getElementById("platform-select");
+if(platformEl?.tomselect && platformEl.tomselect.getValue().length === 0){
+platformEl.tomselect.setValue(["facebook","instagram"]);
+}
 }else{
 section.classList.add("hidden");
 }

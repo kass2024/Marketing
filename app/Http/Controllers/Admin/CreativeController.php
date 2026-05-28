@@ -253,6 +253,17 @@ class CreativeController extends Controller
                 $payload['meta_image_url'] = $metaImageUrl;
             }
 
+            $accountMetaId = $campaign->adAccount?->meta_id ?? TenantScope::adAccountMetaId();
+            $instagramUserId = $this->meta->resolveInstagramUserId($data['page_id'], $accountMetaId);
+            if ($instagramUserId !== null && $instagramUserId !== '') {
+                $payload['object_story_spec']['instagram_user_id'] = $instagramUserId;
+            } elseif ($request->boolean('sync_meta')) {
+                throw new Exception(
+                    'Instagram is not available for this Page. Link Page ↔ Instagram in Meta Business Suite, '
+                    .'or set META_INSTAGRAM_USER_ID in .env, then try again.'
+                );
+            }
+
             Log::info('META_CREATIVE_PAYLOAD', $payload);
 
 

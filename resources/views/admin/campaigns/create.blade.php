@@ -91,6 +91,10 @@ class="w-full rounded-xl border border-slate-200 px-4 py-3 shadow-sm focus:borde
 
 <option value="">Select objective</option>
 
+<option value="OUTCOME_ENGAGEMENT" {{ old('objective')=='OUTCOME_ENGAGEMENT'?'selected':'' }}>
+Messages / Engagement (Click-to-WhatsApp)
+</option>
+
 <option value="OUTCOME_TRAFFIC" {{ old('objective')=='OUTCOME_TRAFFIC'?'selected':'' }}>
 Website Traffic
 </option>

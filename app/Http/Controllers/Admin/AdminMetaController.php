@@ -212,22 +212,73 @@ class AdminMetaController extends Controller
             }
 
             $phoneNumberId = $phone['id'];
+            $whatsappPhone = $phone['display_phone_number'] ?? $phone['verified_name'] ?? null;
 
             /*
             |--------------------------------------------------------------------------
-            | 7️⃣ SAVE CONNECTION
+            | 7️⃣ AD ACCOUNT
+            |--------------------------------------------------------------------------
+            */
+            $adAccountResponse = Http::get(
+                "{$this->graphUrl}/{$this->graphVersion}/{$business['id']}/owned_ad_accounts",
+                [
+                    'access_token' => $longToken,
+                    'fields' => 'id,name,account_status',
+                    'limit' => 5,
+                ]
+            );
+
+            $adAccount = Arr::first($adAccountResponse->json('data', []));
+            $adAccountId = $adAccount['id'] ?? config('services.meta.ad_account_id');
+
+            /*
+            |--------------------------------------------------------------------------
+            | 8️⃣ FACEBOOK PAGE + INSTAGRAM
+            |--------------------------------------------------------------------------
+            */
+            $pagesResponse = Http::get(
+                "{$this->graphUrl}/{$this->graphVersion}/{$business['id']}/owned_pages",
+                [
+                    'access_token' => $longToken,
+                    'fields' => 'id,name,instagram_business_account{id,username}',
+                    'limit' => 10,
+                ]
+            );
+
+            $page = Arr::first($pagesResponse->json('data', []))
+                ?? Arr::first(Http::get(
+                    "{$this->graphUrl}/{$this->graphVersion}/me/accounts",
+                    ['access_token' => $longToken, 'fields' => 'id,name,instagram_business_account{id,username}', 'limit' => 10]
+                )->json('data', []));
+
+            if (! $page) {
+                throw new \Exception('No Facebook Page found. Link a Page to your Business Manager.');
+            }
+
+            $instagramId = data_get($page, 'instagram_business_account.id');
+
+            /*
+            |--------------------------------------------------------------------------
+            | 9️⃣ SAVE CONNECTION
             |--------------------------------------------------------------------------
             */
             PlatformMetaConnection::updateOrCreate(
                 ['connected_by' => Auth::id()],
                 [
-                    'business_id'               => $business['id'],
-                    'business_name'             => $business['name'] ?? null,
-                    'whatsapp_business_id'      => $waba['id'],
-                    'whatsapp_phone_number_id'  => $phoneNumberId,
-                    'access_token'              => encrypt($longToken),
-                    'token_expires_at'          => $expiryDate,
-                    'granted_permissions'       => $granted,
+                    'business_id' => $business['id'],
+                    'business_name' => $business['name'] ?? null,
+                    'ad_account_id' => $adAccountId,
+                    'ad_account_name' => $adAccount['name'] ?? null,
+                    'page_id' => $page['id'],
+                    'page_name' => $page['name'] ?? null,
+                    'instagram_business_account_id' => $instagramId,
+                    'whatsapp_business_id' => $waba['id'],
+                    'whatsapp_phone_number_id' => $phoneNumberId,
+                    'whatsapp_phone_number' => $whatsappPhone,
+                    'access_token' => encrypt($longToken),
+                    'token_expires_at' => $expiryDate,
+                    'granted_permissions' => $granted,
+                    'is_active' => true,
                 ]
             );
 

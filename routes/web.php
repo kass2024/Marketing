@@ -36,6 +36,8 @@ use App\Http\Controllers\Admin\{
     AdController,
     AnalyticsController,
     CreativeController,
+    MarketingWizardController,
+    MetaApiLogController,
     UserController
 };
 
@@ -325,6 +327,15 @@ Route::middleware(['auth','verified','role:admin,client'])
 
         // Campaigns - Full resource with all methods
         Route::resource('campaigns', AdminCampaignController::class)->names('campaigns');
+
+        Route::prefix('marketing')->name('marketing.')->group(function () {
+            Route::get('wizard', [MarketingWizardController::class, 'index'])->name('wizard');
+            Route::post('wizard/step', [MarketingWizardController::class, 'saveStep'])->name('wizard.step');
+            Route::post('wizard/preflight', [MarketingWizardController::class, 'preflight'])->name('wizard.preflight');
+            Route::post('wizard/publish', [MarketingWizardController::class, 'publish'])->name('wizard.publish');
+            Route::post('wizard/draft', [MarketingWizardController::class, 'saveDraft'])->name('wizard.draft');
+            Route::get('meta-logs', [MetaApiLogController::class, 'index'])->name('logs');
+        });
 
         // Campaign-specific actions
         Route::prefix('campaigns')->name('campaigns.')->group(function () {

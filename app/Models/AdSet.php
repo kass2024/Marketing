@@ -59,6 +59,7 @@ class AdSet extends Model
 
         /* Optimization */
         'optimization_goal',
+        'destination_type',
         'billing_event',
 
         /* Targeting */

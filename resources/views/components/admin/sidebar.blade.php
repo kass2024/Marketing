@@ -115,6 +115,7 @@ $r = $routeName ?: Route::currentRouteName();
                     @if($isSuperAdmin)
                         <a href="{{ route('admin.accounts.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.accounts') ? 'bg-white/10 text-xander-gold' : '' }}">Ad accounts</a>
                     @endif
+                    <a href="{{ route('admin.marketing.wizard') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.marketing.wizard') ? 'bg-white/10 text-xander-gold' : '' }}">WhatsApp campaign wizard</a>
                     <a href="{{ route('admin.campaigns.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.campaigns') ? 'bg-white/10 text-xander-gold' : '' }}">Campaigns</a>
                     <a href="{{ route('admin.adsets.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.adsets') ? 'bg-white/10 text-xander-gold' : '' }}">Ad sets</a>
                     <a href="{{ route('admin.creatives.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.creatives') ? 'bg-white/10 text-xander-gold' : '' }}">Creatives</a>

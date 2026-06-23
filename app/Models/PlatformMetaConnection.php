@@ -13,16 +13,22 @@ class PlatformMetaConnection extends Model
         'business_name',
         'ad_account_id',
         'ad_account_name',
+        'page_id',
+        'page_name',
+        'instagram_business_account_id',
         'whatsapp_business_id',
         'whatsapp_phone_number_id',
+        'whatsapp_phone_number',
         'access_token',
         'token_expires_at',
         'granted_permissions',
+        'is_active',
     ];
 
     protected $casts = [
         'granted_permissions' => 'array',
         'token_expires_at' => 'datetime',
+        'is_active' => 'boolean',
     ];
 
     public function plainAccessToken(): ?string

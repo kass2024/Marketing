@@ -67,7 +67,14 @@ class Campaign extends Model
 
         // schedule
         'started_at',
-        'ended_at'
+        'ended_at',
+
+        // marketing wizard
+        'marketing_channel',
+        'wizard_state',
+        'meta_effective_status',
+        'meta_review_feedback',
+        'platform_meta_connection_id',
     ];
 
 
@@ -87,7 +94,8 @@ class Campaign extends Model
         'leads'        => 'integer',
 
         'started_at'   => 'datetime',
-        'ended_at'     => 'datetime'
+        'ended_at'     => 'datetime',
+        'wizard_state' => 'array',
     ];
 
 

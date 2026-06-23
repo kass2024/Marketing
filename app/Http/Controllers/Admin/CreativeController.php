@@ -7,6 +7,7 @@ use App\Models\Creative;
 use App\Models\AdSet;
 use App\Models\Campaign;
 use App\Services\MetaAdsService;
+use App\Services\Meta\ClickToWhatsAppCreativeBuilder;
 use App\Support\TenantScope;
 
 use Illuminate\Http\Request;
@@ -20,10 +21,12 @@ use Exception;
 class CreativeController extends Controller
 {
     protected MetaAdsService $meta;
+    protected ClickToWhatsAppCreativeBuilder $whatsAppBuilder;
 
-    public function __construct(MetaAdsService $meta)
+    public function __construct(MetaAdsService $meta, ClickToWhatsAppCreativeBuilder $whatsAppBuilder)
     {
         $this->meta = $meta;
+        $this->whatsAppBuilder = $whatsAppBuilder;
     }
 
     /*
@@ -194,10 +197,38 @@ class CreativeController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | BUILD LINK DATA
+            | BUILD LINK DATA / WHATSAPP CREATIVE
             |--------------------------------------------------------------------------
             */
 
+            $isWhatsApp = ($data['creative_format'] ?? '') === 'click_to_whatsapp'
+                || in_array(strtoupper((string) ($data['call_to_action'] ?? '')), ['WHATSAPP_MESSAGE', 'SEND_MESSAGE'], true);
+
+            $accountMetaId = $campaign->adAccount?->meta_id ?? TenantScope::adAccountMetaId();
+            $instagramUserId = $this->meta->resolveInstagramUserId($data['page_id'], $accountMetaId);
+
+            if ($isWhatsApp) {
+                $whatsappPhone = $data['whatsapp_phone_number']
+                    ?? \App\Models\PlatformMetaConnection::query()->latest()->value('whatsapp_phone_number');
+
+                $creativeInput = [
+                    'page_id' => $data['page_id'],
+                    'instagram_user_id' => $instagramUserId ?? null,
+                    'headline' => $data['headline'] ?? $data['name'],
+                    'primary_text' => $data['body'] ?? '',
+                    'description' => $data['description'] ?? '',
+                    'image_hash' => $imageHash,
+                    'whatsapp_phone_number' => $whatsappPhone,
+                    'whatsapp_prefill_message' => $data['whatsapp_prefill_message'] ?? '',
+                ];
+
+                $payload = $this->whatsAppBuilder->buildCreativePayload($data['name'], $creativeInput);
+                $data['call_to_action'] = $payload['object_story_spec']['link_data']['call_to_action']['type'] ?? 'WHATSAPP_MESSAGE';
+                $data['destination_url'] = $this->whatsAppBuilder->buildWhatsAppLink(
+                    (string) $whatsappPhone,
+                    (string) ($data['whatsapp_prefill_message'] ?? '')
+                );
+            } else {
             $linkData = [
 
                 'link' => $data['destination_url'] ?? config('app.url'),
@@ -248,16 +279,15 @@ class CreativeController extends Controller
                 ]
 
             ];
+            }
 
             if ($metaImageUrl) {
                 $payload['meta_image_url'] = $metaImageUrl;
             }
 
-            $accountMetaId = $campaign->adAccount?->meta_id ?? TenantScope::adAccountMetaId();
-            $instagramUserId = $this->meta->resolveInstagramUserId($data['page_id'], $accountMetaId);
-            if ($instagramUserId !== null && $instagramUserId !== '') {
+            if ($instagramUserId !== null && $instagramUserId !== '' && empty($payload['object_story_spec']['instagram_user_id'])) {
                 $payload['object_story_spec']['instagram_user_id'] = $instagramUserId;
-            } elseif ($request->boolean('sync_meta')) {
+            } elseif ($request->boolean('sync_meta') && ! $isWhatsApp) {
                 throw new Exception(
                     'Instagram is not available for this Page. Link Page ↔ Instagram in Meta Business Suite, '
                     .'or set META_INSTAGRAM_USER_ID in .env, then try again.'
@@ -314,9 +344,23 @@ class CreativeController extends Controller
 
                 'body' => $data['body'] ?? null,
 
+                'description' => $data['description'] ?? null,
+
                 'destination_url' => $data['destination_url'] ?? null,
 
                 'call_to_action' => $data['call_to_action'] ?? null,
+
+                'creative_format' => $isWhatsApp ? 'click_to_whatsapp' : 'link',
+
+                'page_id' => $data['page_id'],
+
+                'instagram_user_id' => $instagramUserId,
+
+                'whatsapp_phone_number' => $isWhatsApp ? ($data['whatsapp_phone_number'] ?? null) : null,
+
+                'whatsapp_prefill_message' => $isWhatsApp ? ($data['whatsapp_prefill_message'] ?? null) : null,
+
+                'whatsapp_fallback_url' => $isWhatsApp ? ($data['destination_url'] ?? null) : null,
 
                 'image_url' => $imagePath,
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Meta\MetaApiLogger;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -13,8 +14,9 @@ class MetaAdsService
     protected ?string $accessToken;
     protected ?string $defaultAccount;
     protected bool $debug;
+    protected MetaApiLogger $apiLogger;
 
-    public function __construct()
+    public function __construct(?MetaApiLogger $apiLogger = null)
     {
         $version = config('services.meta.graph_version', 'v19.0');
 
@@ -27,6 +29,7 @@ class MetaAdsService
             : null;
 
         $this->debug = config('app.debug', false);
+        $this->apiLogger = $apiLogger ?? new MetaApiLogger();
 
         if ($this->accessToken && $this->defaultAccount) {
             Log::info('META_SERVICE_INITIALIZED', [
@@ -171,20 +174,21 @@ protected function handleError($response, $endpoint, $payload = [])
     |--------------------------------------------------------------------------
     */
 
-    protected function request(string $method,string $endpoint,array $payload=[],bool $asForm=true, bool $forMutation = false)
+    protected function request(string $method, string $endpoint, array $payload = [], bool $asForm = true, bool $forMutation = false, int $attempt = 1)
     {
         $this->ensureConfigured();
 
         $payload['access_token'] = $this->accessToken;
+        $started = microtime(true);
 
-        Log::info("META_API_{$method}",[
-            'endpoint'=>$endpoint,
-            'payload'=>$payload
+        Log::info("META_API_{$method}", [
+            'endpoint' => $endpoint,
+            'payload' => $this->apiLogger->redactSecrets($payload),
         ]);
 
         $client = $this->client($forMutation);
 
-        if($asForm){
+        if ($asForm) {
             $client = $client->asForm();
         }
 
@@ -193,11 +197,54 @@ protected function handleError($response, $endpoint, $payload = [])
             $payload
         );
 
-        if($response->failed()){
-            $this->handleError($response,$endpoint,$payload);
+        $durationMs = (int) round((microtime(true) - $started) * 1000);
+        $body = null;
+
+        try {
+            $body = $response->json();
+        } catch (Throwable) {
+            $body = ['raw' => $response->body()];
         }
 
-        return $response->json();
+        if ($response->failed()) {
+            $metaCode = data_get($body, 'error.code');
+            $isRetryable = $this->apiLogger->isRetryableError(
+                is_numeric($metaCode) ? (int) $metaCode : null,
+                $response->status()
+            );
+
+            $this->apiLogger->log(
+                $method,
+                $endpoint,
+                $payload,
+                is_array($body) ? $body : null,
+                $response->status(),
+                false,
+                data_get($body, 'error.message'),
+                $durationMs
+            );
+
+            if ($isRetryable && $attempt < 3) {
+                usleep(500000 * $attempt);
+
+                return $this->request($method, $endpoint, $payload, $asForm, $forMutation, $attempt + 1);
+            }
+
+            $this->handleError($response, $endpoint, $payload);
+        }
+
+        $this->apiLogger->log(
+            $method,
+            $endpoint,
+            $payload,
+            is_array($body) ? $body : null,
+            $response->status(),
+            true,
+            null,
+            $durationMs
+        );
+
+        return $body;
     }
 
     /*
@@ -1190,6 +1237,7 @@ protected function buildTargeting(array $targeting): array
     {
         return match (strtoupper($optimizationGoal)) {
             'LEAD_GENERATION', 'QUALITY_LEAD' => 'ON_AD',
+            'CONVERSATIONS', 'REPLIES' => 'WHATSAPP',
             default => null,
         };
     }
@@ -2146,4 +2194,84 @@ public function getAccountStatus($accountId)
 
     return $response->json();
 }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CLICK-TO-WHATSAPP MARKETING
+    |--------------------------------------------------------------------------
+    */
+
+    public function createWhatsAppCampaign(string $accountId, array $data): array
+    {
+        $data['objective'] = $data['objective'] ?? 'OUTCOME_ENGAGEMENT';
+
+        return $this->createCampaign($accountId, $data);
+    }
+
+    public function createWhatsAppAdSet(string $accountId, array $data): array
+    {
+        $data['optimization_goal'] = $data['optimization_goal'] ?? 'CONVERSATIONS';
+        $data['billing_event'] = $data['billing_event'] ?? 'IMPRESSIONS';
+        $data['destination_type'] = $data['destination_type'] ?? 'WHATSAPP';
+
+        if (empty($data['promoted_object']) && ! empty($data['page_id'])) {
+            $data['promoted_object'] = ['page_id' => $data['page_id']];
+        }
+
+        return $this->createAdSet($accountId, $data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload  Must include object_story_spec from ClickToWhatsAppCreativeBuilder
+     */
+    public function createClickToWhatsAppCreative(string $accountId, array $payload): array
+    {
+        return $this->createCreative($accountId, $payload);
+    }
+
+    /**
+     * Pull insights with messaging metrics when available.
+     */
+    public function getMarketingInsights(string $objectId, string $level = 'campaign', string $preset = 'maximum'): array
+    {
+        $fields = [
+            'impressions',
+            'reach',
+            'clicks',
+            'spend',
+            'ctr',
+            'cpc',
+            'actions',
+            'cost_per_action_type',
+        ];
+
+        return $this->getInsights($objectId, [
+            'level' => $level,
+            'fields' => implode(',', $fields),
+            'date_preset' => $preset,
+        ]);
+    }
+
+    public function humanizeMetaError(Throwable $e): string
+    {
+        $message = $e->getMessage();
+
+        return match (true) {
+            str_contains($message, 'permission') || str_contains($message, 'OAuthException') =>
+                'Permission missing — reconnect Meta and grant ads_management, pages_manage_ads, and WhatsApp permissions.',
+            str_contains($message, 'access token') || str_contains($message, '190') =>
+                'Invalid or expired token — reconnect Meta in Admin → Meta Connection.',
+            str_contains($message, 'ad account') && str_contains($message, 'disabled') =>
+                'Ad account disabled or restricted — check Meta Business Manager account status.',
+            str_contains($message, 'WhatsApp') || str_contains($message, 'whatsapp') =>
+                'WhatsApp number not connected to Page — link WhatsApp in Meta Business Suite.',
+            str_contains($message, 'placement') =>
+                'Placement unsupported for Click-to-WhatsApp — use Facebook/Instagram feed, stories, or reels.',
+            str_contains($message, 'budget') || str_contains($message, '2446') =>
+                'Budget too low — increase daily budget (minimum varies by currency).',
+            str_contains($message, 'creative') || str_contains($message, '1487') =>
+                'Creative invalid — check image size, text length, and WhatsApp CTA configuration.',
+            default => $message,
+        };
+    }
 }

@@ -48,6 +48,8 @@ class Creative extends Model
     const CTA_CONTACT_US  = 'CONTACT_US';
     const CTA_DOWNLOAD    = 'DOWNLOAD';
     const CTA_GET_OFFER   = 'GET_OFFER';
+    const CTA_WHATSAPP_MESSAGE = 'WHATSAPP_MESSAGE';
+    const CTA_SEND_MESSAGE = 'SEND_MESSAGE';
 
 
     /*
@@ -80,6 +82,13 @@ class Creative extends Model
 
         // destination
         'destination_url',
+        'description',
+        'creative_format',
+        'page_id',
+        'instagram_user_id',
+        'whatsapp_phone_number',
+        'whatsapp_prefill_message',
+        'whatsapp_fallback_url',
 
         // raw Meta payload
         'json_payload',
@@ -457,7 +466,9 @@ class Creative extends Model
             self::CTA_SIGN_UP    => 'Sign Up',
             self::CTA_CONTACT_US => 'Contact Us',
             self::CTA_DOWNLOAD   => 'Download',
-            self::CTA_GET_OFFER  => 'Get Offer'
+            self::CTA_GET_OFFER  => 'Get Offer',
+            self::CTA_WHATSAPP_MESSAGE => 'WhatsApp Message',
+            self::CTA_SEND_MESSAGE => 'Send Message',
 
         ];
     }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhooks;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Message;
+use App\Models\MetaWebhookEvent;
 use App\Models\PlatformMetaConnection;
 use App\Services\Chatbot\ChatbotProcessor;
 use App\Services\Chatbot\MessageDispatcher;
@@ -99,7 +100,17 @@ class MetaWebhookController extends Controller
 
         $payload = $request->json()->all();
 
-        if (($payload['object'] ?? null) !== 'whatsapp_business_account') {
+        $this->storeWebhookEvent($payload, true, $correlationId);
+
+        $objectType = $payload['object'] ?? null;
+
+        if (in_array($objectType, ['page', 'ad_account'], true)) {
+            $this->handleMarketingWebhook($payload, $correlationId);
+
+            return response()->json(['status' => 'ok'], 200);
+        }
+
+        if ($objectType !== 'whatsapp_business_account') {
             Log::channel('webhook')->info('meta.webhook.post.ignored_object', [
                 'correlation_id' => $correlationId,
                 'object' => $payload['object'] ?? null,
@@ -917,5 +928,40 @@ class MetaWebhookController extends Controller
         );
 
         return hash_equals($expected, $signature);
+    }
+
+    protected function storeWebhookEvent(array $payload, bool $signatureValid, string $correlationId): void
+    {
+        try {
+            foreach ($payload['entry'] ?? [] as $entry) {
+                foreach ($entry['changes'] ?? [] as $change) {
+                    MetaWebhookEvent::create([
+                        'object_type' => $payload['object'] ?? null,
+                        'event_type' => $change['value']['status'] ?? ($change['field'] ?? 'change'),
+                        'field' => $change['field'] ?? null,
+                        'entry_id' => $entry['id'] ?? null,
+                        'phone_number_id' => data_get($change, 'value.metadata.phone_number_id'),
+                        'ad_id' => data_get($change, 'value.ad_id'),
+                        'campaign_id' => data_get($change, 'value.campaign_id'),
+                        'signature_valid' => $signatureValid ? 'valid' : 'invalid',
+                        'payload' => $change,
+                        'correlation_id' => $correlationId,
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::channel('webhook')->warning('meta.webhook.event_store_failed', [
+                'correlation_id' => $correlationId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    protected function handleMarketingWebhook(array $payload, string $correlationId): void
+    {
+        Log::channel('webhook')->info('meta.webhook.marketing', [
+            'correlation_id' => $correlationId,
+            'object' => $payload['object'] ?? null,
+        ]);
     }
 }

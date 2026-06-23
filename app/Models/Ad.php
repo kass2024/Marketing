@@ -63,6 +63,9 @@ protected $fillable = [
 
     'name',
     'status',
+    'meta_effective_status',
+    'meta_review_feedback',
+    'meta_created_time',
 
     /* Budget control */
     'daily_budget',

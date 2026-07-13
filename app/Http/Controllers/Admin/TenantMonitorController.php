@@ -54,13 +54,23 @@ class TenantMonitorController extends Controller
 
     public function syncPlatform(PlatformBootstrapService $bootstrap, MetaAutoSyncService $autoSync): RedirectResponse
     {
-        $connection = $bootstrap->syncFromEnv();
-        $autoSync->sync(true);
+        try {
+            $connection = $bootstrap->syncFromEnv();
+            $autoSync->sync(true);
 
-        if (! $connection) {
-            return back()->with('error', 'Could not sync platform account — check META_* and WHATSAPP_* in .env.');
+            if (! $connection) {
+                return redirect()
+                    ->route('admin.meta.index')
+                    ->with('error', 'Could not sync platform account — check META_* and WHATSAPP_* in .env.');
+            }
+
+            return redirect()
+                ->route('admin.meta.index')
+                ->with('success', 'Main platform account synced from .env + Meta Graph.');
+        } catch (\Throwable $e) {
+            return redirect()
+                ->route('admin.meta.index')
+                ->with('error', $e->getMessage());
         }
-
-        return back()->with('success', 'Main platform account auto-synced from .env + Meta Graph.');
     }
 }

@@ -92,13 +92,16 @@
                        class="inline-flex items-center justify-center rounded-xl bg-[#075E54] px-5 py-2.5 text-sm font-semibold text-white">
                         Manage WhatsApp numbers
                     </a>
+                    <form method="POST" action="{{ route('admin.tenants.sync-platform') }}">
+                        @csrf
+                        <button type="submit"
+                            class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                            Sync from .env
+                        </button>
+                    </form>
                     <a href="{{ route('admin.meta.connect') }}"
                        class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700">
                         Reconnect Meta
-                    </a>
-                    <a href="{{ route('admin.tenants.index') }}"
-                       class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700">
-                        Sync from .env
                     </a>
                     <form method="POST" action="{{ route('admin.meta.disconnect') }}"
                           onsubmit="return confirm('Disconnect Meta? Platform tokens will be removed.')">
@@ -117,13 +120,16 @@
                 </p>
 
                 <div class="flex flex-wrap gap-3">
+                    <form method="POST" action="{{ route('admin.tenants.sync-platform') }}">
+                        @csrf
+                        <button type="submit"
+                            class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-8 py-3 text-sm font-semibold text-white">
+                            Sync from .env
+                        </button>
+                    </form>
                     <a href="{{ route('admin.meta.connect') }}"
-                       class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-8 py-3 text-sm font-semibold text-white">
-                        Connect Meta Business
-                    </a>
-                    <a href="{{ route('admin.tenants.index') }}"
                        class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700">
-                        Sync from .env
+                        Connect Meta Business
                     </a>
                 </div>
             @endif

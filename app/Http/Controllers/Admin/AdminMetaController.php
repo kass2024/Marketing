@@ -21,14 +21,20 @@ class AdminMetaController extends Controller
 
     public function __construct()
     {
-        $this->graphVersion = config('services.meta.graph_version');
-        $this->graphUrl = rtrim(config('services.meta.graph_url'), '/');
-        $this->oauthUrl = rtrim(config('services.meta.oauth_url'), '/');
+        $this->graphVersion = config('services.meta.graph_version') ?: 'v19.0';
+        $this->graphUrl = rtrim((string) config('services.meta.graph_url', 'https://graph.facebook.com'), '/');
+        $this->oauthUrl = rtrim((string) config('services.meta.oauth_url', 'https://www.facebook.com'), '/');
     }
 
     public function index()
     {
-        // DB-only — do not sync Meta Graph on every Connection page click
+        // Soft auto-sync from .env / Graph so Connection page stays fresh
+        try {
+            app(MetaAutoSyncService::class)->sync(false);
+        } catch (\Throwable $e) {
+            Log::warning('META_CONNECTION_PAGE_AUTO_SYNC_FAILED', ['error' => $e->getMessage()]);
+        }
+
         $platformMeta = PlatformMetaConnection::query()->platformDefault()->active()->first()
             ?? PlatformMetaConnection::query()->where('connected_by', Auth::id())->first();
 
@@ -103,23 +109,58 @@ class AdminMetaController extends Controller
 
             $expiryDate = $expiresIn ? Carbon::now()->addSeconds($expiresIn) : null;
 
-            $permissionsResponse = Http::get(
+            $permissionsResponse = Http::timeout(30)->get(
                 "{$this->graphUrl}/{$this->graphVersion}/me/permissions",
                 ['access_token' => $longToken]
             );
 
-            if (! $permissionsResponse->ok()) {
-                throw new \Exception('Permission validation failed.');
+            $granted = [];
+            if ($permissionsResponse->ok()) {
+                $granted = collect($permissionsResponse->json('data'))
+                    ->where('status', 'granted')
+                    ->pluck('permission')
+                    ->values()
+                    ->all();
+            } else {
+                // /me/permissions often fails for some long-lived / Business tokens even when the token is valid.
+                Log::warning('META_OAUTH_PERMISSIONS_ENDPOINT_FAILED', [
+                    'status' => $permissionsResponse->status(),
+                    'error' => data_get($permissionsResponse->json(), 'error.message'),
+                ]);
+
+                $meCheck = Http::timeout(30)->get(
+                    "{$this->graphUrl}/{$this->graphVersion}/me",
+                    ['access_token' => $longToken, 'fields' => 'id,name']
+                );
+                if (! $meCheck->ok()) {
+                    throw new \Exception(
+                        'Meta token is invalid after login. Prefer Sync from .env (system user token), or reconnect and grant all permissions.'
+                    );
+                }
+
+                // Token works — continue with configured scopes (same as .env / system-user path)
+                $granted = config('services.meta.required_permissions', []);
             }
 
-            $granted = collect($permissionsResponse->json('data'))
-                ->where('status', 'granted')
-                ->pluck('permission')
-                ->toArray();
-
-            foreach (config('services.meta.required_permissions') as $permission) {
-                if (! in_array($permission, $granted, true)) {
-                    throw new \Exception("Missing required permission: {$permission}");
+            if ($granted !== []) {
+                $required = config('services.meta.required_permissions', []);
+                $missing = array_values(array_diff($required, $granted));
+                // Only block on critical scopes when Meta actually returned a grant list
+                if ($permissionsResponse->ok() && $missing !== []) {
+                    $critical = [
+                        'ads_management',
+                        'business_management',
+                        'whatsapp_business_management',
+                        'whatsapp_business_messaging',
+                    ];
+                    $missingCritical = array_values(array_intersect($critical, $missing));
+                    if ($missingCritical !== []) {
+                        throw new \Exception(
+                            'Missing required Meta permissions: '.implode(', ', $missingCritical)
+                            .'. Reconnect and approve all requested scopes, or use Sync from .env.'
+                        );
+                    }
+                    Log::warning('META_OAUTH_NONCRITICAL_PERMISSIONS_MISSING', ['missing' => $missing]);
                 }
             }
 

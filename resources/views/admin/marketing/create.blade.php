@@ -831,14 +831,68 @@
                         class="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white">Continue</button>
                     <template x-if="stage === stages.length - 1">
                         <div class="flex flex-wrap gap-2">
-                            <button type="submit" name="activate" value="1" class="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white">Publish &amp; deliver (ACTIVE)</button>
-                            <button type="submit" name="activate" value="0" class="rounded-xl bg-slate-800 px-5 py-2 text-sm font-semibold text-white">Publish as PAUSED</button>
+                            <button type="submit" name="activate" value="1" :disabled="publishing"
+                                class="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                                <span x-show="!publishing">Publish &amp; deliver (ACTIVE)</span>
+                                <span x-show="publishing">Publishing…</span>
+                            </button>
+                            <button type="submit" name="activate" value="0" :disabled="publishing"
+                                class="rounded-xl bg-slate-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                                <span x-show="!publishing">Publish as PAUSED</span>
+                                <span x-show="publishing">Publishing…</span>
+                            </button>
                         </div>
                     </template>
                 </div>
             </div>
         </div>
     </form>
+
+    {{-- Publish progress overlay --}}
+    <div x-show="publishing" x-cloak
+         class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-sm"
+         style="display: none;"
+         @keydown.escape.window="if (publishError) publishing = false">
+        <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="publish-progress-title">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <h3 id="publish-progress-title" class="text-lg font-bold text-slate-900" x-text="publishError ? 'Publish failed' : 'Publishing to Meta'"></h3>
+                    <p class="mt-1 text-sm text-slate-500" x-show="!publishError" x-text="publishStepLabel"></p>
+                </div>
+                <span class="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800"
+                      x-show="!publishError"
+                      x-text="publishPercent + '%'"></span>
+            </div>
+
+            <div class="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100" x-show="!publishError">
+                <div class="h-full rounded-full bg-blue-600 transition-all duration-500 ease-out"
+                     :style="'width: ' + publishPercent + '%'"></div>
+            </div>
+
+            <ul class="mt-5 space-y-2" x-show="!publishError">
+                <template x-for="(step, i) in publishSteps" :key="step">
+                    <li class="flex items-center gap-2.5 text-sm"
+                        :class="i < publishStepIndex
+                            ? 'text-emerald-700'
+                            : (i === publishStepIndex ? 'font-semibold text-blue-800' : 'text-slate-400')">
+                        <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                              :class="i < publishStepIndex
+                                  ? 'bg-emerald-500 text-white'
+                                  : (i === publishStepIndex ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400')"
+                              x-text="i < publishStepIndex ? '✓' : (i + 1)"></span>
+                        <span x-text="step"></span>
+                    </li>
+                </template>
+            </ul>
+
+            <p x-show="publishError" class="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" x-text="publishError"></p>
+            <button type="button" x-show="publishError" @click="publishing = false; publishError = ''"
+                    class="mt-4 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                Close and try again
+            </button>
+            <p class="mt-4 text-center text-xs text-slate-400" x-show="!publishError">Please keep this tab open — Meta API calls can take a minute.</p>
+        </div>
+    </div>
 </div>
 
 @push('scripts')
@@ -941,6 +995,23 @@ function adStudio(config) {
         score: 0,
         checklist: [],
         preflightErrors: [],
+        publishing: false,
+        publishError: '',
+        publishStepIndex: 0,
+        publishPercent: 0,
+        publishTimer: null,
+        publishSteps: [
+            'Validating connection',
+            'Creating campaign on Meta',
+            'Creating ad set',
+            'Uploading creative image',
+            'Creating creative & ad',
+            'Finishing up',
+        ],
+
+        get publishStepLabel() {
+            return this.publishSteps[this.publishStepIndex] || 'Working…';
+        },
 
         init() {
             if (!this.form.placements.length) this.form.placements = config.placementKeys || [];
@@ -1610,12 +1681,81 @@ function adStudio(config) {
             this.score = data.score ?? 0;
         },
 
-        onSubmit(e) {
+        startPublishProgress() {
+            this.publishing = true;
+            this.publishError = '';
+            this.publishStepIndex = 0;
+            this.publishPercent = 4;
+            if (this.publishTimer) clearInterval(this.publishTimer);
+            this.publishTimer = setInterval(() => {
+                if (this.publishStepIndex < this.publishSteps.length - 1) {
+                    this.publishStepIndex += 1;
+                }
+                this.publishPercent = Math.min(92, this.publishPercent + Math.max(4, Math.round((92 - this.publishPercent) * 0.18)));
+            }, 2200);
+        },
+
+        stopPublishProgress(success = false) {
+            if (this.publishTimer) {
+                clearInterval(this.publishTimer);
+                this.publishTimer = null;
+            }
+            if (success) {
+                this.publishStepIndex = this.publishSteps.length - 1;
+                this.publishPercent = 100;
+            }
+        },
+
+        async publishWithProgress(activate) {
+            this.startPublishProgress();
+            try {
+                const form = document.getElementById('ad-studio-form');
+                const fd = new FormData(form);
+                fd.set('activate', activate ? '1' : '0');
+
+                const res = await fetch(form.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: fd,
+                });
+
+                let data = {};
+                try {
+                    data = await res.json();
+                } catch (_) {
+                    data = { ok: false, message: 'Unexpected response from server.' };
+                }
+
+                if (!res.ok || data.ok === false) {
+                    this.stopPublishProgress(false);
+                    this.publishError = data.message || 'Publish failed. Please review your settings and try again.';
+                    return;
+                }
+
+                this.stopPublishProgress(true);
+                window.location.href = data.redirect || '{{ route('admin.campaigns.index') }}';
+            } catch (err) {
+                this.stopPublishProgress(false);
+                this.publishError = err?.message || 'Network error while publishing. Please try again.';
+            }
+        },
+
+        async onSubmit(e) {
+            // Allow draft saves to use normal form post
+            if (e.submitter && e.submitter.getAttribute('formaction')) {
+                return;
+            }
+
             if (this.stage !== this.stages.length - 1 && e.submitter && e.submitter.name === 'activate') {
                 e.preventDefault();
                 this.stage = this.stages.length - 1;
                 return;
             }
+
             if (!this.form.primary_text) {
                 e.preventDefault();
                 alert('Primary ad text is required — upload a creative first.');
@@ -1627,6 +1767,14 @@ function adStudio(config) {
                 e.preventDefault();
                 alert('Please upload a creative image first.');
                 this.stage = 1;
+                return;
+            }
+
+            if (this.stage === this.stages.length - 1 && e.submitter && e.submitter.name === 'activate') {
+                e.preventDefault();
+                if (this.publishing) return;
+                const activate = String(e.submitter.value) === '1';
+                await this.publishWithProgress(activate);
             }
         },
     };

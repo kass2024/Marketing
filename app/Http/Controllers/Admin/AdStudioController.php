@@ -319,10 +319,11 @@ class AdStudioController extends Controller
         }
     }
 
-    public function publish(Request $request): RedirectResponse
+    public function publish(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         $draft = $this->normalizePayload($request);
         $activate = $request->boolean('activate');
+        $wantsJson = $request->expectsJson() || $request->ajax() || $request->wantsJson();
 
         try {
             $result = $this->publisher->publishFromWizard($draft, $activate);
@@ -341,14 +342,31 @@ class AdStudioController extends Controller
                 ? 'Campaign published to Meta as ACTIVE — ready to deliver. Synced to Campaigns.'
                 : 'Campaign published to Meta as PAUSED (synced). Click Activate · Deliver when ready.';
 
+            if ($wantsJson) {
+                return response()->json([
+                    'ok' => true,
+                    'message' => $message,
+                    'redirect' => route('admin.campaigns.index'),
+                    'campaign_id' => $result['campaign']->id ?? null,
+                ]);
+            }
+
             return redirect()
                 ->route('admin.campaigns.index')
                 ->with('success', $message);
         } catch (Exception $e) {
+            $error = $this->meta->humanizeMetaError($e);
+            if ($wantsJson) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => $error,
+                ], 422);
+            }
+
             return redirect()
                 ->route('admin.marketing.create')
                 ->withInput()
-                ->with('error', $this->meta->humanizeMetaError($e));
+                ->with('error', $error);
         }
     }
 

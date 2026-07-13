@@ -196,7 +196,7 @@
             <p class="text-xs font-medium text-slate-500">Business Manager / Accounts</p>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">WhatsApp accounts</h1>
             <p class="mt-0.5 text-sm text-slate-600">
-                Opens instantly from cache — refreshes from Meta in the background. Use <strong>Sync now</strong> to force a full refresh.
+                Account names sync from Meta automatically when you open this page. Use <strong>Sync now</strong> to force a full refresh.
                 @isset($lastSyncedAt)
                     <span class="text-slate-400">Last sync: {{ $lastSyncedAt }}</span>
                 @endisset

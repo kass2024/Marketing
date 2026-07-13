@@ -100,20 +100,6 @@
     @if(session('error') || $error)
         <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ session('error') ?: $error }}</div>
     @endif
-    @if(!empty($tokenDiag) && empty($tokenDiag['has_instagram_read']))
-        <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            <p class="font-semibold">Debug: token cannot read Instagram @username</p>
-            <p class="mt-1">{{ $tokenDiag['hint'] ?? '' }}</p>
-            @if(!empty($tokenDiag['missing_instagram_scopes']))
-                <p class="mt-2 text-xs">Missing scopes: <code class="rounded bg-amber-100 px-1">{{ implode(', ', $tokenDiag['missing_instagram_scopes']) }}</code>
-                    @if(!empty($tokenDiag['token_type']))
-                        · Token type: <code class="rounded bg-amber-100 px-1">{{ $tokenDiag['token_type'] }}</code>
-                    @endif
-                </p>
-            @endif
-            <p class="mt-2 text-xs text-amber-800">Page “Connected assets” can show the IG account while the System User token still lacks Instagram API scopes — that is why Sync returns IDs only.</p>
-        </div>
-    @endif
 
     <div class="mb-4">
         <form method="get" class="flex gap-2">
@@ -200,17 +186,6 @@
                             </a>
                         @endif
                     </div>
-                </div>
-                <div class="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-600">
-                    <p class="font-semibold text-slate-800">How sync works</p>
-                    <ul class="mt-2 list-disc space-y-1 pl-5 text-xs">
-                        <li><code class="text-[11px]">GET /{business-id}/owned_instagram_accounts</code> &amp; <code class="text-[11px]">owned_instagram_assets</code></li>
-                        <li><code class="text-[11px]">GET /{business-id}/client_instagram_assets</code></li>
-                        <li><code class="text-[11px]">GET /{business-id}/instagram_accounts</code></li>
-                        <li><code class="text-[11px]">GET /act_{ad-account}/instagram_accounts</code></li>
-                        <li>Facebook Pages with connected Instagram business accounts</li>
-                    </ul>
-                    <p class="mt-3 text-xs">Linked accounts appear in Ad Studio → Destinations → Instagram profile.</p>
                 </div>
             @else
                 <div class="py-16 text-center text-sm text-slate-500">

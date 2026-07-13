@@ -827,20 +827,27 @@
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                     <button type="submit" formaction="{{ route('admin.marketing.create.draft') }}"
-                        class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Save draft</button>
+                        class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                        :disabled="publishing">Save draft</button>
                     <button type="button" x-show="stage < stages.length - 1" @click="next()"
                         class="rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white">Continue</button>
                     <template x-if="stage === stages.length - 1">
                         <div class="flex flex-wrap gap-2">
-                            <button type="submit" name="activate" value="1" :disabled="publishing"
-                                class="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                                <span x-show="!publishing">Publish &amp; deliver (ACTIVE)</span>
-                                <span x-show="publishing">Publishing…</span>
+                            <button type="button" @click="publishWithProgress(true)" :disabled="publishing"
+                                class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70">
+                                <svg x-show="publishing" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                <span x-text="publishing ? 'Publishing…' : 'Publish & deliver (ACTIVE)'"></span>
                             </button>
-                            <button type="submit" name="activate" value="0" :disabled="publishing"
-                                class="rounded-xl bg-slate-800 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                                <span x-show="!publishing">Publish as PAUSED</span>
-                                <span x-show="publishing">Publishing…</span>
+                            <button type="button" @click="publishWithProgress(false)" :disabled="publishing"
+                                class="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-5 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70">
+                                <svg x-show="publishing" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                <span x-text="publishing ? 'Publishing…' : 'Publish as PAUSED'"></span>
                             </button>
                         </div>
                     </template>
@@ -851,14 +858,22 @@
 
     {{-- Publish progress overlay --}}
     <div x-show="publishing" x-cloak
-         class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-sm"
+         class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
          style="display: none;"
-         @keydown.escape.window="if (publishError) publishing = false">
+         @keydown.escape.window="if (publishError) { publishing = false; publishError = ''; }">
         <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="publish-progress-title">
             <div class="flex items-start justify-between gap-3">
-                <div>
-                    <h3 id="publish-progress-title" class="text-lg font-bold text-slate-900" x-text="publishError ? 'Publish failed' : 'Publishing to Meta'"></h3>
-                    <p class="mt-1 text-sm text-slate-500" x-show="!publishError" x-text="publishStepLabel"></p>
+                <div class="flex min-w-0 items-start gap-3">
+                    <span x-show="!publishError" class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700" aria-hidden="true">
+                        <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h3 id="publish-progress-title" class="text-lg font-bold text-slate-900" x-text="publishError ? 'Publish failed' : 'Publishing to Meta'"></h3>
+                        <p class="mt-1 text-sm text-slate-500" x-show="!publishError" x-text="publishStepLabel"></p>
+                    </div>
                 </div>
                 <span class="shrink-0 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800"
                       x-show="!publishError"
@@ -879,7 +894,7 @@
                         <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
                               :class="i < publishStepIndex
                                   ? 'bg-emerald-500 text-white'
-                                  : (i === publishStepIndex ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400')"
+                                  : (i === publishStepIndex ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-100 text-slate-400')"
                               x-text="i < publishStepIndex ? '✓' : (i + 1)"></span>
                         <span x-text="step"></span>
                     </li>
@@ -1708,6 +1723,20 @@ function adStudio(config) {
         },
 
         async publishWithProgress(activate) {
+            if (this.publishing) return;
+
+            if (!this.form.primary_text) {
+                alert('Primary ad text is required — upload a creative first.');
+                this.stage = 1;
+                return;
+            }
+            const hasMedia = this.previewImage || this.form.stock_image_id || this.form.ai_image_path;
+            if (!hasMedia) {
+                alert('Please upload a creative image first.');
+                this.stage = 1;
+                return;
+            }
+
             this.startPublishProgress();
             try {
                 const form = document.getElementById('ad-studio-form');
@@ -1733,7 +1762,9 @@ function adStudio(config) {
 
                 if (!res.ok || data.ok === false) {
                     this.stopPublishProgress(false);
-                    this.publishError = data.message || 'Publish failed. Please review your settings and try again.';
+                    this.publishError = data.message
+                        || (data.errors ? Object.values(data.errors).flat().join(' ') : null)
+                        || 'Publish failed. Please review your settings and try again.';
                     return;
                 }
 
@@ -1751,31 +1782,10 @@ function adStudio(config) {
                 return;
             }
 
-            if (this.stage !== this.stages.length - 1 && e.submitter && e.submitter.name === 'activate') {
-                e.preventDefault();
+            // Publish uses type=button + publishWithProgress — block accidental native submits
+            e.preventDefault();
+            if (this.stage !== this.stages.length - 1) {
                 this.stage = this.stages.length - 1;
-                return;
-            }
-
-            if (!this.form.primary_text) {
-                e.preventDefault();
-                alert('Primary ad text is required — upload a creative first.');
-                this.stage = 1;
-                return;
-            }
-            const hasMedia = this.previewImage || this.form.stock_image_id || this.form.ai_image_path;
-            if (!hasMedia) {
-                e.preventDefault();
-                alert('Please upload a creative image first.');
-                this.stage = 1;
-                return;
-            }
-
-            if (this.stage === this.stages.length - 1 && e.submitter && e.submitter.name === 'activate') {
-                e.preventDefault();
-                if (this.publishing) return;
-                const activate = String(e.submitter.value) === '1';
-                await this.publishWithProgress(activate);
             }
         },
     };

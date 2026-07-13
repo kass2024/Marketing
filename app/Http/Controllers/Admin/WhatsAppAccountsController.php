@@ -21,7 +21,7 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        // Instant: cache/DB only. Meta Graph syncs after response when stale.
+        // Instant from cache when names are real; auto Meta sync on open when placeholders / empty.
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
@@ -40,47 +40,26 @@ class WhatsAppAccountsController extends Controller
             $accounts = $this->seedWabasFromConnection($connection);
         }
 
-        $syncedAt = Cache::get($syncedAtKey);
-        $stale = ! $syncedAt || $syncedAt === 'cached' || $accounts === [];
-        if (! $stale) {
+        // Placeholder seeds like "WhatsApp Business Account 8668…" must refresh on open (no Sync click).
+        if ($this->accountsNeedNameRefresh($accounts) || $request->boolean('force_sync')) {
             try {
-                $stale = \Carbon\Carbon::parse((string) $syncedAt)->lt(now()->subMinutes(15));
-            } catch (\Throwable) {
-                $stale = true;
+                $synced = $this->runFullDirectorySync(
+                    (string) ($request->query('waba') ?: ''),
+                    true
+                );
+                $connection = $synced['connection'];
+                $accounts = $synced['accounts'];
+                $fromCache = false;
+            } catch (ValidationException $e) {
+                $error = collect($e->errors())->flatten()->first();
+                $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey);
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+                \Illuminate\Support\Facades\Log::warning('WA_OPEN_SYNC_FAILED', ['error' => $error]);
+                $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey);
             }
-        }
-        if ($stale) {
-            $lockKey = 'meta_wa_bg_sync_'.$cacheSuffix;
-            if (Cache::add($lockKey, 1, now()->addMinutes(2))) {
-                dispatch(function () use ($cacheSuffix, $lockKey, $wabaCacheKey, $syncedAtKey) {
-                    try {
-                        app(MetaAutoSyncService::class)->sync(false);
-                        $wa = app(WhatsAppBusinessAccountService::class);
-                        $connection = $wa->connection();
-                        $wa->resolveBusinessManagerId($connection);
-                        $result = $wa->syncToConnection($connection);
-                        $accounts = $result['accounts'] ?? [];
-                        $prev = Cache::get($wabaCacheKey);
-                        if (
-                            is_array($prev)
-                            && count($prev) > count($accounts)
-                            && ! empty($result['incomplete'])
-                        ) {
-                            Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-
-                            return;
-                        }
-                        if ($accounts !== [] || ! is_array($prev) || $prev === []) {
-                            Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
-                        }
-                        Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-                    } catch (\Throwable $e) {
-                        \Illuminate\Support\Facades\Log::warning('WA_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
-                    } finally {
-                        Cache::forget($lockKey);
-                    }
-                })->afterResponse();
-            }
+        } elseif ($this->shouldBackgroundSync($accounts, $syncedAtKey)) {
+            $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey);
         }
 
         $selectedId = (string) ($request->query('waba') ?: ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? '')));
@@ -122,61 +101,17 @@ class WhatsAppAccountsController extends Controller
     }
 
     /**
-     * Explicit Meta sync (never runs on menu navigation).
+     * Explicit Meta sync (also runs automatically on open when names are placeholders).
      */
     public function syncNow(Request $request): RedirectResponse
     {
         $waba = (string) $request->input('waba', '');
-        $connection = $this->whatsapp->connection();
-        $cacheSuffix = (string) ($connection?->id ?? 'platform');
 
         try {
-            $this->autoSync->syncAlways();
-            $connection = $this->whatsapp->connection();
-            $this->whatsapp->resolveBusinessManagerId($connection);
-            $result = $this->whatsapp->syncToConnection($connection);
-            $accounts = $result['accounts'] ?? [];
-            $incomplete = ! empty($result['incomplete']);
-
-            $cacheKey = 'meta_waba_directory_'.$cacheSuffix;
-            $prev = Cache::get($cacheKey);
-            if (
-                is_array($prev)
-                && count($prev) > count($accounts)
-                && $incomplete
-            ) {
-                $accounts = $prev;
-            } else {
-                Cache::put($cacheKey, $accounts, now()->addMinutes(30));
-            }
-            Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
-
-            $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
-            if ($selectedId !== '') {
-                try {
-                    $detail = $this->whatsapp->getWaba($selectedId);
-                    $phones = $this->whatsapp->listPhoneNumbers($selectedId);
-                    $allPhones = [];
-                    foreach ($phones as $phone) {
-                        $allPhones[] = array_merge($phone, [
-                            'waba_id' => $selectedId,
-                            'waba_name' => $detail['name'] ?? null,
-                        ]);
-                    }
-                    // Also keep other WABA phones from previous cache when possible
-                    $prevPhones = Cache::get('meta_wa_phone_directory_'.$cacheSuffix);
-                    if (is_array($prevPhones)) {
-                        foreach ($prevPhones as $p) {
-                            if (is_array($p) && (string) ($p['waba_id'] ?? '') !== $selectedId) {
-                                $allPhones[] = $p;
-                            }
-                        }
-                    }
-                    Cache::put('meta_wa_phone_directory_'.$cacheSuffix, $allPhones, now()->addMinutes(30));
-                } catch (\Throwable) {
-                    // list still cached
-                }
-            }
+            $synced = $this->runFullDirectorySync($waba, true);
+            $accounts = $synced['accounts'];
+            $incomplete = $synced['incomplete'];
+            $selectedId = $synced['selected_id'];
 
             $msg = count($accounts).' WhatsApp account(s) synced from Meta.';
             if ($incomplete) {
@@ -198,6 +133,179 @@ class WhatsAppAccountsController extends Controller
                 ->route('admin.meta.whatsapp.index')
                 ->with('error', $e->getMessage());
         }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $accounts
+     */
+    protected function accountsNeedNameRefresh(array $accounts): bool
+    {
+        if ($accounts === []) {
+            return true;
+        }
+
+        foreach ($accounts as $row) {
+            if (! is_array($row)) {
+                return true;
+            }
+            $id = (string) ($row['id'] ?? '');
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($id === '' || $name === '') {
+                return true;
+            }
+            if ($name === $id || str_starts_with($name, 'WhatsApp Business Account')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $accounts
+     */
+    protected function shouldBackgroundSync(array $accounts, string $syncedAtKey): bool
+    {
+        if ($this->accountsNeedNameRefresh($accounts)) {
+            return true;
+        }
+
+        $syncedAt = Cache::get($syncedAtKey);
+        if (! $syncedAt || $syncedAt === 'cached') {
+            return true;
+        }
+
+        try {
+            return \Carbon\Carbon::parse((string) $syncedAt)->lt(now()->subMinutes(15));
+        } catch (\Throwable) {
+            return true;
+        }
+    }
+
+    protected function queueBackgroundSync(string $cacheSuffix, string $wabaCacheKey, string $syncedAtKey): void
+    {
+        $lockKey = 'meta_wa_bg_sync_'.$cacheSuffix;
+        if (! Cache::add($lockKey, 1, now()->addMinutes(2))) {
+            return;
+        }
+
+        dispatch(function () use ($cacheSuffix, $lockKey, $wabaCacheKey, $syncedAtKey) {
+            try {
+                app(MetaAutoSyncService::class)->sync(false);
+                $wa = app(WhatsAppBusinessAccountService::class);
+                $connection = $wa->connection();
+                $wa->resolveBusinessManagerId($connection);
+                $result = $wa->syncToConnection($connection);
+                $accounts = $result['accounts'] ?? [];
+                $prev = Cache::get($wabaCacheKey);
+                if (
+                    is_array($prev)
+                    && count($prev) > count($accounts)
+                    && ! empty($result['incomplete'])
+                ) {
+                    // Keep wider directory on rate-limit, but still refresh names when prev is placeholders.
+                    $prevNeedsNames = false;
+                    foreach ($prev as $row) {
+                        if (! is_array($row)) {
+                            $prevNeedsNames = true;
+                            break;
+                        }
+                        $name = trim((string) ($row['name'] ?? ''));
+                        $id = (string) ($row['id'] ?? '');
+                        if ($name === '' || $name === $id || str_starts_with($name, 'WhatsApp Business Account')) {
+                            $prevNeedsNames = true;
+                            break;
+                        }
+                    }
+                    if (! $prevNeedsNames) {
+                        Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+
+                        return;
+                    }
+                }
+                if ($accounts !== [] || ! is_array($prev) || $prev === []) {
+                    Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                }
+                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('WA_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
+            } finally {
+                Cache::forget($lockKey);
+            }
+        })->afterResponse();
+    }
+
+    /**
+     * Full Meta directory sync used by Sync now and auto-open name refresh.
+     *
+     * @return array{
+     *   connection: mixed,
+     *   accounts: array<int, array<string, mixed>>,
+     *   incomplete: bool,
+     *   selected_id: string
+     * }
+     */
+    protected function runFullDirectorySync(string $waba = '', bool $force = true): array
+    {
+        if ($force) {
+            $this->autoSync->syncAlways();
+        } else {
+            $this->autoSync->sync(false);
+        }
+
+        $connection = $this->whatsapp->connection();
+        $cacheSuffix = (string) ($connection?->id ?? 'platform');
+        $this->whatsapp->resolveBusinessManagerId($connection);
+        $result = $this->whatsapp->syncToConnection($connection);
+        $accounts = $result['accounts'] ?? [];
+        $incomplete = ! empty($result['incomplete']);
+
+        $cacheKey = 'meta_waba_directory_'.$cacheSuffix;
+        $prev = Cache::get($cacheKey);
+        if (
+            is_array($prev)
+            && count($prev) > count($accounts)
+            && $incomplete
+            && ! $this->accountsNeedNameRefresh($prev)
+        ) {
+            $accounts = $prev;
+        } else {
+            Cache::put($cacheKey, $accounts, now()->addMinutes(30));
+        }
+        Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
+
+        $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
+        if ($selectedId !== '') {
+            try {
+                $detail = $this->whatsapp->getWaba($selectedId);
+                $phones = $this->whatsapp->listPhoneNumbers($selectedId);
+                $allPhones = [];
+                foreach ($phones as $phone) {
+                    $allPhones[] = array_merge($phone, [
+                        'waba_id' => $selectedId,
+                        'waba_name' => $detail['name'] ?? null,
+                    ]);
+                }
+                $prevPhones = Cache::get('meta_wa_phone_directory_'.$cacheSuffix);
+                if (is_array($prevPhones)) {
+                    foreach ($prevPhones as $p) {
+                        if (is_array($p) && (string) ($p['waba_id'] ?? '') !== $selectedId) {
+                            $allPhones[] = $p;
+                        }
+                    }
+                }
+                Cache::put('meta_wa_phone_directory_'.$cacheSuffix, $allPhones, now()->addMinutes(30));
+            } catch (\Throwable) {
+                // list still cached
+            }
+        }
+
+        return [
+            'connection' => $connection,
+            'accounts' => $accounts,
+            'incomplete' => $incomplete,
+            'selected_id' => $selectedId,
+        ];
     }
 
     /**

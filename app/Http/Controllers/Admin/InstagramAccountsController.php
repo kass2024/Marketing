@@ -72,7 +72,6 @@ class InstagramAccountsController extends Controller
             'needsSync' => ! $fromCache && $accounts === [],
             'autoSynced' => false,
             'metaBusinessSuiteUrl' => 'https://business.facebook.com/latest/settings/instagram_account_settings',
-            'tokenDiag' => $this->instagram->diagnoseTokenForInstagram(),
         ]);
     }
 

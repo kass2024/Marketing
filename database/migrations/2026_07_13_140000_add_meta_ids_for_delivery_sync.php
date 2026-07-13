@@ -16,20 +16,20 @@ return new class extends Migration
     {
         Schema::table('campaigns', function (Blueprint $table) {
             if (! Schema::hasColumn('campaigns', 'meta_id')) {
-                $table->string('meta_id')->nullable()->index()->after('id');
+                $table->string('meta_id')->nullable()->index();
             }
             if (! Schema::hasColumn('campaigns', 'ad_account_id')) {
-                $table->unsignedBigInteger('ad_account_id')->nullable()->index()->after('client_id');
+                $table->unsignedBigInteger('ad_account_id')->nullable()->index();
             }
             if (! Schema::hasColumn('campaigns', 'daily_budget')) {
-                $table->decimal('daily_budget', 12, 2)->nullable()->after('budget');
+                $table->decimal('daily_budget', 12, 2)->nullable();
             }
         });
 
         // Ad sets: code uses meta_id; table historically used meta_adset_id
         Schema::table('ad_sets', function (Blueprint $table) {
             if (! Schema::hasColumn('ad_sets', 'meta_id')) {
-                $table->string('meta_id')->nullable()->index()->after('campaign_id');
+                $table->string('meta_id')->nullable()->index();
             }
         });
 
@@ -46,16 +46,19 @@ return new class extends Migration
         if (Schema::hasTable('creatives')) {
             Schema::table('creatives', function (Blueprint $table) {
                 if (! Schema::hasColumn('creatives', 'meta_id')) {
-                    $table->string('meta_id')->nullable()->index()->after('adset_id');
+                    $table->string('meta_id')->nullable()->index();
                 }
                 if (! Schema::hasColumn('creatives', 'image_hash')) {
-                    $table->string('image_hash')->nullable()->after('image_url');
+                    $table->string('image_hash')->nullable();
                 }
                 if (! Schema::hasColumn('creatives', 'headline')) {
-                    $table->string('headline')->nullable()->after('name');
+                    $table->string('headline')->nullable();
                 }
                 if (! Schema::hasColumn('creatives', 'status')) {
-                    $table->string('status')->default('ACTIVE')->after('is_active');
+                    $table->string('status')->default('ACTIVE');
+                }
+                if (! Schema::hasColumn('creatives', 'type')) {
+                    $table->string('type')->nullable()->default('image');
                 }
             });
 

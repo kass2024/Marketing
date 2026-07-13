@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::table('creatives', function (Blueprint $table) {
             if (! Schema::hasColumn('creatives', 'whatsapp_chat_url')) {
-                $table->string('whatsapp_chat_url', 2048)->nullable()->after('whatsapp_fallback_url');
+                $table->string('whatsapp_chat_url', 2048)->nullable();
             }
         });
     }

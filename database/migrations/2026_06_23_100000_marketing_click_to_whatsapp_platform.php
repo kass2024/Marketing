@@ -4,6 +4,10 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
+/**
+ * Make marketing creatives alters safe on VPS schemas that diverge from local
+ * (e.g. missing `type` — never use after('type')).
+ */
 return new class extends Migration
 {
     public function up(): void
@@ -49,111 +53,77 @@ return new class extends Migration
             });
         }
 
-        Schema::table('platform_meta_connections', function (Blueprint $table) {
-            if (! Schema::hasColumn('platform_meta_connections', 'page_id')) {
-                $table->string('page_id')->nullable()->after('ad_account_name');
-            }
-            if (! Schema::hasColumn('platform_meta_connections', 'page_name')) {
-                $table->string('page_name')->nullable()->after('page_id');
-            }
-            if (! Schema::hasColumn('platform_meta_connections', 'instagram_business_account_id')) {
-                $table->string('instagram_business_account_id')->nullable()->after('page_name');
-            }
-            if (! Schema::hasColumn('platform_meta_connections', 'whatsapp_phone_number')) {
-                $table->string('whatsapp_phone_number')->nullable()->after('whatsapp_phone_number_id');
-            }
-            if (! Schema::hasColumn('platform_meta_connections', 'is_active')) {
-                $table->boolean('is_active')->default(true)->after('granted_permissions');
-            }
-        });
+        $this->addMissing('platform_meta_connections', [
+            'page_id' => fn (Blueprint $t) => $t->string('page_id')->nullable(),
+            'page_name' => fn (Blueprint $t) => $t->string('page_name')->nullable(),
+            'instagram_business_account_id' => fn (Blueprint $t) => $t->string('instagram_business_account_id')->nullable(),
+            'whatsapp_phone_number' => fn (Blueprint $t) => $t->string('whatsapp_phone_number')->nullable(),
+            'is_active' => fn (Blueprint $t) => $t->boolean('is_active')->default(true),
+        ]);
 
-        Schema::table('meta_connections', function (Blueprint $table) {
-            if (! Schema::hasColumn('meta_connections', 'business_id')) {
-                $table->string('business_id')->nullable()->after('meta_user_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'ad_account_id')) {
-                $table->string('ad_account_id')->nullable()->after('business_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'page_id')) {
-                $table->string('page_id')->nullable()->after('ad_account_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'instagram_business_account_id')) {
-                $table->string('instagram_business_account_id')->nullable()->after('page_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'whatsapp_business_id')) {
-                $table->string('whatsapp_business_id')->nullable()->after('instagram_business_account_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'whatsapp_phone_number_id')) {
-                $table->string('whatsapp_phone_number_id')->nullable()->after('whatsapp_business_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'whatsapp_phone_number')) {
-                $table->string('whatsapp_phone_number')->nullable()->after('whatsapp_phone_number_id');
-            }
-            if (! Schema::hasColumn('meta_connections', 'granted_permissions')) {
-                $table->json('granted_permissions')->nullable()->after('token_expires_at');
-            }
-        });
+        $this->addMissing('meta_connections', [
+            'business_id' => fn (Blueprint $t) => $t->string('business_id')->nullable(),
+            'ad_account_id' => fn (Blueprint $t) => $t->string('ad_account_id')->nullable(),
+            'page_id' => fn (Blueprint $t) => $t->string('page_id')->nullable(),
+            'instagram_business_account_id' => fn (Blueprint $t) => $t->string('instagram_business_account_id')->nullable(),
+            'whatsapp_business_id' => fn (Blueprint $t) => $t->string('whatsapp_business_id')->nullable(),
+            'whatsapp_phone_number_id' => fn (Blueprint $t) => $t->string('whatsapp_phone_number_id')->nullable(),
+            'whatsapp_phone_number' => fn (Blueprint $t) => $t->string('whatsapp_phone_number')->nullable(),
+            'granted_permissions' => fn (Blueprint $t) => $t->json('granted_permissions')->nullable(),
+        ]);
 
-        Schema::table('campaigns', function (Blueprint $table) {
-            if (! Schema::hasColumn('campaigns', 'marketing_channel')) {
-                $table->string('marketing_channel')->default('click_to_whatsapp')->after('objective');
-            }
-            if (! Schema::hasColumn('campaigns', 'wizard_state')) {
-                $table->json('wizard_state')->nullable()->after('marketing_channel');
-            }
-            if (! Schema::hasColumn('campaigns', 'meta_effective_status')) {
-                $table->string('meta_effective_status')->nullable()->after('status');
-            }
-            if (! Schema::hasColumn('campaigns', 'meta_review_feedback')) {
-                $table->text('meta_review_feedback')->nullable()->after('meta_effective_status');
-            }
-            if (! Schema::hasColumn('campaigns', 'platform_meta_connection_id')) {
-                $table->unsignedBigInteger('platform_meta_connection_id')->nullable()->after('client_id');
-            }
-        });
+        $this->addMissing('campaigns', [
+            'marketing_channel' => fn (Blueprint $t) => $t->string('marketing_channel')->default('click_to_whatsapp'),
+            'wizard_state' => fn (Blueprint $t) => $t->json('wizard_state')->nullable(),
+            'meta_effective_status' => fn (Blueprint $t) => $t->string('meta_effective_status')->nullable(),
+            'meta_review_feedback' => fn (Blueprint $t) => $t->text('meta_review_feedback')->nullable(),
+            'platform_meta_connection_id' => fn (Blueprint $t) => $t->unsignedBigInteger('platform_meta_connection_id')->nullable(),
+        ]);
 
-        Schema::table('ad_sets', function (Blueprint $table) {
-            if (! Schema::hasColumn('ad_sets', 'destination_type')) {
-                $table->string('destination_type')->nullable()->after('optimization_goal');
-            }
-            if (! Schema::hasColumn('ad_sets', 'meta_effective_status')) {
-                $table->string('meta_effective_status')->nullable()->after('status');
-            }
-        });
+        $this->addMissing('ad_sets', [
+            'destination_type' => fn (Blueprint $t) => $t->string('destination_type')->nullable(),
+            'meta_effective_status' => fn (Blueprint $t) => $t->string('meta_effective_status')->nullable(),
+        ]);
 
-        Schema::table('ads', function (Blueprint $table) {
-            if (! Schema::hasColumn('ads', 'meta_effective_status')) {
-                $table->string('meta_effective_status')->nullable()->after('status');
-            }
-            if (! Schema::hasColumn('ads', 'meta_review_feedback')) {
-                $table->text('meta_review_feedback')->nullable()->after('meta_effective_status');
-            }
-            if (! Schema::hasColumn('ads', 'meta_created_time')) {
-                $table->timestamp('meta_created_time')->nullable()->after('meta_review_feedback');
-            }
-        });
+        $this->addMissing('ads', [
+            'meta_effective_status' => fn (Blueprint $t) => $t->string('meta_effective_status')->nullable(),
+            'meta_review_feedback' => fn (Blueprint $t) => $t->text('meta_review_feedback')->nullable(),
+            'meta_created_time' => fn (Blueprint $t) => $t->timestamp('meta_created_time')->nullable(),
+        ]);
 
-        Schema::table('creatives', function (Blueprint $table) {
-            if (! Schema::hasColumn('creatives', 'creative_format')) {
-                $table->string('creative_format')->default('link')->after('type');
-            }
-            if (! Schema::hasColumn('creatives', 'description')) {
-                $table->string('description')->nullable()->after('body');
-            }
-            if (! Schema::hasColumn('creatives', 'whatsapp_phone_number')) {
-                $table->string('whatsapp_phone_number')->nullable()->after('destination_url');
-            }
-            if (! Schema::hasColumn('creatives', 'whatsapp_prefill_message')) {
-                $table->text('whatsapp_prefill_message')->nullable()->after('whatsapp_phone_number');
-            }
-            if (! Schema::hasColumn('creatives', 'whatsapp_fallback_url')) {
-                $table->string('whatsapp_fallback_url')->nullable()->after('whatsapp_prefill_message');
-            }
-            if (! Schema::hasColumn('creatives', 'page_id')) {
-                $table->string('page_id')->nullable()->after('whatsapp_fallback_url');
-            }
-            if (! Schema::hasColumn('creatives', 'instagram_user_id')) {
-                $table->string('instagram_user_id')->nullable()->after('page_id');
+        $this->addMissing('creatives', [
+            'type' => fn (Blueprint $t) => $t->string('type')->nullable()->default('image'),
+            'creative_format' => fn (Blueprint $t) => $t->string('creative_format')->default('link'),
+            'description' => fn (Blueprint $t) => $t->string('description')->nullable(),
+            'whatsapp_phone_number' => fn (Blueprint $t) => $t->string('whatsapp_phone_number')->nullable(),
+            'whatsapp_prefill_message' => fn (Blueprint $t) => $t->text('whatsapp_prefill_message')->nullable(),
+            'whatsapp_fallback_url' => fn (Blueprint $t) => $t->string('whatsapp_fallback_url')->nullable(),
+            'whatsapp_chat_url' => fn (Blueprint $t) => $t->string('whatsapp_chat_url')->nullable(),
+            'page_id' => fn (Blueprint $t) => $t->string('page_id')->nullable(),
+            'instagram_user_id' => fn (Blueprint $t) => $t->string('instagram_user_id')->nullable(),
+            'campaign_id' => fn (Blueprint $t) => $t->unsignedBigInteger('campaign_id')->nullable(),
+            'adset_id' => fn (Blueprint $t) => $t->unsignedBigInteger('adset_id')->nullable(),
+            'image_hash' => fn (Blueprint $t) => $t->string('image_hash')->nullable(),
+            'headline' => fn (Blueprint $t) => $t->string('headline')->nullable(),
+            'status' => fn (Blueprint $t) => $t->string('status')->default('ACTIVE'),
+            'meta_id' => fn (Blueprint $t) => $t->string('meta_id')->nullable(),
+        ]);
+    }
+
+    /**
+     * @param  array<string, callable(Blueprint): void>  $columns
+     */
+    protected function addMissing(string $table, array $columns): void
+    {
+        if (! Schema::hasTable($table)) {
+            return;
+        }
+
+        Schema::table($table, function (Blueprint $blueprint) use ($table, $columns) {
+            foreach ($columns as $name => $callback) {
+                if (! Schema::hasColumn($table, $name)) {
+                    $callback($blueprint);
+                }
             }
         });
     }

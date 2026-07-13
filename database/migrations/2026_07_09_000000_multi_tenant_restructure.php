@@ -16,56 +16,33 @@ return new class extends Migration
 
         Schema::table('platform_meta_connections', function (Blueprint $table) {
             if (! Schema::hasColumn('platform_meta_connections', 'client_id')) {
-                $table->foreignId('client_id')
-                    ->nullable()
-                    ->after('id')
-                    ->constrained('clients')
-                    ->nullOnDelete();
+                $table->unsignedBigInteger('client_id')->nullable()->index();
             }
 
             if (! Schema::hasColumn('platform_meta_connections', 'is_platform_default')) {
-                $table->boolean('is_platform_default')->default(false)->after('is_active');
+                $table->boolean('is_platform_default')->default(false);
             }
-
-            $table->index('whatsapp_phone_number_id');
-            $table->index(['client_id', 'is_active']);
         });
 
         if (Schema::hasTable('meta_webhook_events') && ! Schema::hasColumn('meta_webhook_events', 'client_id')) {
             Schema::table('meta_webhook_events', function (Blueprint $table) {
-                $table->foreignId('client_id')
-                    ->nullable()
-                    ->after('id')
-                    ->constrained('clients')
-                    ->nullOnDelete();
+                $table->unsignedBigInteger('client_id')->nullable()->index();
             });
         }
 
         if (Schema::hasTable('meta_api_logs') && ! Schema::hasColumn('meta_api_logs', 'client_id')) {
             Schema::table('meta_api_logs', function (Blueprint $table) {
-                $table->foreignId('client_id')
-                    ->nullable()
-                    ->after('id')
-                    ->constrained('clients')
-                    ->nullOnDelete();
+                $table->unsignedBigInteger('client_id')->nullable()->index();
             });
         }
 
         Schema::table('creatives', function (Blueprint $table) {
             if (! Schema::hasColumn('creatives', 'campaign_id')) {
-                $table->foreignId('campaign_id')
-                    ->nullable()
-                    ->after('id')
-                    ->constrained('campaigns')
-                    ->nullOnDelete();
+                $table->unsignedBigInteger('campaign_id')->nullable()->index();
             }
 
             if (! Schema::hasColumn('creatives', 'adset_id')) {
-                $table->foreignId('adset_id')
-                    ->nullable()
-                    ->after('campaign_id')
-                    ->constrained('ad_sets')
-                    ->nullOnDelete();
+                $table->unsignedBigInteger('adset_id')->nullable()->index();
             }
         });
     }

@@ -61,13 +61,20 @@ class InstagramBusinessAccountService
                 'instagram_accounts',
                 'instagram_business_accounts',
             ] as $edge) {
+                $query = [
+                    'access_token' => $token,
+                    'fields' => $fields,
+                    'limit' => 50,
+                ];
+                // Asset edges expose ig_user_id / ig_username only with metadata=1
+                if (str_contains($edge, 'instagram_asset')) {
+                    $query['metadata'] = 1;
+                    $query['fields'] = 'id,ig_user_id,ig_username,username,name,profile_picture_url';
+                }
+
                 foreach ($this->paginateEdge(
                     "{$this->graphUrl}/{$this->graphVersion}/{$businessId}/{$edge}",
-                    [
-                        'access_token' => $token,
-                        'fields' => $fields,
-                        'limit' => 50,
-                    ]
+                    $query
                 ) as $row) {
                     $this->mergeAccountRow($byId, $row, $edge, $token);
                 }
@@ -152,7 +159,7 @@ class InstagramBusinessAccountService
             ];
         }
 
-        return array_values($byId);
+        return array_values($this->hydrateMissingUsernames($byId, $token));
     }
 
     /**
@@ -342,8 +349,8 @@ class InstagramBusinessAccountService
             $username = $json['ig_username'] ?? $json['username'] ?? null;
             if ($igUserId !== '' || $username) {
                 return [
-                    'id' => $igUserId !== '' ? $igUserId : $instagramId,
-                    'username' => $username,
+                    'id' => (string) ($igUserId !== '' ? $igUserId : $instagramId),
+                    'username' => $username ? ltrim((string) $username, '@') : null,
                     'name' => $json['name'] ?? null,
                     'source' => 'asset_metadata',
                     'profile_picture_url' => $json['profile_picture_url'] ?? $json['profile_pic'] ?? null,
@@ -385,9 +392,11 @@ class InstagramBusinessAccountService
             return null;
         }
 
+        $username = $json['username'] ?? $json['ig_username'] ?? null;
+
         return [
             'id' => (string) $json['id'],
-            'username' => $json['username'] ?? null,
+            'username' => $username ? ltrim((string) $username, '@') : null,
             'name' => $json['name'] ?? null,
             'source' => 'graph',
             'profile_picture_url' => $json['profile_picture_url'] ?? $json['profile_pic'] ?? null,
@@ -419,39 +428,103 @@ class InstagramBusinessAccountService
             ?? ''
         )) ?: '';
 
-        // Instagram Business Asset nodes often only return {id} on list edges —
-        // resolve ig_user_id + username via GET /{asset-id}?metadata=1
-        if (
-            $assetId !== ''
-            && ($igUserId === '' || $username === null)
-            && str_contains($source, 'instagram_asset')
-            && $token
-        ) {
-            $enriched = $this->enrichInstagramAsset($assetId, $token);
-            if ($enriched) {
-                $igUserId = $igUserId !== '' ? $igUserId : ($enriched['ig_user_id'] ?? '');
-                $username = $username ?? ($enriched['ig_username'] ?? $enriched['username'] ?? null);
-            }
-        }
-
         // Prefer the Instagram user id used by Ads / Ad Studio (1784…), not the BM asset id
         $id = $igUserId !== '' ? $igUserId : $assetId;
         if ($id === '') {
             return;
         }
 
+        // Resolve username when missing (list edges often return id only)
+        if (
+            $assetId !== ''
+            && ($igUserId === '' || $username === null || $username === '')
+            && $token
+        ) {
+            $enriched = $this->enrichInstagramAsset($assetId, $token);
+            if ($enriched) {
+                $igUserId = $igUserId !== '' ? $igUserId : (string) ($enriched['ig_user_id'] ?? '');
+                $username = $username ?: ($enriched['ig_username'] ?? $enriched['username'] ?? null);
+                if ($igUserId !== '') {
+                    $id = $igUserId;
+                }
+            }
+        }
+
         if (! isset($byId[$id])) {
             $byId[$id] = [
                 'id' => $id,
-                'username' => $username,
+                'username' => $username ? ltrim((string) $username, '@') : null,
                 'name' => $row['name'] ?? null,
                 'source' => $source,
                 'profile_picture_url' => $row['profile_picture_url'] ?? $row['profile_pic'] ?? null,
                 'asset_id' => ($igUserId !== '' && $assetId !== '' && $assetId !== $igUserId) ? $assetId : null,
             ];
-        } elseif ($username && empty($byId[$id]['username'])) {
-            $byId[$id]['username'] = $username;
+        } else {
+            if ($username && empty($byId[$id]['username'])) {
+                $byId[$id]['username'] = ltrim((string) $username, '@');
+            }
+            if (! empty($row['name']) && empty($byId[$id]['name'])) {
+                $byId[$id]['name'] = $row['name'];
+            }
+            if (($igUserId !== '' && $assetId !== '' && $assetId !== $igUserId) && empty($byId[$id]['asset_id'])) {
+                $byId[$id]['asset_id'] = $assetId;
+            }
         }
+    }
+
+    /**
+     * Fill @username / name for any rows that still only have numeric IDs.
+     *
+     * @param  array<string, array<string, mixed>>  $byId
+     * @return array<string, array<string, mixed>>
+     */
+    protected function hydrateMissingUsernames(array $byId, string $token): array
+    {
+        foreach (array_keys($byId) as $id) {
+            $row = $byId[$id] ?? null;
+            if (! is_array($row)) {
+                continue;
+            }
+            if (! empty($row['username'])) {
+                $byId[$id]['username'] = ltrim((string) $row['username'], '@');
+                continue;
+            }
+
+            $lookupId = (string) ($row['asset_id'] ?? $id);
+            $detail = $this->getAccount($lookupId);
+            if (! $detail && $lookupId !== $id) {
+                $detail = $this->getAccount((string) $id);
+            }
+            if (! $detail) {
+                continue;
+            }
+
+            $resolvedId = (string) ($detail['id'] ?? $id);
+            $username = $detail['username'] ?? null;
+            if ($username) {
+                $username = ltrim((string) $username, '@');
+            }
+
+            $merged = array_merge($row, [
+                'id' => $resolvedId,
+                'username' => $username ?: ($row['username'] ?? null),
+                'name' => $detail['name'] ?? ($row['name'] ?? null),
+                'profile_picture_url' => $detail['profile_picture_url'] ?? ($row['profile_picture_url'] ?? null),
+                'source' => $row['source'] ?? ($detail['source'] ?? 'graph'),
+            ]);
+            if (! empty($detail['asset_id'])) {
+                $merged['asset_id'] = $detail['asset_id'];
+            } elseif ($resolvedId !== $id) {
+                $merged['asset_id'] = $id;
+            }
+
+            if ($resolvedId !== $id) {
+                unset($byId[$id]);
+            }
+            $byId[$resolvedId] = $merged;
+        }
+
+        return $byId;
     }
 
     /**
@@ -468,6 +541,16 @@ class InstagramBusinessAccountService
                 ]
             );
             if (! $response->ok()) {
+                // Fall back to standard IG user fields
+                $response = Http::timeout(30)->get(
+                    "{$this->graphUrl}/{$this->graphVersion}/{$assetId}",
+                    [
+                        'access_token' => $token,
+                        'fields' => 'id,username,name,profile_picture_url',
+                    ]
+                );
+            }
+            if (! $response->ok()) {
                 return null;
             }
             $json = $response->json();
@@ -475,10 +558,12 @@ class InstagramBusinessAccountService
                 return null;
             }
 
+            $username = $json['ig_username'] ?? $json['username'] ?? null;
+
             return [
-                'ig_user_id' => preg_replace('/\D+/', '', (string) ($json['ig_user_id'] ?? '')) ?: null,
-                'ig_username' => $json['ig_username'] ?? null,
-                'username' => $json['username'] ?? $json['ig_username'] ?? null,
+                'ig_user_id' => preg_replace('/\D+/', '', (string) ($json['ig_user_id'] ?? $json['id'] ?? '')) ?: null,
+                'ig_username' => $username,
+                'username' => $username,
             ];
         } catch (\Throwable $e) {
             Log::info('IG_ASSET_ENRICH_FAILED', ['id' => $assetId, 'error' => $e->getMessage()]);

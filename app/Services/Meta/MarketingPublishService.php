@@ -244,9 +244,15 @@ class MarketingPublishService
             return $wizardData['targeting'];
         }
 
-        $countries = $wizardData['countries'] ?? ['CA'];
+        $countries = $wizardData['countries'] ?? [];
+        if (! is_array($countries)) {
+            $countries = array_values(array_filter([(string) $countries]));
+        }
+        if ($countries === []) {
+            throw new \InvalidArgumentException('Select at least one country in Locations before publishing.');
+        }
         $geo = $this->meta->buildGeoLocations(
-            is_array($countries) ? $countries : [$countries],
+            $countries,
             $wizardData['cities'] ?? [],
             $wizardData['regions'] ?? []
         );

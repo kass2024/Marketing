@@ -914,7 +914,7 @@ function adStudio(config) {
             notify_on_publish: true,
             notification_whatsapp_number: '',
             geo_mode: 'countries_and_cities',
-            countries: ['CA'],
+            countries: [],
             cities: [],
             regions: [],
             age_min: 18,

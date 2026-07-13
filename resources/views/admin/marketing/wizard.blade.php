@@ -107,7 +107,7 @@
                     <div class="mt-4 grid gap-4 sm:grid-cols-2">
                         <div>
                             <label class="block text-sm font-semibold">Countries (comma codes)</label>
-                            <input type="text" name="countries" value="{{ old('countries', implode(',', $d['countries'] ?? ['CA'])) }}" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3">
+                            <input type="text" name="countries" value="{{ old('countries', implode(',', $d['countries'] ?? [])) }}" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3" placeholder="e.g. CA,US">
                         </div>
                         <div>
                             <label class="block text-sm font-semibold">Age min / max</label>

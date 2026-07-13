@@ -83,8 +83,13 @@ class WhatsAppAccountsController extends Controller
             }
 
             // One quick Graph call for the open WABA when local directory has no numbers yet
-            // (covers Business App accounts like +1 450-367-5329 on 731320686199458)
-            if ($phones === [] && ! Cache::get('meta_wa_rate_limited')) {
+            // Skip while Meta is rate-limiting that account (#80008) or the app (#4).
+            if (
+                $phones === []
+                && ! Cache::get('meta_wa_rate_limited')
+                && ! $this->whatsapp->isWabaRateLimited($selectedId)
+                && ! $this->whatsapp->wabaHasNoPhoneEdge($selectedId)
+            ) {
                 try {
                     $phones = $this->whatsapp->syncPhonesForWaba($selectedId, $connection);
                 } catch (\Throwable) {
@@ -131,8 +136,8 @@ class WhatsAppAccountsController extends Controller
             $msg = count($accounts).' WhatsApp account(s) synced from Meta.';
             $phoneCount = count($this->whatsapp->loadPhoneDirectory($this->whatsapp->connection()));
             $msg .= ' '.$phoneCount.' phone number(s) saved locally.';
-            if ($incomplete && $this->accountsNeedNameRefresh($accounts)) {
-                $msg .= ' Some names are still loading — Meta rate-limited individual lookups; tap Sync now again in a few minutes.';
+            if (Cache::get('meta_wa_rate_limited') || $this->accountsNeedNameRefresh($accounts)) {
+                $msg .= ' Meta rate-limited some accounts — wait ~45 minutes then Sync now again for remaining names/numbers.';
             } elseif ($incomplete) {
                 $msg .= ' Directory preserved through a partial Meta response.';
             }
@@ -255,7 +260,7 @@ class WhatsAppAccountsController extends Controller
 
     /**
      * Full Meta directory sync used by Sync now and auto-open name refresh.
-     * Production rule: phones for every known WABA before name enrichment (rate-limit order).
+     * Batched BM nested phones+names first — avoids Meta #4 / #80008 storms.
      *
      * @return array{
      *   connection: mixed,
@@ -274,16 +279,11 @@ class WhatsAppAccountsController extends Controller
             Cache::forget('meta_auto_sync_last_at');
             Cache::forget('meta_waba_directory_'.$cacheSuffix);
             Cache::forget('meta_bm_synced_at_'.$cacheSuffix);
+            // Clear soft global flag, but keep per-WABA #80008 bans so we don't hammer dying accounts
             Cache::forget('meta_wa_rate_limited');
         }
 
-        // 1) Phones first — covers every linked/DB/Graph WABA (e.g. +1 450-367-5329 on 731320686199458)
-        $phoneSync = $this->whatsapp->syncAllPhonesFromMeta($connection, $force);
-        $mergedPhones = $phoneSync['phones'] !== [] ? $phoneSync['phones'] : $phoneSnapshot;
-
-        // 2) Names second (do not call MetaAutoSync::syncAlways — that would re-hit phone endpoints)
-        $connection = $this->whatsapp->connection();
-        $cacheSuffix = (string) ($connection?->id ?? 'platform');
+        // One batched pull: owned/client/assigned WABAs with nested phone_numbers
         $this->whatsapp->resolveBusinessManagerId($connection);
         $result = $this->whatsapp->syncToConnection($connection);
         $accounts = $result['accounts'] ?? [];
@@ -298,33 +298,116 @@ class WhatsAppAccountsController extends Controller
             (array) ($connection?->linked_waba_directory ?? []),
             $accounts
         );
-        if (! Cache::get('meta_wa_rate_limited')) {
-            $accounts = $this->whatsapp->enrichPlaceholderNames($accounts);
-        }
         Cache::put($cacheKey, $accounts, now()->addMinutes(30));
         Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
 
+        $mergedPhones = $this->whatsapp->loadPhoneDirectory($connection);
+        if ($mergedPhones === [] && $phoneSnapshot !== []) {
+            $mergedPhones = $phoneSnapshot;
+            $this->whatsapp->persistPhoneDirectory($connection, $phoneSnapshot);
+        }
+
         $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
         if ($selectedId !== '') {
-            try {
-                $detail = $this->whatsapp->getWaba($selectedId);
-                if (is_array($detail) && ! empty($detail['name'])) {
-                    foreach ($accounts as &$row) {
-                        if ((string) ($row['id'] ?? '') === $selectedId) {
-                            $row = array_merge($row, $detail);
-                            $row['name'] = $this->whatsapp->bestWabaDisplayName($row, $selectedId);
+            $needsName = false;
+            foreach ($accounts as $row) {
+                if ((string) ($row['id'] ?? '') === $selectedId
+                    && $this->whatsapp->isPlaceholderWabaName((string) ($row['name'] ?? ''), $selectedId)) {
+                    $needsName = true;
+                    break;
+                }
+            }
+            $hasPhones = collect($mergedPhones)->contains(
+                fn ($p) => is_array($p) && (string) ($p['waba_id'] ?? '') === $selectedId
+            );
+
+            // At most one targeted recover for the open account (skipped when Meta is cooling down)
+            if (
+                ($needsName || ! $hasPhones)
+                && ! Cache::get('meta_wa_rate_limited')
+                && ! $this->whatsapp->isWabaRateLimited($selectedId)
+            ) {
+                try {
+                    if ($needsName) {
+                        $detail = $this->whatsapp->getWaba($selectedId);
+                        if (is_array($detail) && ! empty($detail['name'])) {
+                            foreach ($accounts as &$row) {
+                                if ((string) ($row['id'] ?? '') === $selectedId) {
+                                    $row = array_merge($row, $detail);
+                                    $row['name'] = $this->whatsapp->bestWabaDisplayName($row, $selectedId);
+                                }
+                            }
+                            unset($row);
+                            Cache::put($cacheKey, $accounts, now()->addMinutes(30));
                         }
                     }
-                    unset($row);
-                    Cache::put($cacheKey, $accounts, now()->addMinutes(30));
+                    if (! $hasPhones && ! $this->whatsapp->wabaHasNoPhoneEdge($selectedId)) {
+                        $forSelected = $this->whatsapp->syncPhonesForWaba($selectedId, $connection);
+                        if ($forSelected !== []) {
+                            $mergedPhones = $this->whatsapp->loadPhoneDirectory($connection);
+                            // Name from verified phone when still placeholder
+                            $vname = trim((string) ($forSelected[0]['verified_name'] ?? ''));
+                            if ($vname !== '') {
+                                foreach ($accounts as &$row) {
+                                    if ((string) ($row['id'] ?? '') === $selectedId
+                                        && $this->whatsapp->isPlaceholderWabaName((string) ($row['name'] ?? ''), $selectedId)) {
+                                        $row['name'] = $vname;
+                                    }
+                                }
+                                unset($row);
+                                Cache::put($cacheKey, $accounts, now()->addMinutes(30));
+                            }
+                        }
+                    }
+                } catch (\Throwable) {
+                    // keep snapshot
                 }
-                $forSelected = $this->whatsapp->syncPhonesForWaba($selectedId, $connection);
-                if ($forSelected !== []) {
-                    $mergedPhones = $this->whatsapp->loadPhoneDirectory($connection);
-                }
-            } catch (\Throwable) {
-                // keep snapshot
             }
+        }
+
+        // Fill other gap WABAs with capped individual edge calls (no second full BM list)
+        if (! Cache::get('meta_wa_rate_limited')) {
+            $covered = [];
+            foreach ($mergedPhones as $p) {
+                if (is_array($p) && ($wid = (string) ($p['waba_id'] ?? '')) !== '') {
+                    $covered[$wid] = true;
+                }
+            }
+            $fetched = 0;
+            foreach ($accounts as $account) {
+                $id = (string) ($account['id'] ?? '');
+                if ($id === '' || isset($covered[$id]) || $id === $selectedId) {
+                    continue;
+                }
+                if ($this->whatsapp->wabaHasNoPhoneEdge($id) || $this->whatsapp->isWabaRateLimited($id)) {
+                    continue;
+                }
+                if ($fetched >= 3 || Cache::get('meta_wa_rate_limited')) {
+                    break;
+                }
+                try {
+                    $got = $this->whatsapp->syncPhonesForWaba($id, $connection);
+                    $fetched++;
+                    if ($got !== []) {
+                        $covered[$id] = true;
+                        $vname = trim((string) ($got[0]['verified_name'] ?? ''));
+                        if ($vname !== '') {
+                            foreach ($accounts as &$row) {
+                                if ((string) ($row['id'] ?? '') === $id
+                                    && $this->whatsapp->isPlaceholderWabaName((string) ($row['name'] ?? ''), $id)) {
+                                    $row['name'] = $vname;
+                                }
+                            }
+                            unset($row);
+                        }
+                    }
+                } catch (\Throwable) {
+                    break;
+                }
+                usleep(400000);
+            }
+            $mergedPhones = $this->whatsapp->loadPhoneDirectory($connection);
+            Cache::put($cacheKey, $accounts, now()->addMinutes(30));
         }
 
         if ($mergedPhones !== []) {

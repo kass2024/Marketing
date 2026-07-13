@@ -45,7 +45,7 @@ class WhatsAppBusinessAccountService
     }
 
     /**
-     * @return array{accounts: array<int, array<string, mixed>>, incomplete: bool, graph_ok: bool, errors: array<int, string>}
+     * @return array{accounts: array<int, array<string, mixed>>, incomplete: bool, graph_ok: bool, errors: array<int, string>, phones: array<int, array<string, mixed>>}
      */
     public function listWabasDetailed(?string $businessId = null): array
     {
@@ -53,8 +53,14 @@ class WhatsAppBusinessAccountService
         $connection = $this->connection();
         $businessId = $businessId ?: $this->resolveBusinessManagerId($connection);
         $accounts = [];
+        $phones = [];
         $errors = [];
         $graphOk = false;
+
+        // Nested phone_numbers — one Graph call per edge instead of N per-WABA calls (avoids #80008 / #4).
+        $wabaFields = 'id,name,currency,timezone_id,account_review_status,ownership_type,'
+            .'on_behalf_of_business_info,owner_business_info,'
+            .'phone_numbers.limit(25){id,display_phone_number,verified_name,code_verification_status,quality_rating,status,platform_type,name_status,account_mode,is_preverified_number}';
 
         if ($businessId) {
             foreach (['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts'] as $edge) {
@@ -62,7 +68,7 @@ class WhatsAppBusinessAccountService
                     "{$this->graphUrl}/{$this->graphVersion}/{$businessId}/{$edge}",
                     [
                         'access_token' => $token,
-                        'fields' => 'id,name,currency,timezone_id,account_review_status,ownership_type',
+                        'fields' => $wabaFields,
                         'limit' => 50,
                     ]
                 );
@@ -70,19 +76,17 @@ class WhatsAppBusinessAccountService
                     $graphOk = true;
                 } elseif ($page['error']) {
                     $errors[] = $edge.': '.$page['error'];
+                    $this->rememberGraphRateLimit($page['error']);
                 }
                 foreach ($page['rows'] as $row) {
                     if (! is_array($row) || empty($row['id'])) {
                         continue;
                     }
-                    $accounts[(string) $row['id']] = [
-                        'id' => (string) $row['id'],
-                        'name' => (string) ($row['name'] ?? $row['id']),
-                        'currency' => $row['currency'] ?? null,
-                        'timezone_id' => $row['timezone_id'] ?? null,
-                        'account_review_status' => $row['account_review_status'] ?? null,
-                        'ownership_type' => $row['ownership_type'] ?? $edge,
-                    ];
+                    $mapped = $this->mapWabaRow($row, $edge);
+                    $accounts[$mapped['id']] = $mapped;
+                    foreach ($this->extractNestedPhones($row, $mapped['id'], $mapped['name'] ?? null) as $phone) {
+                        $phones[$phone['id']] = $phone;
+                    }
                 }
             }
         } else {
@@ -94,7 +98,7 @@ class WhatsAppBusinessAccountService
             "{$this->graphUrl}/{$this->graphVersion}/me/assigned_whatsapp_business_accounts",
             [
                 'access_token' => $token,
-                'fields' => 'id,name,currency,timezone_id,account_review_status,ownership_type',
+                'fields' => $wabaFields,
                 'limit' => 50,
             ]
         );
@@ -102,21 +106,21 @@ class WhatsAppBusinessAccountService
             $graphOk = true;
         } elseif ($assigned['error']) {
             $errors[] = 'assigned: '.$assigned['error'];
+            $this->rememberGraphRateLimit($assigned['error']);
         }
         foreach ($assigned['rows'] as $row) {
             if (! is_array($row) || empty($row['id'])) {
                 continue;
             }
-            $id = (string) $row['id'];
-            if (! isset($accounts[$id])) {
-                $accounts[$id] = [
-                    'id' => $id,
-                    'name' => (string) ($row['name'] ?? $id),
-                    'currency' => $row['currency'] ?? null,
-                    'timezone_id' => $row['timezone_id'] ?? null,
-                    'account_review_status' => $row['account_review_status'] ?? null,
-                    'ownership_type' => $row['ownership_type'] ?? 'assigned',
-                ];
+            $mapped = $this->mapWabaRow($row, 'assigned');
+            $id = $mapped['id'];
+            if (! isset($accounts[$id]) || $this->isPlaceholderWabaName((string) ($accounts[$id]['name'] ?? ''), $id)) {
+                $accounts[$id] = isset($accounts[$id])
+                    ? array_merge($accounts[$id], $mapped)
+                    : $mapped;
+            }
+            foreach ($this->extractNestedPhones($row, $id, $mapped['name'] ?? null) as $phone) {
+                $phones[$phone['id']] = $phone;
             }
         }
 
@@ -126,7 +130,7 @@ class WhatsAppBusinessAccountService
             $connection?->whatsapp_business_id ?: config('platform.whatsapp.business_id') ?: ''
         )) ?: '';
         if ($fallbackId !== '' && ! isset($accounts[$fallbackId])) {
-            $detail = $graphOk ? $this->getWaba($fallbackId) : null;
+            $detail = ($graphOk && ! $this->isWabaRateLimited($fallbackId)) ? $this->getWaba($fallbackId) : null;
             $accounts[$fallbackId] = $detail ?? [
                 'id' => $fallbackId,
                 'name' => $connection?->business_name ?? 'WhatsApp Business Account',
@@ -141,16 +145,16 @@ class WhatsAppBusinessAccountService
                 continue;
             }
             $detail = null;
-            if (! $rateLimited) {
+            if (! $rateLimited && ! $this->isWabaRateLimited($linkedId)) {
                 $detail = $this->getWaba($linkedId);
-                if ($detail === null && Cache::get('meta_wa_rate_limited')) {
+                if ($detail === null && (Cache::get('meta_wa_rate_limited') || $this->isWabaRateLimited($linkedId))) {
                     $rateLimited = true;
                 }
             }
             if ($detail) {
                 $detail['ownership_type'] = $detail['ownership_type'] ?? ($accounts[$linkedId]['ownership_type'] ?? 'linked_import');
                 $detail['name'] = $this->bestWabaDisplayName($detail, $linkedId);
-                $accounts[$linkedId] = $detail;
+                $accounts[$linkedId] = array_merge($accounts[$linkedId] ?? [], $detail);
             } elseif (! isset($accounts[$linkedId])) {
                 $accounts[$linkedId] = [
                     'id' => $linkedId,
@@ -160,18 +164,36 @@ class WhatsAppBusinessAccountService
             }
         }
 
-        $incomplete = $errors !== [] || (! $graphOk && $fromGraphCount === 0);
-        // Owned list with multiple WABAs is enough — client/assigned rate-limits must not block persist
-        if ($fromGraphCount >= 2) {
-            $incomplete = false;
+        // Prefer verified phone names when Graph left a placeholder WABA name
+        foreach ($phones as $phone) {
+            $wabaId = (string) ($phone['waba_id'] ?? '');
+            if ($wabaId === '' || ! isset($accounts[$wabaId])) {
+                continue;
+            }
+            if (! $this->isPlaceholderWabaName((string) ($accounts[$wabaId]['name'] ?? ''), $wabaId)) {
+                continue;
+            }
+            $verified = trim((string) ($phone['verified_name'] ?? ''));
+            if ($verified !== '') {
+                $accounts[$wabaId]['name'] = $verified;
+            }
         }
 
-        // Prefer business/owner names over bare Graph ids when present
+        $placeholderCount = 0;
         foreach ($accounts as $id => $row) {
             if (! is_array($row)) {
                 continue;
             }
             $accounts[$id]['name'] = $this->bestWabaDisplayName($row, (string) $id);
+            if ($this->isPlaceholderWabaName((string) ($accounts[$id]['name'] ?? ''), (string) $id)) {
+                $placeholderCount++;
+            }
+        }
+
+        $incomplete = $errors !== [] || (! $graphOk && $fromGraphCount === 0) || $placeholderCount > 0;
+        // Owned list with real names is enough for persist — but keep incomplete true while placeholders remain.
+        if ($fromGraphCount >= 2 && $placeholderCount === 0) {
+            $incomplete = false;
         }
 
         if ($incomplete) {
@@ -179,11 +201,13 @@ class WhatsAppBusinessAccountService
                 'business_id' => $businessId,
                 'count' => count($accounts),
                 'from_graph' => $fromGraphCount,
+                'placeholders' => $placeholderCount,
+                'nested_phones' => count($phones),
                 'errors' => $errors,
             ]);
             $joined = strtolower(implode(' ', $errors));
             if (str_contains($joined, 'too many') || str_contains($joined, 'rate') || str_contains($joined, 'limit')) {
-                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(45));
             }
         } elseif ($errors !== []) {
             Log::info('WA_LIST_WABAS_PARTIAL_OK', [
@@ -192,7 +216,6 @@ class WhatsAppBusinessAccountService
                 'from_graph' => $fromGraphCount,
                 'errors' => $errors,
             ]);
-            Cache::forget('meta_wa_rate_limited');
         } else {
             Cache::forget('meta_wa_rate_limited');
         }
@@ -202,7 +225,101 @@ class WhatsAppBusinessAccountService
             'incomplete' => $incomplete,
             'graph_ok' => $graphOk,
             'errors' => $errors,
+            'phones' => array_values($phones),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function mapWabaRow(array $row, string $ownershipFallback): array
+    {
+        $id = (string) ($row['id'] ?? '');
+        $mapped = [
+            'id' => $id,
+            'name' => (string) ($row['name'] ?? $id),
+            'currency' => $row['currency'] ?? null,
+            'timezone_id' => $row['timezone_id'] ?? null,
+            'account_review_status' => $row['account_review_status'] ?? null,
+            'ownership_type' => $row['ownership_type'] ?? $ownershipFallback,
+            'on_behalf_of_business_info' => $row['on_behalf_of_business_info'] ?? null,
+            'owner_business_info' => $row['owner_business_info'] ?? null,
+        ];
+        $mapped['name'] = $this->bestWabaDisplayName($mapped, $id);
+
+        return $mapped;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<int, array<string, mixed>>
+     */
+    protected function extractNestedPhones(array $row, string $wabaId, ?string $wabaName = null): array
+    {
+        $out = [];
+        $data = $row['phone_numbers']['data'] ?? $row['phone_numbers'] ?? [];
+        if (! is_array($data)) {
+            return [];
+        }
+        // Nested list shape: { data: [...] } or already a list
+        if (isset($data['data']) && is_array($data['data'])) {
+            $data = $data['data'];
+        }
+        foreach ($data as $phone) {
+            if (! is_array($phone) || empty($phone['id'])) {
+                continue;
+            }
+            $mapped = [
+                'id' => (string) $phone['id'],
+                'display_phone_number' => (string) ($phone['display_phone_number'] ?? ''),
+                'verified_name' => $phone['verified_name'] ?? null,
+                'code_verification_status' => $phone['code_verification_status'] ?? null,
+                'name_status' => $phone['name_status'] ?? null,
+                'quality_rating' => is_array($phone['quality_rating'] ?? null)
+                    ? ($phone['quality_rating']['score'] ?? null)
+                    : ($phone['quality_rating'] ?? null),
+                'status' => $phone['status'] ?? null,
+                'platform_type' => $phone['platform_type'] ?? null,
+                'is_preverified_number' => (bool) ($phone['is_preverified_number'] ?? false),
+                'account_mode' => $phone['account_mode'] ?? null,
+                'waba_id' => $wabaId,
+                'waba_name' => $wabaName,
+            ];
+            $mapped['verified'] = $this->isPhoneVerified($mapped);
+            $out[] = $mapped;
+        }
+
+        return $out;
+    }
+
+    protected function rememberGraphRateLimit(string $message, ?string $wabaId = null): void
+    {
+        $body = strtolower($message);
+        $isLimit = str_contains($body, 'too many')
+            || str_contains($body, 'rate limit')
+            || str_contains($body, 'request limit')
+            || str_contains($body, '80008')
+            || preg_match('/\(#4\)/', $body);
+
+        if (! $isLimit) {
+            return;
+        }
+
+        Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(45));
+        if ($wabaId) {
+            Cache::put('meta_wa_waba_rl_'.$wabaId, 1, now()->addMinutes(60));
+        }
+    }
+
+    public function isWabaRateLimited(string $wabaId): bool
+    {
+        return (bool) Cache::get('meta_wa_waba_rl_'.$wabaId);
+    }
+
+    public function wabaHasNoPhoneEdge(string $wabaId): bool
+    {
+        return (bool) Cache::get('meta_wa_no_phone_edge_'.$wabaId);
     }
 
     /**
@@ -217,12 +334,37 @@ class WhatsAppBusinessAccountService
         $detailed = $this->listWabasDetailed();
         $accounts = $detailed['accounts'];
         $incomplete = $detailed['incomplete'];
+        $nestedPhones = $detailed['phones'] ?? [];
+
+        if ($nestedPhones !== [] && $connection) {
+            $this->persistPhoneDirectory($connection, $nestedPhones);
+            // Promote verified_name onto placeholder WABA rows
+            $byWaba = [];
+            foreach ($nestedPhones as $phone) {
+                $wid = (string) ($phone['waba_id'] ?? '');
+                $vname = trim((string) ($phone['verified_name'] ?? ''));
+                if ($wid !== '' && $vname !== '' && ! isset($byWaba[$wid])) {
+                    $byWaba[$wid] = $vname;
+                }
+            }
+            foreach ($accounts as &$row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $id = (string) ($row['id'] ?? '');
+                if ($id !== '' && $this->isPlaceholderWabaName((string) ($row['name'] ?? ''), $id) && isset($byWaba[$id])) {
+                    $row['name'] = $byWaba[$id];
+                }
+            }
+            unset($row);
+        }
 
         if (! $connection) {
             return [
                 'accounts' => $accounts,
                 'linked_count' => 0,
                 'incomplete' => $incomplete,
+                'phones' => $nestedPhones,
             ];
         }
 
@@ -250,6 +392,7 @@ class WhatsAppBusinessAccountService
                 'accounts' => $accounts,
                 'linked_count' => count($this->linkedWabaIds($connection)),
                 'incomplete' => true,
+                'phones' => $nestedPhones,
             ];
         }
 
@@ -262,7 +405,7 @@ class WhatsAppBusinessAccountService
             }
         }
 
-        // Only rewrite linked list from Graph when the pull looks complete
+        // Only rewrite linked list from Graph when the pull looks complete (no placeholders)
         if (! $incomplete) {
             $linked = [];
             foreach ($accounts as $row) {
@@ -318,6 +461,7 @@ class WhatsAppBusinessAccountService
             'accounts' => $accounts,
             'linked_count' => count($linked),
             'incomplete' => $incomplete,
+            'phones' => $nestedPhones,
         ];
     }
 
@@ -380,15 +524,19 @@ class WhatsAppBusinessAccountService
             }
             $id = (string) ($row['id'] ?? '');
             $name = (string) ($row['name'] ?? '');
-            if ($id !== '' && $this->isPlaceholderWabaName($name, $id) && $lookups < 12) {
+            if (
+                $id !== ''
+                && $this->isPlaceholderWabaName($name, $id)
+                && $lookups < 4
+                && ! $this->isWabaRateLimited($id)
+            ) {
                 $lookups++;
                 $detail = $this->getWaba($id);
                 if ($detail) {
                     $row = array_merge($row, $detail);
                     $row['name'] = $this->bestWabaDisplayName($row, $id);
-                } elseif (Cache::get('meta_wa_rate_limited')) {
+                } elseif (Cache::get('meta_wa_rate_limited') || $this->isWabaRateLimited($id)) {
                     $enriched[] = $row;
-                    // Keep remaining as-is; apply phone-cache names below
                     $rest = array_slice($accounts, count($enriched));
                     foreach ($rest as $left) {
                         if (is_array($left)) {
@@ -398,6 +546,7 @@ class WhatsAppBusinessAccountService
 
                     return $this->applyPhoneCacheNames($enriched);
                 }
+                usleep(400000);
             }
             $enriched[] = $row;
         }
@@ -1350,6 +1499,11 @@ class WhatsAppBusinessAccountService
      */
     public function getWaba(string $wabaId): ?array
     {
+        $wabaId = preg_replace('/\D+/', '', $wabaId) ?: '';
+        if ($wabaId === '' || $this->isWabaRateLimited($wabaId)) {
+            return null;
+        }
+
         $token = $this->requireToken();
 
         $response = Http::timeout(20)->get(
@@ -1361,15 +1515,13 @@ class WhatsAppBusinessAccountService
         );
 
         if (! $response->ok()) {
-            $body = strtolower((string) $response->body());
-            if (
-                $response->status() === 403
-                || str_contains($body, 'request limit')
-                || str_contains($body, 'rate limit')
-                || str_contains($body, 'too many')
-            ) {
-                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
-            }
+            $json = $response->json();
+            $message = (string) (data_get($json, 'error.message') ?: $response->body());
+            $this->rememberGraphRateLimit($message, $wabaId);
+            Log::warning('WABA_GET_FAILED', [
+                'waba_id' => $wabaId,
+                'error' => $message,
+            ]);
 
             return null;
         }
@@ -1455,34 +1607,77 @@ class WhatsAppBusinessAccountService
             $namesByWaba[(string) $row['id']] = $row['name'] ?? null;
         }
 
-        if ($forceRefresh) {
-            Cache::forget('meta_wa_rate_limited');
-        }
-
+        // Prefer nested phones from Business Manager directory (2 Graph calls) over N edge hits.
+        // Soft sync skips re-list when local phones already exist — cacheWabaDirectory just ran nested.
         $incoming = [];
         $fetched = 0;
-
-        foreach ($this->discoverWabaIds($connection) as $wabaId) {
-            if (! $forceRefresh) {
-                $already = false;
-                foreach ($previous as $p) {
-                    if (is_array($p) && (string) ($p['waba_id'] ?? '') === $wabaId) {
-                        $already = true;
-                        break;
+        $shouldNested = $forceRefresh || $previous === [];
+        if ($shouldNested) {
+            try {
+                $bundle = $this->listWabasDetailed();
+                foreach ($bundle['phones'] ?? [] as $phone) {
+                    if (! is_array($phone) || empty($phone['id'])) {
+                        continue;
                     }
+                    $wabaId = (string) ($phone['waba_id'] ?? '');
+                    $incoming[] = array_merge($phone, [
+                        'waba_name' => $namesByWaba[$wabaId]
+                            ?? ($phone['waba_name'] ?? null)
+                            ?? ($phone['verified_name'] ?? null),
+                    ]);
                 }
-                if ($already) {
-                    continue;
+                if (! empty($bundle['accounts']) && $connection) {
+                    $accounts = $this->mergePreferringRealNames(
+                        (array) ($connection->linked_waba_directory ?? []),
+                        $bundle['accounts']
+                    );
+                    $this->persistWabaDirectory($connection, $accounts);
+                    Cache::put(
+                        'meta_waba_directory_'.($connection->id ?? 'platform'),
+                        $accounts,
+                        now()->addMinutes(30)
+                    );
                 }
+            } catch (\Throwable $e) {
+                Log::warning('WA_NESTED_PHONE_SYNC_FAILED', ['error' => $e->getMessage()]);
             }
+        }
 
+        $covered = [];
+        foreach ($incoming as $phone) {
+            $wid = (string) ($phone['waba_id'] ?? '');
+            if ($wid !== '') {
+                $covered[$wid] = true;
+            }
+        }
+        foreach ($previous as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $wid = (string) ($p['waba_id'] ?? '');
+            if ($wid !== '' && ! $forceRefresh) {
+                $covered[$wid] = true;
+            }
+        }
+
+        // Only hit /{waba}/phone_numbers for WABAs still missing numbers (and not banned / unsupported).
+        foreach ($this->discoverWabaIds($connection) as $wabaId) {
+            if (isset($covered[$wabaId])) {
+                continue;
+            }
+            if ($this->wabaHasNoPhoneEdge($wabaId) || $this->isWabaRateLimited($wabaId)) {
+                continue;
+            }
             if (Cache::get('meta_wa_rate_limited') && ! $forceRefresh) {
+                break;
+            }
+            // Cap individual edge calls — Sync must not revive Meta #4 / #80008 storms
+            if ($fetched >= 3) {
                 break;
             }
 
             $phones = $this->listPhoneNumbers($wabaId);
             $fetched++;
-
             foreach ($phones as $phone) {
                 $incoming[] = array_merge($phone, [
                     'waba_id' => $wabaId,
@@ -1490,9 +1685,23 @@ class WhatsAppBusinessAccountService
                         ?? ($phone['verified_name'] ?? null),
                 ]);
             }
-
-            // Gentle pacing — reduces Meta (#4) rate limits across 7+ WABAs
-            usleep(200000);
+            if ($phones !== []) {
+                $covered[$wabaId] = true;
+                // Upgrade placeholder WABA name from verified phone display name
+                $vname = trim((string) ($phones[0]['verified_name'] ?? ''));
+                if ($vname !== '' && $connection) {
+                    $dir = (array) ($connection->linked_waba_directory ?? []);
+                    foreach ($dir as &$row) {
+                        if (is_array($row) && (string) ($row['id'] ?? '') === $wabaId
+                            && $this->isPlaceholderWabaName((string) ($row['name'] ?? ''), $wabaId)) {
+                            $row['name'] = $vname;
+                        }
+                    }
+                    unset($row);
+                    $this->persistWabaDirectory($connection, $dir);
+                }
+            }
+            usleep(500000);
         }
 
         $merged = $this->persistPhoneDirectory($connection, $incoming);
@@ -1649,6 +1858,11 @@ class WhatsAppBusinessAccountService
      */
     public function listPhoneNumbers(string $wabaId): array
     {
+        $wabaId = preg_replace('/\D+/', '', $wabaId) ?: '';
+        if ($wabaId === '' || $this->wabaHasNoPhoneEdge($wabaId) || $this->isWabaRateLimited($wabaId)) {
+            return [];
+        }
+
         $token = $this->requireToken();
         $all = [];
         $url = "{$this->graphUrl}/{$this->graphVersion}/{$wabaId}/phone_numbers";
@@ -1662,21 +1876,23 @@ class WhatsAppBusinessAccountService
             $response = Http::timeout(25)->get($url, $params);
 
             if (! $response->ok()) {
-                $body = strtolower((string) $response->body());
-                if (
-                    $response->status() === 403
-                    || str_contains($body, 'request limit')
-                    || str_contains($body, 'rate limit')
-                    || str_contains($body, 'too many')
-                ) {
-                    Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+                $json = $response->json();
+                $message = (string) (data_get($json, 'error.message') ?: $response->body());
+                $code = (int) data_get($json, 'error.code', 0);
+                $body = strtolower($message);
+
+                // Not a Cloud-API WABA (common for some Business App / stale linked ids)
+                if ($code === 100 || str_contains($body, 'nonexisting field')) {
+                    Cache::put('meta_wa_no_phone_edge_'.$wabaId, 1, now()->addHours(12));
+                    Log::info('WABA_NO_PHONE_EDGE', ['waba_id' => $wabaId, 'error' => $message]);
+                    break;
                 }
+
+                $this->rememberGraphRateLimit($message, $wabaId);
                 Log::warning('WABA_LIST_PHONES_FAILED', [
                     'waba_id' => $wabaId,
-                    'response' => $response->json(),
+                    'response' => $json,
                 ]);
-
-                // Soft-fail — callers merge with cache instead of wiping numbers
                 break;
             }
 
@@ -1706,7 +1922,6 @@ class WhatsAppBusinessAccountService
             if (! is_string($next) || $next === '') {
                 break;
             }
-            // Absolute next URL already includes cursor + token
             $url = $next;
             $params = [];
         }

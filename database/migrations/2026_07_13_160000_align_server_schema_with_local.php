@@ -39,6 +39,8 @@ return new class extends Migration
             'meta_adset_id' => fn (Blueprint $t) => $t->string('meta_adset_id')->nullable()->index(),
             'destination_type' => fn (Blueprint $t) => $t->string('destination_type')->nullable(),
             'meta_effective_status' => fn (Blueprint $t) => $t->string('meta_effective_status')->nullable(),
+            'start_time' => fn (Blueprint $t) => $t->timestamp('start_time')->nullable(),
+            'end_time' => fn (Blueprint $t) => $t->timestamp('end_time')->nullable(),
         ]);
 
         if (Schema::hasColumn('ad_sets', 'meta_adset_id') && Schema::hasColumn('ad_sets', 'meta_id')) {

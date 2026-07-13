@@ -107,7 +107,7 @@ class MarketingPublishService
             $targeting = $this->buildTargeting($wizardData);
             $adSetDefaults = $this->creativeBuilder->whatsAppAdSetDefaults($pageId);
 
-            $adSet = AdSet::create([
+            $adSetAttrs = [
                 'campaign_id' => $campaign->id,
                 'name' => $wizardData['adset_name'] ?? ($campaign->name.' — Ad Set'),
                 'daily_budget' => $budgetCents,
@@ -116,9 +116,15 @@ class MarketingPublishService
                 'destination_type' => $adSetDefaults['destination_type'],
                 'targeting' => $targeting,
                 'status' => $status,
-                'start_time' => $wizardData['start_date'] ?? now(),
-                'end_time' => $wizardData['end_date'] ?? null,
-            ]);
+            ];
+            if (\Illuminate\Support\Facades\Schema::hasColumn('ad_sets', 'start_time')) {
+                $adSetAttrs['start_time'] = $wizardData['start_date'] ?? now();
+            }
+            if (\Illuminate\Support\Facades\Schema::hasColumn('ad_sets', 'end_time')) {
+                $adSetAttrs['end_time'] = $wizardData['end_date'] ?? null;
+            }
+
+            $adSet = AdSet::create($adSetAttrs);
 
             $metaAdSet = $this->meta->createWhatsAppAdSet($accountId, array_merge($adSetDefaults, [
                 'name' => $adSet->name,

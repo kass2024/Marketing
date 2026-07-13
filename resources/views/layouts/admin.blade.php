@@ -28,7 +28,15 @@
     $isSuperAdmin = $user && $user->isSuperAdmin();
     $isClient = $user && $user->isClient();
     $canManageAds = $user && ($user->isSuperAdmin() || $user->isAgent() || $user->isClient());
-    $unreadCount = \App\Models\Message::where('direction', 'incoming')->where('is_read', 0)->count();
+    // Cache unread badge — full COUNT on messages made every BM click feel slow
+    $unreadCount = (int) \Illuminate\Support\Facades\Cache::remember(
+        'admin_inbox_unread_count',
+        now()->addSeconds(30),
+        fn () => \App\Models\Message::query()
+            ->where('direction', 'incoming')
+            ->where('is_read', 0)
+            ->count()
+    );
     $sidebarBrandName = $isSuperAdmin
         ? config('app.name')
         : ($user->client?->company_name ?: $user?->name ?: 'Dashboard');

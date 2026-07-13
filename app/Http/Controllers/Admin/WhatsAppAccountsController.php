@@ -21,7 +21,7 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        $force = $request->boolean('force_sync');
+        // Menu clicks are always cache/DB-only. Meta Graph only via POST syncNow.
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
@@ -32,71 +32,28 @@ class WhatsAppAccountsController extends Controller
         $accounts = [];
         $fromCache = false;
 
-        if ($force) {
-            try {
-                $this->autoSync->syncAlways();
-                $connection = $this->whatsapp->connection();
-                $this->whatsapp->resolveBusinessManagerId($connection);
-                $accounts = $this->whatsapp->listWabas();
-                Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
-                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-            } catch (ValidationException $e) {
-                $error = collect($e->errors())->flatten()->first();
-            } catch (\Throwable $e) {
-                $error = $e->getMessage();
-            }
+        $cached = Cache::get($wabaCacheKey);
+        if (is_array($cached) && $cached !== []) {
+            $accounts = $cached;
+            $fromCache = true;
         } else {
-            // Fast path: never block menu navigation on Meta Graph
-            $cached = Cache::get($wabaCacheKey);
-            if (is_array($cached) && $cached !== []) {
-                $accounts = $cached;
-                $fromCache = true;
-            } else {
-                $accounts = $this->seedWabasFromConnection($connection);
-            }
+            $accounts = $this->seedWabasFromConnection($connection);
         }
 
         $selectedId = (string) ($request->query('waba') ?: ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? '')));
         $selected = collect($accounts)->firstWhere('id', $selectedId);
-        $detail = $selected;
+        $detail = $selected ?: ($selectedId !== '' ? [
+            'id' => $selectedId,
+            'name' => $connection?->business_name ?? 'WhatsApp Business Account',
+        ] : null);
         $phones = [];
 
         if ($selectedId !== '') {
-            if ($force) {
-                try {
-                    $detail = $this->whatsapp->getWaba($selectedId) ?? $selected;
-                    $phones = $this->whatsapp->listPhoneNumbers($selectedId);
-                    // Merge into phone directory cache for Ad Studio
-                    $allPhones = Cache::get($phoneCacheKey);
-                    if (! is_array($allPhones)) {
-                        $allPhones = [];
-                    }
-                    foreach ($phones as $phone) {
-                        $allPhones[] = array_merge($phone, [
-                            'waba_id' => $selectedId,
-                            'waba_name' => $detail['name'] ?? null,
-                        ]);
-                    }
-                    Cache::put($phoneCacheKey, $allPhones, now()->addMinutes(30));
-                } catch (ValidationException $e) {
-                    $error = $error ?: collect($e->errors())->flatten()->first();
-                    $detail = $detail ?: $selected;
-                } catch (\Throwable $e) {
-                    $error = $error ?: $e->getMessage();
-                    $detail = $detail ?: $selected;
-                }
-            } else {
-                $cachedPhones = Cache::get($phoneCacheKey);
-                if (is_array($cachedPhones)) {
-                    $phones = array_values(array_filter($cachedPhones, function ($p) use ($selectedId) {
-                        return is_array($p) && (string) ($p['waba_id'] ?? '') === $selectedId;
-                    }));
-                }
-                // Soft-fill detail from list row (no Graph)
-                $detail = $selected ?: [
-                    'id' => $selectedId,
-                    'name' => $connection?->business_name ?? 'WhatsApp Business Account',
-                ];
+            $cachedPhones = Cache::get($phoneCacheKey);
+            if (is_array($cachedPhones)) {
+                $phones = array_values(array_filter($cachedPhones, function ($p) use ($selectedId) {
+                    return is_array($p) && (string) ($p['waba_id'] ?? '') === $selectedId;
+                }));
             }
         }
 
@@ -107,9 +64,6 @@ class WhatsAppAccountsController extends Controller
             }));
         }
 
-        $lastSyncedAt = Cache::get($syncedAtKey)
-            ?: ($fromCache ? 'cached' : null);
-
         return view('admin.meta.whatsapp.index', [
             'connection' => $connection,
             'accounts' => $accounts,
@@ -119,9 +73,70 @@ class WhatsAppAccountsController extends Controller
             'search' => $search,
             'error' => $error,
             'pendingPhoneId' => old('phone_number_id', session('pending_phone_number_id')),
-            'lastSyncedAt' => $lastSyncedAt,
-            'needsSync' => ! $force && ! $fromCache && $accounts === [],
+            'lastSyncedAt' => Cache::get($syncedAtKey) ?: ($fromCache ? 'cached' : null),
+            'needsSync' => ! $fromCache && $accounts === [],
         ]);
+    }
+
+    /**
+     * Explicit Meta sync (never runs on menu navigation).
+     */
+    public function syncNow(Request $request): RedirectResponse
+    {
+        $waba = (string) $request->input('waba', '');
+        $connection = $this->whatsapp->connection();
+        $cacheSuffix = (string) ($connection?->id ?? 'platform');
+
+        try {
+            $this->autoSync->syncAlways();
+            $connection = $this->whatsapp->connection();
+            $this->whatsapp->resolveBusinessManagerId($connection);
+            $accounts = $this->whatsapp->listWabas();
+            Cache::put('meta_waba_directory_'.$cacheSuffix, $accounts, now()->addMinutes(30));
+            Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
+
+            $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
+            if ($selectedId !== '') {
+                try {
+                    $detail = $this->whatsapp->getWaba($selectedId);
+                    $phones = $this->whatsapp->listPhoneNumbers($selectedId);
+                    $allPhones = [];
+                    foreach ($phones as $phone) {
+                        $allPhones[] = array_merge($phone, [
+                            'waba_id' => $selectedId,
+                            'waba_name' => $detail['name'] ?? null,
+                        ]);
+                    }
+                    // Also keep other WABA phones from previous cache when possible
+                    $prev = Cache::get('meta_wa_phone_directory_'.$cacheSuffix);
+                    if (is_array($prev)) {
+                        foreach ($prev as $p) {
+                            if (is_array($p) && (string) ($p['waba_id'] ?? '') !== $selectedId) {
+                                $allPhones[] = $p;
+                            }
+                        }
+                    }
+                    Cache::put('meta_wa_phone_directory_'.$cacheSuffix, $allPhones, now()->addMinutes(30));
+                } catch (\Throwable) {
+                    // list still cached
+                }
+            }
+
+            return redirect()
+                ->route('admin.meta.whatsapp.index', array_filter([
+                    'waba' => $selectedId ?: null,
+                    'tab' => 'phones',
+                ]))
+                ->with('success', count($accounts).' WhatsApp account(s) synced from Meta.');
+        } catch (ValidationException $e) {
+            return redirect()
+                ->route('admin.meta.whatsapp.index')
+                ->with('error', collect($e->errors())->flatten()->first());
+        } catch (\Throwable $e) {
+            return redirect()
+                ->route('admin.meta.whatsapp.index')
+                ->with('error', $e->getMessage());
+        }
     }
 
     /**

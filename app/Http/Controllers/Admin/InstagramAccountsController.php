@@ -20,7 +20,7 @@ class InstagramAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        $force = $request->boolean('force_sync');
+        // Menu clicks are always cache/DB-only. Meta Graph only via POST sync.
         $connection = $this->instagram->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $igCacheKey = 'meta_ig_directory_'.$cacheSuffix;
@@ -30,28 +30,12 @@ class InstagramAccountsController extends Controller
         $accounts = [];
         $fromCache = false;
 
-        if ($force) {
-            try {
-                $this->autoSync->syncAlways();
-                $connection = $this->instagram->connection();
-                $sync = $this->instagram->syncToConnection($connection);
-                $accounts = $sync['accounts'];
-                $connection = $connection?->fresh() ?? $this->instagram->connection();
-                Cache::put($igCacheKey, $accounts, now()->addMinutes(30));
-                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-            } catch (ValidationException $e) {
-                $error = collect($e->errors())->flatten()->first();
-            } catch (\Throwable $e) {
-                $error = $e->getMessage();
-            }
+        $cached = Cache::get($igCacheKey);
+        if (is_array($cached) && $cached !== []) {
+            $accounts = $cached;
+            $fromCache = true;
         } else {
-            $cached = Cache::get($igCacheKey);
-            if (is_array($cached) && $cached !== []) {
-                $accounts = $cached;
-                $fromCache = true;
-            } else {
-                $accounts = $this->seedFromConnection($connection);
-            }
+            $accounts = $this->seedFromConnection($connection);
         }
 
         $selectedId = (string) ($request->query('ig')
@@ -75,7 +59,7 @@ class InstagramAccountsController extends Controller
             'search' => $search,
             'error' => $error,
             'lastSyncedAt' => Cache::get($syncedAtKey) ?: ($fromCache ? 'cached' : null),
-            'needsSync' => ! $force && ! $fromCache && $accounts === [],
+            'needsSync' => ! $fromCache && $accounts === [],
             'metaBusinessSuiteUrl' => 'https://business.facebook.com/latest/settings/instagram_account_settings',
         ]);
     }
@@ -128,7 +112,6 @@ class InstagramAccountsController extends Controller
             return redirect()
                 ->route('admin.meta.instagram.index', [
                     'ig' => $result['account']['id'] ?? $data['instagram_id'],
-                    'force_sync' => 1,
                 ])
                 ->with('success', $result['message']);
         } catch (ValidationException $e) {

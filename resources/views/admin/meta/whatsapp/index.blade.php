@@ -203,10 +203,13 @@
             </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-            <a href="{{ route('admin.meta.whatsapp.index', ['force_sync' => 1, 'waba' => $selectedId, 'tab' => 'phones']) }}"
-                class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                Sync now
-            </a>
+            <form method="post" action="{{ route('admin.meta.whatsapp.sync') }}">
+                @csrf
+                <input type="hidden" name="waba" value="{{ $selectedId }}">
+                <button type="submit" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                    Sync now
+                </button>
+            </form>
             <a href="{{ route('admin.meta.index') }}" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Connection</a>
             <div class="relative" @click.outside="addOpen = false">
                 <button type="button" @click="addOpen = !addOpen"
@@ -517,7 +520,10 @@
                         <li class="px-4 py-10 text-center text-sm text-slate-500">
                             No WhatsApp accounts found.
                             <button type="button" @click="openPanel('link')" class="mt-2 block w-full font-semibold text-sky-700">Link an existing WABA</button>
-                            <a href="{{ route('admin.meta.whatsapp.index', ['force_sync' => 1]) }}" class="mt-1 block font-semibold text-slate-600">Or sync from Meta</a>
+                            <form method="post" action="{{ route('admin.meta.whatsapp.sync') }}" class="mt-2">
+                                @csrf
+                                <button type="submit" class="font-semibold text-sky-700">Or sync from Meta</button>
+                            </form>
                         </li>
                     @endforelse
                 </ul>

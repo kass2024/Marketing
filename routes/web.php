@@ -295,6 +295,7 @@ Route::middleware(['auth','verified','role:admin,client'])
             Route::post('/disconnect',[AdminMetaController::class,'disconnect'])->name('disconnect');
 
             Route::get('/whatsapp', [WhatsAppAccountsController::class, 'index'])->name('whatsapp.index');
+            Route::post('/whatsapp/sync', [WhatsAppAccountsController::class, 'syncNow'])->name('whatsapp.sync');
             Route::post('/whatsapp/link', [WhatsAppAccountsController::class, 'linkWaba'])->name('whatsapp.link');
             Route::post('/whatsapp/link/phone', [WhatsAppAccountsController::class, 'linkByPhoneStart'])->name('whatsapp.link.phone');
             Route::post('/whatsapp/link/verify', [WhatsAppAccountsController::class, 'linkByPhoneVerify'])->name('whatsapp.link.verify');

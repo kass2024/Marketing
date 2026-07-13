@@ -534,6 +534,7 @@
                                 class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
                             <input type="hidden" name="whatsapp_phone_number"
                                 :value="form.whatsapp_phone_number === '__custom__' ? form.whatsapp_phone_custom.replace(/\D/g,'') : form.whatsapp_phone_number">
+                            <input type="hidden" name="whatsapp_phone_number_id" :value="form.whatsapp_phone_number_id || ''">
 
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-500">Or WhatsApp link (wa.me)</label>
@@ -1087,6 +1088,7 @@ function adStudio(config) {
             dest_instagram: true,
             dest_whatsapp: true,
             whatsapp_phone_number: config.defaultPhone || '',
+            whatsapp_phone_number_id: '',
             whatsapp_phone_custom: '',
             whatsapp_chat_url: '',
             notify_on_publish: true,
@@ -1145,6 +1147,9 @@ function adStudio(config) {
             if (!this.form.placements.length) this.form.placements = config.placementKeys || [];
             if (this.whatsappNumbers.length && !this.form.whatsapp_phone_number) {
                 this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
+            }
+            if (this.form.whatsapp_phone_number && this.form.whatsapp_phone_number !== '__custom__') {
+                this.onWhatsAppSelect();
             }
             if (!this.form.instagram_user_id && this.instagramAccounts.length) {
                 this.form.instagram_user_id = this.instagramAccounts[0].id;
@@ -1546,10 +1551,11 @@ function adStudio(config) {
                 }
                 this.whatsappNumbers = data.data || [];
                 if (this.whatsappNumbers.length) {
-                    const match = this.whatsappNumbers.find(n => n.phone === this.form.whatsapp_phone_number);
+                    const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
                     if (!match) {
                         this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
                     }
+                    this.onWhatsAppSelect();
                 }
             } catch (e) {
                 this.waError = 'Could not reach Meta to list WhatsApp numbers. Check token / Business Manager sync.';
@@ -1632,7 +1638,13 @@ function adStudio(config) {
         onWhatsAppSelect() {
             if (this.form.whatsapp_phone_number === '__custom__') {
                 this.form.whatsapp_phone_custom = '';
+                this.form.whatsapp_phone_number_id = '';
                 return;
+            }
+            const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
+            this.form.whatsapp_phone_number_id = match?.phone_number_id || match?.id || '';
+            if (String(this.form.whatsapp_phone_number_id).startsWith('display:')) {
+                this.form.whatsapp_phone_number_id = '';
             }
             this.form.whatsapp_chat_url = '';
         },

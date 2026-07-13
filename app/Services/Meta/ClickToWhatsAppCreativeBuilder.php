@@ -140,17 +140,35 @@ class ClickToWhatsAppCreativeBuilder
     /**
      * Ad set settings for Click-to-WhatsApp campaigns.
      *
+     * @see https://developers.facebook.com/docs/marketing-api/ad-creative/messaging-ads/click-to-whatsapp/
+     * @see https://developers.facebook.com/docs/marketing-api/reference/ad-promoted-object/
+     *
      * @return array<string, mixed>
      */
-    public function whatsAppAdSetDefaults(string $pageId): array
-    {
+    public function whatsAppAdSetDefaults(
+        string $pageId,
+        ?string $whatsappPhoneDigits = null,
+        ?string $whatsappBusinessPhoneNumberId = null
+    ): array {
+        $promoted = array_filter([
+            'page_id' => $pageId,
+            // Required for Ads Manager parity — without this Meta uses the Page's default
+            // WhatsApp link, which may be a personal consumer account (error 2446885).
+            'whatsapp_phone_number' => $whatsappPhoneDigits !== null && $whatsappPhoneDigits !== ''
+                ? preg_replace('/\D+/', '', $whatsappPhoneDigits)
+                : null,
+            'whats_app_business_phone_number_id' => $whatsappBusinessPhoneNumberId
+                && ctype_digit($whatsappBusinessPhoneNumberId)
+                ? $whatsappBusinessPhoneNumberId
+                : null,
+        ], fn ($v) => $v !== null && $v !== '');
+
         return [
             'optimization_goal' => 'CONVERSATIONS',
             'billing_event' => 'IMPRESSIONS',
             'destination_type' => 'WHATSAPP',
-            'promoted_object' => [
-                'page_id' => $pageId,
-            ],
+            'page_id' => $pageId,
+            'promoted_object' => $promoted,
         ];
     }
 

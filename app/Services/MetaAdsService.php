@@ -2608,8 +2608,41 @@ public function getAccountStatus($accountId)
         $data['billing_event'] = $data['billing_event'] ?? 'IMPRESSIONS';
         $data['destination_type'] = $data['destination_type'] ?? 'WHATSAPP';
 
-        if (empty($data['promoted_object']) && ! empty($data['page_id'])) {
-            $data['promoted_object'] = ['page_id' => $data['page_id']];
+        $pageId = (string) ($data['page_id'] ?? data_get($data, 'promoted_object.page_id') ?? '');
+        $phoneDigits = preg_replace('/\D+/', '', (string) (
+            $data['whatsapp_phone_number']
+            ?? data_get($data, 'promoted_object.whatsapp_phone_number')
+            ?? ''
+        )) ?: '';
+        $phoneNumberId = (string) (
+            $data['whats_app_business_phone_number_id']
+            ?? $data['whatsapp_phone_number_id']
+            ?? data_get($data, 'promoted_object.whats_app_business_phone_number_id')
+            ?? ''
+        );
+
+        $promoted = is_array($data['promoted_object'] ?? null)
+            ? $data['promoted_object']
+            : [];
+
+        if ($pageId !== '') {
+            $promoted['page_id'] = $pageId;
+        }
+        if ($phoneDigits !== '') {
+            $promoted['whatsapp_phone_number'] = $phoneDigits;
+        }
+        if ($phoneNumberId !== '' && ctype_digit($phoneNumberId) && ! str_starts_with($phoneNumberId, 'display:')) {
+            $promoted['whats_app_business_phone_number_id'] = $phoneNumberId;
+        }
+
+        if ($phoneDigits === '' && empty($promoted['whats_app_business_phone_number_id'])) {
+            throw new Exception(
+                'WhatsApp Business number missing for Click-to-WhatsApp — select a business phone before publishing (Meta error 2446885 if the Page only has a personal WhatsApp).'
+            );
+        }
+
+        if ($promoted !== []) {
+            $data['promoted_object'] = $promoted;
         }
 
         return $this->createAdSet($accountId, $data);
@@ -2685,6 +2718,10 @@ public function getAccountStatus($accountId)
                 || str_contains($lower, 'whatsapp business number is not linked')
                 || str_contains($lower, 'link your whatsapp') =>
                 'WhatsApp number not connected to Page — link WhatsApp in Meta Business Suite.',
+            str_contains($message, '2446885')
+                || str_contains($lower, 'personal account')
+                || str_contains($lower, 'page with whatsapp business account required') =>
+                'Meta still sees a personal WhatsApp on this Page. In Ad Studio pick your WhatsApp Business number (not personal), and in Meta Business Suite link that Business number to the Page. Then publish again.',
             str_contains($message, '1815433')
                 || str_contains($lower, 'invalid facebook position')
                 || str_contains($lower, 'invalid value reels for the placement field facebook_positions') =>

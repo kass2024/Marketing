@@ -50,10 +50,15 @@ class AdminMetaController extends Controller
 
     public function connect()
     {
+        $scopes = array_values(array_unique(array_merge(
+            config('services.meta.required_permissions', []),
+            config('services.meta.optional_instagram_permissions', []),
+        )));
+
         $query = http_build_query([
             'client_id' => config('services.meta.app_id'),
             'redirect_uri' => config('services.meta.redirect_uri'),
-            'scope' => implode(',', config('services.meta.required_permissions')),
+            'scope' => implode(',', $scopes),
             'response_type' => 'code',
         ]);
 

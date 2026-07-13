@@ -71,7 +71,7 @@ return [
 
         /*
         |--------------------------------------------------------------------------
-        | Required Permissions
+        | Required Permissions (Ad Studio / ads + WhatsApp — must pass)
         |--------------------------------------------------------------------------
         */
        'required_permissions' => [
@@ -80,13 +80,21 @@ return [
     'pages_show_list',
     'pages_read_engagement',
     'pages_manage_ads',
-    'pages_read_user_content',
-    'instagram_basic',
-    'instagram_manage_insights',
-    'instagram_content_publish',
     'whatsapp_business_management',
     'whatsapp_business_messaging',
 ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Optional Instagram permissions (nice for @username sync — never block ads)
+        |--------------------------------------------------------------------------
+        */
+        'optional_instagram_permissions' => [
+            'pages_read_user_content',
+            'instagram_basic',
+            'instagram_manage_insights',
+            'instagram_content_publish',
+        ],
 
         /*
         |--------------------------------------------------------------------------

@@ -40,6 +40,7 @@ class MetaOAuthService
             'redirect_uri'  => $redirectUri,
             'scope'         => implode(',', array_values(array_unique(array_merge(
                 config('services.meta.required_permissions', []),
+                config('services.meta.optional_instagram_permissions', []),
                 ['ads_read']
             )))),
             'response_type' => 'code'

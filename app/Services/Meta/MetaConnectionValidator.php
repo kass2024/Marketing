@@ -97,12 +97,23 @@ class MetaConnectionValidator
                 ]);
 
                 if (! $response->ok()) {
-                    $message = $response->json('error.message') ?? 'Token validation failed.';
-                    $errors[] = [
-                        'code' => 'token_invalid',
-                        'message' => $message,
-                        'fix' => 'Reconnect Meta. If the issue persists, check app mode and system user roles in Business Manager.',
-                    ];
+                    $code = (int) data_get($response->json(), 'error.code');
+                    $message = (string) ($response->json('error.message') ?? 'Token validation failed.');
+                    // Transient Meta throttling must not block Ad Studio when IDs are already configured
+                    if (in_array($code, [4, 17, 32, 613, 80004, 80008], true)
+                        || str_contains(strtolower($message), 'request limit')
+                        || str_contains(strtolower($message), 'rate limit')) {
+                        Log::warning('META_CONNECTION_VALIDATE_RATE_LIMITED', [
+                            'code' => $code,
+                            'message' => $message,
+                        ]);
+                    } else {
+                        $errors[] = [
+                            'code' => 'token_invalid',
+                            'message' => $message,
+                            'fix' => 'Reconnect Meta. If the issue persists, check app mode and system user roles in Business Manager.',
+                        ];
+                    }
                 }
             } catch (Exception $e) {
                 Log::warning('META_CONNECTION_VALIDATE_FAILED', ['error' => $e->getMessage()]);

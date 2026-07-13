@@ -210,6 +210,7 @@ class InstagramAccountsController extends Controller
     public function sync(Request $request): RedirectResponse
     {
         try {
+            Cache::forget('meta_ig_rate_limited');
             $this->autoSync->syncAlways();
             $result = $this->instagram->syncToConnection();
             $connection = $this->instagram->connection();
@@ -218,19 +219,29 @@ class InstagramAccountsController extends Controller
             Cache::put('meta_ig_synced_at_'.$suffix, now()->toDateTimeString(), now()->addMinutes(30));
 
             $names = collect($result['accounts'])
-                ->map(fn ($a) => ! empty($a['username']) ? '@'.$a['username'] : ($a['id'] ?? ''))
+                ->map(fn ($a) => ! empty($a['username']) ? '@'.$a['username'] : null)
                 ->filter()
                 ->values()
                 ->all();
 
-            $label = count($result['accounts']) === 1
-                ? ('Synced '.($names[0] ?? '1 Instagram account').' from Meta.')
-                : (count($result['accounts']).' Instagram account(s) synced from Meta'
-                    .($names !== [] ? ': '.implode(', ', $names) : '').'.');
+            if ($names !== []) {
+                $label = count($result['accounts']) === 1
+                    ? ('Synced '.$names[0].' from Meta.')
+                    : (count($result['accounts']).' Instagram account(s) synced from Meta: '.implode(', ', $names).'.');
+            } else {
+                $ids = collect($result['accounts'])->pluck('id')->filter()->values()->all();
+                $label = 'Synced account ID(s) from Meta, but @username was not returned. '
+                    .'In Meta Business Suite: (1) connect Instagram to your Facebook Page, '
+                    .'(2) assign your System User access to that Instagram account (Partial access is not enough for username), '
+                    .'then Connection → Sync from .env or reconnect Meta, wait 2–3 minutes if rate-limited, and Sync now again.';
+                if ($ids !== []) {
+                    $label .= ' IDs: '.implode(', ', $ids).'.';
+                }
+            }
 
             return redirect()
                 ->route('admin.meta.instagram.index')
-                ->with('success', $label);
+                ->with($names !== [] ? 'success' : 'error', $label);
         } catch (\Throwable $e) {
             return redirect()
                 ->route('admin.meta.instagram.index')

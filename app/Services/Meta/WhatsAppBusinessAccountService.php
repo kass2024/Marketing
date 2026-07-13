@@ -135,16 +135,23 @@ class WhatsAppBusinessAccountService
         }
 
         // Locally imported / previously synced WABAs (never drop these on Graph blips)
+        $rateLimited = (bool) Cache::get('meta_wa_rate_limited');
         foreach ($this->linkedWabaIds($connection) as $linkedId) {
-            if (isset($accounts[$linkedId])) {
+            if (isset($accounts[$linkedId]) && ! $this->isPlaceholderWabaName((string) ($accounts[$linkedId]['name'] ?? ''), $linkedId)) {
                 continue;
             }
-            // Avoid hammering Graph when already rate-limited
-            $detail = ($graphOk && $errors === []) ? $this->getWaba($linkedId) : null;
+            $detail = null;
+            if (! $rateLimited) {
+                $detail = $this->getWaba($linkedId);
+                if ($detail === null && Cache::get('meta_wa_rate_limited')) {
+                    $rateLimited = true;
+                }
+            }
             if ($detail) {
-                $detail['ownership_type'] = $detail['ownership_type'] ?? 'linked_import';
+                $detail['ownership_type'] = $detail['ownership_type'] ?? ($accounts[$linkedId]['ownership_type'] ?? 'linked_import');
+                $detail['name'] = $this->bestWabaDisplayName($detail, $linkedId);
                 $accounts[$linkedId] = $detail;
-            } else {
+            } elseif (! isset($accounts[$linkedId])) {
                 $accounts[$linkedId] = [
                     'id' => $linkedId,
                     'name' => 'WhatsApp Business Account '.$linkedId,
@@ -157,6 +164,14 @@ class WhatsAppBusinessAccountService
         // Owned list with multiple WABAs is enough — client/assigned rate-limits must not block persist
         if ($fromGraphCount >= 2) {
             $incomplete = false;
+        }
+
+        // Prefer business/owner names over bare Graph ids when present
+        foreach ($accounts as $id => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $accounts[$id]['name'] = $this->bestWabaDisplayName($row, (string) $id);
         }
 
         if ($incomplete) {
@@ -220,8 +235,11 @@ class WhatsAppBusinessAccountService
                 'incomplete' => $incomplete,
             ]);
 
+            // Never throw away a real Graph name for a full placeholder seed list.
+            $accounts = $this->mergePreferringRealNames($seeded, $accounts);
+
             return [
-                'accounts' => $seeded !== [] ? $seeded : $accounts,
+                'accounts' => $this->enrichPlaceholderNames($accounts),
                 'linked_count' => count($this->linkedWabaIds($connection)),
                 'incomplete' => true,
             ];
@@ -266,6 +284,7 @@ class WhatsAppBusinessAccountService
         foreach ($accounts as $row) {
             $id = (string) ($row['id'] ?? '');
             if ($id !== '') {
+                $row['name'] = $this->bestWabaDisplayName($row, $id);
                 $byId[$id] = $row;
             }
         }
@@ -280,10 +299,171 @@ class WhatsAppBusinessAccountService
         }
 
         return [
-            'accounts' => array_values($byId),
+            'accounts' => $this->enrichPlaceholderNames(array_values($byId)),
             'linked_count' => count($linked),
             'incomplete' => $incomplete,
         ];
+    }
+
+    /**
+     * Prefer real Meta names over "WhatsApp Business Account {id}" placeholders.
+     *
+     * @param  array<int, array<string, mixed>>  $primary
+     * @param  array<int, array<string, mixed>>  $secondary
+     * @return array<int, array<string, mixed>>
+     */
+    public function mergePreferringRealNames(array $primary, array $secondary): array
+    {
+        $byId = [];
+        foreach (array_merge($primary, $secondary) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($id === '') {
+                continue;
+            }
+            $row['id'] = $id;
+            $row['name'] = $this->bestWabaDisplayName($row, $id);
+            if (! isset($byId[$id])) {
+                $byId[$id] = $row;
+                continue;
+            }
+            $existingPlaceholder = $this->isPlaceholderWabaName((string) ($byId[$id]['name'] ?? ''), $id);
+            $incomingPlaceholder = $this->isPlaceholderWabaName((string) ($row['name'] ?? ''), $id);
+            if ($existingPlaceholder && ! $incomingPlaceholder) {
+                $byId[$id] = array_merge($byId[$id], $row);
+            } elseif (! $existingPlaceholder && $incomingPlaceholder) {
+                // keep existing real name, still absorb other fields
+                $byId[$id] = array_merge($row, $byId[$id]);
+            } else {
+                $byId[$id] = array_merge($byId[$id], $row);
+            }
+        }
+
+        return array_values($byId);
+    }
+
+    /**
+     * Fetch display names for placeholder WABAs (stops when Meta rate-limits).
+     *
+     * @param  array<int, array<string, mixed>>  $accounts
+     * @return array<int, array<string, mixed>>
+     */
+    public function enrichPlaceholderNames(array $accounts): array
+    {
+        if (Cache::get('meta_wa_rate_limited')) {
+            return $this->applyPhoneCacheNames($accounts);
+        }
+
+        $enriched = [];
+        $lookups = 0;
+        foreach ($accounts as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = (string) ($row['id'] ?? '');
+            $name = (string) ($row['name'] ?? '');
+            if ($id !== '' && $this->isPlaceholderWabaName($name, $id) && $lookups < 12) {
+                $lookups++;
+                $detail = $this->getWaba($id);
+                if ($detail) {
+                    $row = array_merge($row, $detail);
+                    $row['name'] = $this->bestWabaDisplayName($row, $id);
+                } elseif (Cache::get('meta_wa_rate_limited')) {
+                    $enriched[] = $row;
+                    // Keep remaining as-is; apply phone-cache names below
+                    $rest = array_slice($accounts, count($enriched));
+                    foreach ($rest as $left) {
+                        if (is_array($left)) {
+                            $enriched[] = $left;
+                        }
+                    }
+
+                    return $this->applyPhoneCacheNames($enriched);
+                }
+            }
+            $enriched[] = $row;
+        }
+
+        return $this->applyPhoneCacheNames($enriched);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $accounts
+     * @return array<int, array<string, mixed>>
+     */
+    protected function applyPhoneCacheNames(array $accounts): array
+    {
+        $connection = $this->connection();
+        $phoneKey = 'meta_wa_phone_directory_'.($connection?->id ?? 'platform');
+        $phones = Cache::get($phoneKey);
+        if (! is_array($phones) || $phones === []) {
+            return $accounts;
+        }
+
+        $namesByWaba = [];
+        foreach ($phones as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $wabaId = (string) ($p['waba_id'] ?? '');
+            $wabaName = trim((string) ($p['waba_name'] ?? ''));
+            $verified = trim((string) ($p['verified_name'] ?? ''));
+            if ($wabaId === '') {
+                continue;
+            }
+            if ($wabaName !== '' && ! $this->isPlaceholderWabaName($wabaName, $wabaId)) {
+                $namesByWaba[$wabaId] = $wabaName;
+            } elseif ($verified !== '' && ! isset($namesByWaba[$wabaId])) {
+                $namesByWaba[$wabaId] = $verified;
+            }
+        }
+
+        foreach ($accounts as &$row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = (string) ($row['id'] ?? '');
+            if ($id !== '' && $this->isPlaceholderWabaName((string) ($row['name'] ?? ''), $id) && isset($namesByWaba[$id])) {
+                $row['name'] = $namesByWaba[$id];
+            }
+        }
+        unset($row);
+
+        return $accounts;
+    }
+
+    public function isPlaceholderWabaName(string $name, string $id = ''): bool
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return true;
+        }
+        if ($id !== '' && $name === $id) {
+            return true;
+        }
+
+        return str_starts_with($name, 'WhatsApp Business Account');
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public function bestWabaDisplayName(array $row, string $id): string
+    {
+        $candidates = [
+            trim((string) ($row['name'] ?? '')),
+            trim((string) (data_get($row, 'owner_business_info.name') ?? '')),
+            trim((string) (data_get($row, 'on_behalf_of_business_info.name') ?? '')),
+        ];
+        foreach ($candidates as $candidate) {
+            if ($candidate !== '' && ! $this->isPlaceholderWabaName($candidate, $id)) {
+                return $candidate;
+            }
+        }
+
+        return $candidates[0] !== '' ? $candidates[0] : ('WhatsApp Business Account '.$id);
     }
 
     /**
@@ -320,7 +500,7 @@ class WhatsAppBusinessAccountService
             ];
         }
 
-        return $items;
+        return $this->applyPhoneCacheNames($items);
     }
 
     /**
@@ -1007,7 +1187,7 @@ class WhatsAppBusinessAccountService
     {
         $token = $this->requireToken();
 
-        $response = Http::timeout(30)->get(
+        $response = Http::timeout(20)->get(
             "{$this->graphUrl}/{$this->graphVersion}/{$wabaId}",
             [
                 'access_token' => $token,
@@ -1016,14 +1196,25 @@ class WhatsAppBusinessAccountService
         );
 
         if (! $response->ok()) {
+            $body = strtolower((string) $response->body());
+            if (
+                $response->status() === 403
+                || str_contains($body, 'request limit')
+                || str_contains($body, 'rate limit')
+                || str_contains($body, 'too many')
+            ) {
+                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+            }
+
             return null;
         }
 
         $data = $response->json();
+        $id = (string) ($data['id'] ?? $wabaId);
 
         return [
-            'id' => (string) ($data['id'] ?? $wabaId),
-            'name' => (string) ($data['name'] ?? $wabaId),
+            'id' => $id,
+            'name' => $this->bestWabaDisplayName(is_array($data) ? $data : [], $id),
             'currency' => $data['currency'] ?? null,
             'timezone_id' => $data['timezone_id'] ?? null,
             'account_review_status' => $data['account_review_status'] ?? null,

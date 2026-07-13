@@ -100,8 +100,10 @@ class WhatsAppAccountsController extends Controller
             $selectedId = $synced['selected_id'];
 
             $msg = count($accounts).' WhatsApp account(s) synced from Meta.';
-            if ($incomplete) {
-                $msg .= ' (Meta rate-limited — kept previously linked accounts; try again in a few minutes for fresh names.)';
+            if ($incomplete && $this->accountsNeedNameRefresh($accounts)) {
+                $msg .= ' Some names are still loading — Meta rate-limited individual lookups; tap Sync now again in a few minutes.';
+            } elseif ($incomplete) {
+                $msg .= ' Directory preserved through a partial Meta response.';
             }
 
             return redirect()
@@ -199,30 +201,10 @@ class WhatsAppAccountsController extends Controller
                 $result = $wa->syncToConnection($connection);
                 $accounts = $result['accounts'] ?? [];
                 $prev = Cache::get($wabaCacheKey);
-                if (
-                    is_array($prev)
-                    && count($prev) > count($accounts)
-                    && ! empty($result['incomplete'])
-                ) {
-                    $prevNeedsNames = false;
-                    foreach ($prev as $row) {
-                        if (! is_array($row)) {
-                            $prevNeedsNames = true;
-                            break;
-                        }
-                        $name = trim((string) ($row['name'] ?? ''));
-                        $id = (string) ($row['id'] ?? '');
-                        if ($name === '' || $name === $id || str_starts_with($name, 'WhatsApp Business Account')) {
-                            $prevNeedsNames = true;
-                            break;
-                        }
-                    }
-                    if (! $prevNeedsNames) {
-                        Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-
-                        return;
-                    }
+                if (is_array($prev) && $prev !== []) {
+                    $accounts = $wa->mergePreferringRealNames($prev, $accounts);
                 }
+                $accounts = $wa->enrichPlaceholderNames($accounts);
                 if ($accounts !== [] || ! is_array($prev) || $prev === []) {
                     Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
                 }
@@ -262,22 +244,28 @@ class WhatsAppAccountsController extends Controller
 
         $cacheKey = 'meta_waba_directory_'.$cacheSuffix;
         $prev = Cache::get($cacheKey);
-        if (
-            is_array($prev)
-            && count($prev) > count($accounts)
-            && $incomplete
-            && ! $this->accountsNeedNameRefresh($prev)
-        ) {
-            $accounts = $prev;
-        } else {
-            Cache::put($cacheKey, $accounts, now()->addMinutes(30));
+        if (is_array($prev) && $prev !== []) {
+            // Always keep the best known real name per WABA id across partial / rate-limited pulls.
+            $accounts = $this->whatsapp->mergePreferringRealNames($prev, $accounts);
         }
+        $accounts = $this->whatsapp->enrichPlaceholderNames($accounts);
+        Cache::put($cacheKey, $accounts, now()->addMinutes(30));
         Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
 
         $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
         if ($selectedId !== '') {
             try {
                 $detail = $this->whatsapp->getWaba($selectedId);
+                if (is_array($detail) && ! empty($detail['name'])) {
+                    foreach ($accounts as &$row) {
+                        if ((string) ($row['id'] ?? '') === $selectedId) {
+                            $row = array_merge($row, $detail);
+                            $row['name'] = $this->whatsapp->bestWabaDisplayName($row, $selectedId);
+                        }
+                    }
+                    unset($row);
+                    Cache::put($cacheKey, $accounts, now()->addMinutes(30));
+                }
                 $phones = $this->whatsapp->listPhoneNumbers($selectedId);
                 $allPhones = [];
                 foreach ($phones as $phone) {
@@ -298,6 +286,11 @@ class WhatsAppAccountsController extends Controller
             } catch (\Throwable) {
                 // list still cached
             }
+        }
+
+        $stillPlaceholders = $this->accountsNeedNameRefresh($accounts);
+        if ($incomplete && $stillPlaceholders) {
+            $incomplete = true;
         }
 
         return [

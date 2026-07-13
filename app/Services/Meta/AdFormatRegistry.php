@@ -162,4 +162,36 @@ class AdFormatRegistry
                 : 'Image ratio does not match Meta sizes (4:5 Feed, 1:1 Square, 9:16 Stories, or 1.91:1 Landscape).',
         ];
     }
+
+    /**
+     * Nearest Meta format by aspect ratio (always returns a key — used when auto-resizing).
+     */
+    public static function closestFormat(int $width, int $height): string
+    {
+        $detected = self::detectFormat($width, $height);
+        if (! empty($detected['format'])) {
+            return (string) $detected['format'];
+        }
+
+        $ratio = $width / max($height, 1);
+        $best = self::defaultKey();
+        $bestDiff = PHP_FLOAT_MAX;
+
+        foreach (self::formats() as $key => $fmt) {
+            if ($key === 'portrait_191') {
+                continue;
+            }
+            $diff = abs($ratio - $fmt['ratio']);
+            // Prefer primary CTWA sizes when diffs are nearly equal
+            if (($fmt['primary'] ?? false) === true) {
+                $diff -= 0.001;
+            }
+            if ($diff < $bestDiff) {
+                $best = $key;
+                $bestDiff = $diff;
+            }
+        }
+
+        return $best;
+    }
 }

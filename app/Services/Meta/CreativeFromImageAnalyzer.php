@@ -6,14 +6,14 @@ use App\Services\GeminiAiService;
 use Exception;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class CreativeFromImageAnalyzer
 {
     public function __construct(
         protected GeminiAiService $gemini,
-        protected AdImageValidator $imageValidator
+        protected AdImageValidator $imageValidator,
+        protected AdImageProcessor $imageProcessor
     ) {}
 
     /**
@@ -34,7 +34,8 @@ class CreativeFromImageAnalyzer
      *   image_url: string,
      *   image_format: string,
      *   width: int|null,
-     *   height: int|null
+     *   height: int|null,
+     *   warnings: array<int, string>
      * }
      */
     public function analyzeUpload(UploadedFile $file, ?string $preferredFormat = null): array
@@ -48,42 +49,30 @@ class CreativeFromImageAnalyzer
             throw new Exception(implode(' ', $validation['errors'] ?? ['Invalid image.']));
         }
 
-        $formatKey = (string) ($validation['format'] ?? $preferredFormat ?? AdFormatRegistry::defaultKey());
-        $path = $file->store('marketing-wizard', 'public');
-        $absolute = Storage::disk('public')->path($path);
-        $mime = $file->getMimeType() ?: 'image/jpeg';
-        $binary = file_get_contents($absolute);
-        if ($binary === false) {
-            throw new Exception('Could not read uploaded creative.');
-        }
+        $stored = $this->imageProcessor->normalizeUpload(
+            $file,
+            (string) ($validation['format'] ?? $preferredFormat ?? AdFormatRegistry::defaultKey())
+        );
 
-        $base64 = base64_encode($binary);
-        $system = 'You write high-converting Meta Click-to-WhatsApp ads for Facebook/Instagram. '
-            .'Return ONLY valid JSON. No markdown. Keep headline ≤40 chars, primary_text ≤220 chars, description ≤30 chars. '
-            .'CTA is always WhatsApp message. Tone: clear, benefit-led, professional.';
+        $vision = $this->imageProcessor->downscaleForVision((string) $stored['binary'], 768);
 
+        $system = 'Write Meta Click-to-WhatsApp ad copy. Return ONLY compact JSON.';
         $prompt = <<<'PROMPT'
-Analyze this ad creative image and produce Click-to-WhatsApp campaign fields.
-
-Return JSON with exactly these keys:
-{
-  "campaign_name": "short campaign name",
-  "adset_name": "short ad set name",
-  "ad_name": "short ad name",
-  "service_name": "product or service offered",
-  "target_audience": "who this ad targets",
-  "main_benefit": "main benefit in one short phrase",
-  "primary_text": "Facebook primary text ending with a WhatsApp invite",
-  "headline": "short headline",
-  "description": "short description under headline",
-  "whatsapp_prefill_message": "message the user pre-sends on WhatsApp"
-}
-
-Infer language from the creative (English or French is fine). Do not invent fake phone numbers.
+From this ad image, return JSON keys only:
+campaign_name, adset_name, ad_name, service_name, target_audience, main_benefit,
+primary_text (≤180 chars, end with WhatsApp invite), headline (≤40 chars),
+description (≤30 chars), whatsapp_prefill_message (≤120 chars).
+Infer language from the creative. No fake phone numbers. No markdown.
 PROMPT;
 
         try {
-            $raw = $this->gemini->analyzeImage($base64, $mime, $prompt, $system, 2048);
+            $raw = $this->gemini->analyzeImage(
+                $vision['base64'],
+                $vision['mime'],
+                $prompt,
+                $system,
+                640
+            );
             $parsed = $this->parseJson($raw);
             $normalized = $this->normalize($parsed);
         } catch (Exception $e) {
@@ -91,12 +80,20 @@ PROMPT;
             $normalized = $this->fallbackFromFilename($file->getClientOriginalName());
         }
 
+        unset($stored['binary']);
+
         return array_merge($normalized, [
-            'image_path' => $path,
-            'image_url' => Storage::disk('public')->url($path),
-            'image_format' => $formatKey,
-            'width' => $validation['width'] ?? null,
-            'height' => $validation['height'] ?? null,
+            'image_path' => $stored['path'],
+            'image_url' => $stored['url'],
+            'image_format' => $stored['format'],
+            'width' => $stored['width'],
+            'height' => $stored['height'],
+            'warnings' => array_values(array_filter(array_merge(
+                $validation['warnings'] ?? [],
+                ! empty($stored['resized'])
+                    ? ["Resized to {$stored['width']}×{$stored['height']} for Meta."]
+                    : []
+            ))),
         ]);
     }
 

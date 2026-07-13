@@ -8,6 +8,7 @@ use App\Models\PlatformMetaConnection;
 use App\Services\Tenant\TenantConnectionResolver;
 use App\Services\Meta\AdFormatRegistry;
 use App\Services\Meta\AdImageGenerator;
+use App\Services\Meta\AdImageProcessor;
 use App\Services\Meta\AdImageValidator;
 use App\Services\Meta\AdPublishNotifier;
 use App\Services\Meta\ClickToWhatsAppCreativeBuilder;
@@ -47,6 +48,7 @@ class AdStudioController extends Controller
         protected AdPublishNotifier $notifier,
         protected AdImageGenerator $imageGenerator,
         protected AdImageValidator $imageValidator,
+        protected AdImageProcessor $imageProcessor,
         protected MetaAutoSyncService $autoSync,
         protected InstagramBusinessAccountService $instagramAccounts,
         protected WhatsAppBusinessAccountService $whatsappAccounts
@@ -228,7 +230,7 @@ class AdStudioController extends Controller
     public function validateMedia(Request $request): JsonResponse
     {
         $request->validate([
-            'image' => 'required|file|image|max:4096',
+            'image' => 'required|file|image|max:10240',
             'image_format' => 'nullable|string',
         ]);
 
@@ -297,7 +299,7 @@ class AdStudioController extends Controller
     public function analyzeCreative(Request $request): JsonResponse
     {
         $request->validate([
-            'image' => 'required|file|image|max:4096',
+            'image' => 'required|file|image|max:10240',
             'image_format' => 'nullable|string',
         ]);
 
@@ -405,8 +407,13 @@ class AdStudioController extends Controller
             if (! $validation['valid']) {
                 throw new Exception(implode(' ', $validation['errors']));
             }
-            $data['image_path'] = $request->file('image')->store('marketing-wizard', 'public');
-            $data['image_format'] = $validation['format'] ?? $request->input('image_format');
+            $stored = $this->imageProcessor->normalizeUpload(
+                $request->file('image'),
+                (string) ($validation['format'] ?? $request->input('image_format') ?? AdFormatRegistry::defaultKey())
+            );
+            unset($stored['binary']);
+            $data['image_path'] = $stored['path'];
+            $data['image_format'] = $stored['format'];
         } elseif ($request->filled('ai_image_path')) {
             $aiPath = (string) $request->input('ai_image_path');
             if (Storage::disk('public')->exists($aiPath)) {

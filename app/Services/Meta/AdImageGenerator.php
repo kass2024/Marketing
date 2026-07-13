@@ -11,7 +11,8 @@ use Illuminate\Support\Facades\Storage;
 class AdImageGenerator
 {
     public function __construct(
-        protected GeminiAiService $gemini
+        protected GeminiAiService $gemini,
+        protected AdImageProcessor $imageProcessor
     ) {}
 
     /**
@@ -37,8 +38,8 @@ class AdImageGenerator
             ? $this->generateWithOpenAi($prompt, $format)
             : $this->generateWithGemini($prompt);
 
-        $resized = $this->resizeToFormat($raw, $format);
-        $filename = 'ai-'.$formatKey.'-'.uniqid().'.png';
+        $resized = $this->imageProcessor->resizeToFormat($raw, $format);
+        $filename = 'ai-'.$formatKey.'-'.uniqid().'.jpg';
         $path = 'marketing-wizard/'.$filename;
         Storage::disk('public')->put($path, $resized);
 
@@ -135,54 +136,5 @@ class AdImageGenerator
         $parts[] = 'No logos of Meta, Facebook, or Instagram. No fake phone UI.';
 
         return implode(' ', $parts);
-    }
-
-    /**
-     * @param  array<string, mixed>  $format
-     */
-    protected function resizeToFormat(string $imageBinary, array $format): string
-    {
-        if (! function_exists('imagecreatefromstring')) {
-            return $imageBinary;
-        }
-
-        $src = @imagecreatefromstring($imageBinary);
-        if (! $src) {
-            return $imageBinary;
-        }
-
-        $targetW = (int) $format['width'];
-        $targetH = (int) $format['height'];
-        $srcW = imagesx($src);
-        $srcH = imagesy($src);
-
-        $targetRatio = $targetW / $targetH;
-        $srcRatio = $srcW / $srcH;
-
-        if ($srcRatio > $targetRatio) {
-            $cropH = $srcH;
-            $cropW = (int) round($srcH * $targetRatio);
-            $srcX = (int) round(($srcW - $cropW) / 2);
-            $srcY = 0;
-        } else {
-            $cropW = $srcW;
-            $cropH = (int) round($srcW / $targetRatio);
-            $srcX = 0;
-            $srcY = (int) round(($srcH - $cropH) / 2);
-        }
-
-        $dst = imagecreatetruecolor($targetW, $targetH);
-        imagealphablending($dst, false);
-        imagesavealpha($dst, true);
-        imagecopyresampled($dst, $src, 0, 0, $srcX, $srcY, $targetW, $targetH, $cropW, $cropH);
-
-        ob_start();
-        imagepng($dst, null, 8);
-        $out = ob_get_clean();
-
-        imagedestroy($src);
-        imagedestroy($dst);
-
-        return $out ?: $imageBinary;
     }
 }

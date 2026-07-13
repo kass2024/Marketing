@@ -589,7 +589,7 @@
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                     <p class="text-sm font-semibold text-slate-800">1. Upload creative <span class="text-red-500">*</span></p>
-                                    <p class="text-xs text-slate-500">JPG, PNG, or WebP · under 4 MB · Feed 4:5 recommended</p>
+                                    <p class="text-xs text-slate-500">Any image · under 10 MB · auto-resized to Meta 4:5 / 1:1 / 9:16</p>
                                 </div>
                                 <div class="flex flex-wrap gap-1">
                                     <template x-for="(fmt, key) in selectableFormats" :key="key">
@@ -602,10 +602,10 @@
                                 </div>
                             </div>
                             <label class="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-6 text-center hover:border-blue-400">
-                                <input type="file" accept="image/jpeg,image/png,image/webp" x-ref="fileInput" @change="onFileUpload($event)"
+                                <input type="file" accept="image/*" x-ref="fileInput" @change="onFileUpload($event)"
                                     class="sr-only">
                                 <span class="text-sm font-semibold text-slate-800" x-text="aiAnalyzing ? 'Gemini is analyzing…' : (previewImage ? 'Replace creative' : 'Drop image or click to upload')"></span>
-                                <span class="mt-1 text-xs text-slate-500">Gemini auto-fills all ad copy from this image</span>
+                                <span class="mt-1 text-xs text-slate-500">We resize to Meta sizes · Gemini auto-fills ad copy</span>
                             </label>
                             <div x-show="mediaValidation.errors.length" class="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
                                 <template x-for="e in mediaValidation.errors" :key="e"><p x-text="e"></p></template>
@@ -780,15 +780,15 @@
                         <p class="mt-1 text-center text-[9px] text-slate-400" x-text="placementHint"></p>
 
                         <div class="mx-auto mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
-                             :class="previewPlacement === 'story_9x16' ? 'max-w-[140px]' : 'max-w-[200px]'">
+                             :class="previewPlacement === 'story_9x16' ? 'max-w-[160px]' : 'max-w-[240px]'">
                             <div class="flex items-center gap-1.5 border-b border-slate-100 p-2" x-show="previewPlacement !== 'story_9x16'">
-                                <div class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">P</div>
+                                <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">P</div>
                                 <div class="min-w-0">
-                                    <p class="truncate text-[10px] font-bold" x-text="pageName"></p>
+                                    <p class="break-words text-[10px] font-bold leading-tight" x-text="pageName"></p>
                                     <p class="text-[8px] text-slate-400">Sponsored</p>
                                 </div>
                             </div>
-                            <p class="line-clamp-2 whitespace-pre-line px-2 py-1.5 text-[10px] leading-snug text-slate-700"
+                            <p class="whitespace-pre-wrap break-words px-2 py-1.5 text-[10px] leading-snug text-slate-700"
                                x-show="previewPlacement !== 'story_9x16'"
                                x-text="form.primary_text || 'Upload a creative…'"></p>
 
@@ -803,12 +803,12 @@
                             </div>
 
                             <div class="border-t border-slate-100 p-2">
-                                <p class="truncate text-[10px] font-bold text-slate-900" x-text="form.headline || 'Headline'"></p>
-                                <p class="truncate text-[8px] text-slate-500" x-text="form.description || ''"></p>
+                                <p class="break-words text-[10px] font-bold leading-snug text-slate-900" x-text="form.headline || 'Headline'"></p>
+                                <p class="mt-0.5 break-words text-[8px] leading-snug text-slate-500" x-text="form.description || ''"></p>
                                 <button type="button" class="mt-1.5 w-full rounded-md bg-[#25D366] py-1.5 text-[9px] font-bold text-white">Send WhatsApp message</button>
                             </div>
                         </div>
-                        <p class="mt-2 text-center text-[9px] text-slate-400">Upload matches Meta’s 4:5 · 1:1 · 9:16 trio for best delivery.</p>
+                        <p class="mt-2 text-center text-[9px] text-slate-400">Any image is auto-resized to Meta’s 4:5 · 1:1 · 9:16 sizes.</p>
                     </div>
 
                     <div x-show="stage === 5 && hasWa()" class="rounded-xl border border-[#25D366]/25 bg-[#25D366]/5 p-3">
@@ -1614,6 +1614,11 @@ function adStudio(config) {
             this.aiAnalyzing = true;
             this.aiAnalyzeError = '';
             this.mediaValidation = { valid: false, errors: [], warnings: [], width: null, height: null };
+            // Instant local preview while Meta resize + Gemini run
+            try {
+                this.previewImage = URL.createObjectURL(f);
+                this.mediaSource = 'upload';
+            } catch (_) {}
             const fd = new FormData();
             fd.append('image', f);
             fd.append('image_format', this.form.image_format);

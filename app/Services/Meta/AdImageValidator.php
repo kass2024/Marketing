@@ -6,11 +6,14 @@ use Illuminate\Http\UploadedFile;
 
 class AdImageValidator
 {
-    public const MAX_BYTES = 4 * 1024 * 1024;
+    /** Soft cap before we auto-resize/compress for Meta. */
+    public const MAX_BYTES = 10 * 1024 * 1024;
 
-    public const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+    public const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'image/gif'];
 
     /**
+     * Lightweight checks only — any readable raster is accepted; aspect is auto-fixed later.
+     *
      * @return array{valid: bool, errors: array<int, string>, warnings: array<int, string>, width: int|null, height: int|null, format: string|null, format_label: string|null}
      */
     public function validateUpload(UploadedFile $file, ?string $expectedFormat = null): array
@@ -19,11 +22,12 @@ class AdImageValidator
         $warnings = [];
 
         if ($file->getSize() > self::MAX_BYTES) {
-            $errors[] = 'Image must be under 4 MB.';
+            $errors[] = 'Image must be under 10 MB (we resize to Meta sizes after upload).';
         }
 
-        if (! in_array($file->getMimeType(), self::ALLOWED_MIMES, true)) {
-            $errors[] = 'Use JPG, PNG, or WebP only.';
+        $mime = strtolower((string) ($file->getMimeType() ?: ''));
+        if ($mime !== '' && ! in_array($mime, self::ALLOWED_MIMES, true) && ! str_starts_with($mime, 'image/')) {
+            $errors[] = 'Upload an image file (JPG, PNG, WebP, or similar).';
         }
 
         $size = @getimagesize($file->getPathname());
@@ -41,30 +45,17 @@ class AdImageValidator
 
         [$width, $height] = $size;
         $detected = AdFormatRegistry::detectFormat($width, $height);
+        $formatKey = ($expectedFormat && AdFormatRegistry::get($expectedFormat))
+            ? $expectedFormat
+            : (string) ($detected['format'] ?? AdFormatRegistry::closestFormat($width, $height));
 
-        if (! $detected['valid']) {
-            $errors[] = $detected['message'] ?? 'Unsupported aspect ratio.';
-        }
-
-        if ($expectedFormat) {
-            $fmt = AdFormatRegistry::get($expectedFormat);
-            if ($fmt && $detected['format'] && $detected['format'] !== $expectedFormat) {
-                $warnings[] = "Image looks like {$detected['format']} but you selected {$expectedFormat}. We'll use the detected format.";
-            }
-            if ($fmt && ($width < $fmt['min_width'] || $height < $fmt['min_height'])) {
-                $errors[] = "Minimum for {$fmt['label']}: {$fmt['min_width']}×{$fmt['min_height']} px (yours: {$width}×{$height}).";
-            }
-        }
-
-        $formatKey = $detected['format'] ?? $expectedFormat;
-        $formatLabel = $formatKey ? (AdFormatRegistry::get($formatKey)['label'] ?? $formatKey) : null;
-
-        if ($formatKey && $detected['valid']) {
+        if (! ($detected['valid'] ?? false) || ($detected['format'] ?? null) !== $formatKey) {
             $fmt = AdFormatRegistry::get($formatKey);
-            if ($fmt && ($width < $fmt['width'] * 0.7 || $height < $fmt['height'] * 0.7)) {
-                $warnings[] = "Recommended size: {$fmt['width']}×{$fmt['height']} px for best quality.";
-            }
+            $label = $fmt['label'] ?? $formatKey;
+            $warnings[] = "We'll auto-crop/resize to Meta {$label} ({$fmt['width']}×{$fmt['height']}).";
         }
+
+        $formatLabel = $formatKey ? (AdFormatRegistry::get($formatKey)['label'] ?? $formatKey) : null;
 
         return [
             'valid' => $errors === [],

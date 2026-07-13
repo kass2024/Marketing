@@ -96,10 +96,14 @@ class CreativeTemplateRegistry
 
     public static function placements(): array
     {
+        // Meta Marketing API position enums:
+        // facebook_positions: feed, story, facebook_reels, ...
+        // instagram_positions: stream, story, reels, ...
+        // See https://developers.facebook.com/docs/marketing-api/audiences/reference/placement-targeting/
         return [
             'facebook_feed' => ['platform' => 'facebook', 'position' => 'feed', 'label' => 'Facebook Feed'],
             'facebook_story' => ['platform' => 'facebook', 'position' => 'story', 'label' => 'Facebook Stories'],
-            'facebook_reels' => ['platform' => 'facebook', 'position' => 'reels', 'label' => 'Facebook Reels'],
+            'facebook_reels' => ['platform' => 'facebook', 'position' => 'facebook_reels', 'label' => 'Facebook Reels'],
             'instagram_feed' => ['platform' => 'instagram', 'position' => 'stream', 'label' => 'Instagram Feed'],
             'instagram_story' => ['platform' => 'instagram', 'position' => 'story', 'label' => 'Instagram Stories'],
             'instagram_reels' => ['platform' => 'instagram', 'position' => 'reels', 'label' => 'Instagram Reels'],

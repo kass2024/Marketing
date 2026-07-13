@@ -1598,41 +1598,59 @@ protected function buildTargeting(array $targeting): array
     }
 
     /**
-     * Add required placement positions when publisher_platforms is present.
+     * Normalize placement positions to Meta Marketing API enums.
+     * @see https://developers.facebook.com/docs/marketing-api/audiences/reference/placement-targeting/
      */
     protected function enrichPlacementTargeting(array $targeting): array
     {
-        $platforms = $targeting['publisher_platforms'];
+        if (! empty($targeting['publisher_platforms']) && is_array($targeting['publisher_platforms'])) {
+            $platforms = $targeting['publisher_platforms'];
 
-        if (in_array('facebook', $platforms, true)) {
-            $targeting['facebook_positions'] = $targeting['facebook_positions'] ?? [
-                'feed',
-                'story',
-                'instream_video',
-                'marketplace',
-            ];
+            if (in_array('facebook', $platforms, true)) {
+                $targeting['facebook_positions'] = $targeting['facebook_positions'] ?? [
+                    'feed',
+                    'story',
+                    'facebook_reels',
+                ];
+            }
+
+            if (in_array('instagram', $platforms, true)) {
+                $targeting['instagram_positions'] = $targeting['instagram_positions'] ?? [
+                    'stream',
+                    'story',
+                    'reels',
+                ];
+            }
+
+            if (in_array('messenger', $platforms, true)) {
+                $targeting['messenger_positions'] = $targeting['messenger_positions'] ?? [
+                    'messenger_home',
+                    'story',
+                ];
+            }
+
+            if (in_array('audience_network', $platforms, true)) {
+                $targeting['audience_network_positions'] = $targeting['audience_network_positions'] ?? [
+                    'classic',
+                    'instream_video',
+                ];
+            }
         }
 
-        if (in_array('instagram', $platforms, true)) {
-            $targeting['instagram_positions'] = $targeting['instagram_positions'] ?? [
-                'stream',
-                'story',
-                'reels',
-            ];
+        // Facebook Reels enum is facebook_reels — never bare "reels" on facebook_positions
+        if (! empty($targeting['facebook_positions']) && is_array($targeting['facebook_positions'])) {
+            $targeting['facebook_positions'] = array_values(array_unique(array_map(
+                fn ($p) => $p === 'reels' ? 'facebook_reels' : (string) $p,
+                $targeting['facebook_positions']
+            )));
         }
 
-        if (in_array('messenger', $platforms, true)) {
-            $targeting['messenger_positions'] = $targeting['messenger_positions'] ?? [
-                'messenger_home',
-                'story',
-            ];
-        }
-
-        if (in_array('audience_network', $platforms, true)) {
-            $targeting['audience_network_positions'] = $targeting['audience_network_positions'] ?? [
-                'classic',
-                'instream_video',
-            ];
+        // Instagram Reels enum is reels — never facebook_reels on instagram_positions
+        if (! empty($targeting['instagram_positions']) && is_array($targeting['instagram_positions'])) {
+            $targeting['instagram_positions'] = array_values(array_unique(array_map(
+                fn ($p) => $p === 'facebook_reels' ? 'reels' : (string) $p,
+                $targeting['instagram_positions']
+            )));
         }
 
         if (empty($targeting['device_platforms'])) {
@@ -2667,6 +2685,10 @@ public function getAccountStatus($accountId)
                 || str_contains($lower, 'whatsapp business number is not linked')
                 || str_contains($lower, 'link your whatsapp') =>
                 'WhatsApp number not connected to Page — link WhatsApp in Meta Business Suite.',
+            str_contains($message, '1815433')
+                || str_contains($lower, 'invalid facebook position')
+                || str_contains($lower, 'invalid value reels for the placement field facebook_positions') =>
+                'Invalid Facebook placement — Facebook Reels must use facebook_reels (not reels). Instagram Reels keep reels.',
             str_contains($lower, 'placement') =>
                 'Placement unsupported for Click-to-WhatsApp — use Facebook/Instagram feed, stories, or reels.',
             // Real budget errors only (do NOT match 2446 — that prefixes interest subcodes 2446394/2446395)

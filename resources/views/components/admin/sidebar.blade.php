@@ -27,6 +27,8 @@ $r = $routeName ?: Route::currentRouteName();
         openSettings: {{ str_contains($r, 'admin.settings') || str_contains($r, 'admin.users') ? 'true' : 'false' }},
         prefetch(url) {
             if (!url || url === '#' || url.startsWith('javascript:')) return;
+            // Don't prefetch Business Manager — Graph soft-sync afterResponse can hold the request open.
+            if (/\/admin\/meta(\/|$)/.test(url)) return;
             this._prefetched = this._prefetched || new Set();
             if (this._prefetched.has(url)) return;
             this._prefetched.add(url);
@@ -125,13 +127,10 @@ $r = $routeName ?: Route::currentRouteName();
                 </button>
                 <div x-show="openBm" x-transition class="mt-1 space-y-0.5 border-l border-white/20 pl-3 ml-3">
                     <a href="{{ route('admin.meta.index') }}"
-                       @mouseenter="prefetch(@js(route('admin.meta.index')))"
                        class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ $r === 'admin.meta.index' ? 'bg-white/10 text-xander-gold' : '' }}">Connection</a>
                     <a href="{{ route('admin.meta.whatsapp.index') }}"
-                       @mouseenter="prefetch(@js(route('admin.meta.whatsapp.index')))"
                        class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.meta.whatsapp') ? 'bg-white/10 text-xander-gold' : '' }}">WhatsApp accounts</a>
                     <a href="{{ route('admin.meta.instagram.index') }}"
-                       @mouseenter="prefetch(@js(route('admin.meta.instagram.index')))"
                        class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.meta.instagram') ? 'bg-white/10 text-xander-gold' : '' }}">Instagram accounts</a>
                 </div>
             </div>

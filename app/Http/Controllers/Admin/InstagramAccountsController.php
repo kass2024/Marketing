@@ -104,6 +104,11 @@ class InstagramAccountsController extends Controller
 
     protected function queueBackgroundSync(string $cacheSuffix): void
     {
+        // Meta (#4) rate limits turn afterResponse graph work into “endless loading”.
+        if (Cache::get('meta_ig_rate_limited') || Cache::get('meta_wa_rate_limited')) {
+            return;
+        }
+
         $lockKey = 'meta_ig_bg_sync_'.$cacheSuffix;
         if (! Cache::add($lockKey, 1, now()->addMinutes(2))) {
             return;
@@ -111,6 +116,9 @@ class InstagramAccountsController extends Controller
 
         dispatch(function () use ($cacheSuffix, $lockKey) {
             try {
+                if (Cache::get('meta_ig_rate_limited') || Cache::get('meta_wa_rate_limited')) {
+                    return;
+                }
                 app(MetaAutoSyncService::class)->sync(false);
                 $result = app(InstagramBusinessAccountService::class)->syncToConnection();
                 Cache::put('meta_ig_directory_'.$cacheSuffix, $result['accounts'], now()->addMinutes(30));

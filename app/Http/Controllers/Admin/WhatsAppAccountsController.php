@@ -21,7 +21,7 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        // Instant from cache when names are real; auto Meta sync on open when placeholders / empty.
+        // Always instant from cache/DB — never block Business Manager navigation on Meta Graph.
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
@@ -40,26 +40,11 @@ class WhatsAppAccountsController extends Controller
             $accounts = $this->seedWabasFromConnection($connection);
         }
 
-        // Placeholder seeds like "WhatsApp Business Account 8668…" must refresh on open (no Sync click).
-        if ($this->accountsNeedNameRefresh($accounts) || $request->boolean('force_sync')) {
-            try {
-                $synced = $this->runFullDirectorySync(
-                    (string) ($request->query('waba') ?: ''),
-                    true
-                );
-                $connection = $synced['connection'];
-                $accounts = $synced['accounts'];
-                $fromCache = false;
-            } catch (ValidationException $e) {
-                $error = collect($e->errors())->flatten()->first();
-                $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey);
-            } catch (\Throwable $e) {
-                $error = $e->getMessage();
-                \Illuminate\Support\Facades\Log::warning('WA_OPEN_SYNC_FAILED', ['error' => $error]);
-                $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey);
-            }
-        } elseif ($this->shouldBackgroundSync($accounts, $syncedAtKey)) {
-            $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey);
+        $needsNames = $this->accountsNeedNameRefresh($accounts);
+        $force = $request->boolean('force_sync');
+        if ($force || $needsNames || $this->shouldBackgroundSync($accounts, $syncedAtKey)) {
+            // Placeholder names / stale cache: refresh in background after HTML is sent.
+            $this->queueBackgroundSync($cacheSuffix, $wabaCacheKey, $syncedAtKey, $force || $needsNames);
         }
 
         $selectedId = (string) ($request->query('waba') ?: ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? '')));
@@ -97,6 +82,7 @@ class WhatsAppAccountsController extends Controller
             'pendingPhoneId' => old('phone_number_id', session('pending_phone_number_id')),
             'lastSyncedAt' => Cache::get($syncedAtKey) ?: ($fromCache ? 'cached' : null),
             'needsSync' => ! $fromCache && $accounts === [],
+            'syncingNames' => $needsNames,
         ]);
     }
 
@@ -182,16 +168,31 @@ class WhatsAppAccountsController extends Controller
         }
     }
 
-    protected function queueBackgroundSync(string $cacheSuffix, string $wabaCacheKey, string $syncedAtKey): void
+    protected function queueBackgroundSync(string $cacheSuffix, string $wabaCacheKey, string $syncedAtKey, bool $force = false): void
     {
+        // Don't pile Graph calls while Meta is rate-limiting WhatsApp / BM endpoints.
+        if (! $force && Cache::get('meta_wa_rate_limited')) {
+            return;
+        }
+
         $lockKey = 'meta_wa_bg_sync_'.$cacheSuffix;
         if (! Cache::add($lockKey, 1, now()->addMinutes(2))) {
             return;
         }
 
-        dispatch(function () use ($cacheSuffix, $lockKey, $wabaCacheKey, $syncedAtKey) {
+        dispatch(function () use ($cacheSuffix, $lockKey, $wabaCacheKey, $syncedAtKey, $force) {
             try {
-                app(MetaAutoSyncService::class)->sync(false);
+                if (Cache::get('meta_wa_rate_limited') && ! $force) {
+                    return;
+                }
+
+                $auto = app(MetaAutoSyncService::class);
+                if ($force) {
+                    $auto->syncAlways();
+                } else {
+                    $auto->sync(false);
+                }
+
                 $wa = app(WhatsAppBusinessAccountService::class);
                 $connection = $wa->connection();
                 $wa->resolveBusinessManagerId($connection);
@@ -203,7 +204,6 @@ class WhatsAppAccountsController extends Controller
                     && count($prev) > count($accounts)
                     && ! empty($result['incomplete'])
                 ) {
-                    // Keep wider directory on rate-limit, but still refresh names when prev is placeholders.
                     $prevNeedsNames = false;
                     foreach ($prev as $row) {
                         if (! is_array($row)) {

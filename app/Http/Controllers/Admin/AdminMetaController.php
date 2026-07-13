@@ -29,13 +29,17 @@ class AdminMetaController extends Controller
 
     public function index()
     {
-        // Instant DB read. Soft Meta sync after the HTML is sent.
+        // Instant DB read. Soft Meta sync after the HTML is sent (skipped while Meta rate-limits).
         $platformMeta = PlatformMetaConnection::query()->platformDefault()->active()->first()
             ?? PlatformMetaConnection::query()->where('connected_by', Auth::id())->first();
 
-        if (Cache::add('meta_connection_bg_sync', 1, now()->addMinutes(2))) {
+        $rateLimited = Cache::get('meta_wa_rate_limited') || Cache::get('meta_ig_rate_limited');
+        if (! $rateLimited && Cache::add('meta_connection_bg_sync', 1, now()->addMinutes(2))) {
             dispatch(function () {
                 try {
+                    if (Cache::get('meta_wa_rate_limited') || Cache::get('meta_ig_rate_limited')) {
+                        return;
+                    }
                     app(MetaAutoSyncService::class)->sync(false);
                 } catch (\Throwable $e) {
                     Log::warning('META_CONNECTION_BG_SYNC_FAILED', ['error' => $e->getMessage()]);

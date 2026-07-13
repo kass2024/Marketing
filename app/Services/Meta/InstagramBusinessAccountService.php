@@ -42,6 +42,11 @@ class InstagramBusinessAccountService
     }
 
     /**
+     * Discover Instagram accounts for ads (Marketing API / Business Asset Management).
+     *
+     * @see https://developers.facebook.com/docs/marketing-api/business-asset-management/guides/instagram-accounts/
+     * @see https://developers.facebook.com/documentation/ads-commerce/marketing-api
+     *
      * @return array<int, array{id:string,username:?string,name:?string,source:string,profile_picture_url:?string}>
      */
     public function listAccounts(?string $businessId = null): array
@@ -51,38 +56,38 @@ class InstagramBusinessAccountService
         $businessId = $businessId ?: $this->whatsapp->resolveBusinessManagerId($connection);
         $byId = [];
 
-        $fields = 'id,username,name,profile_picture_url';
-
+        // 1) Business-owned Instagram assets (Meta BM docs — primary)
         if ($businessId) {
-            foreach ([
-                'owned_instagram_accounts',
-                'owned_instagram_assets',
-                'client_instagram_assets',
-                'client_instagram_accounts',
-                'instagram_accounts',
-                'instagram_business_accounts',
-            ] as $edge) {
-                $query = [
-                    'access_token' => $token,
-                    'fields' => $fields,
-                    'limit' => 50,
-                ];
-                // Asset edges expose ig_user_id / ig_username only with metadata=1
-                if (str_contains($edge, 'instagram_asset')) {
-                    $query['metadata'] = 1;
-                    $query['fields'] = 'id,ig_user_id,ig_username,username,name,profile_picture_url';
-                }
-
+            foreach (['owned_instagram_assets', 'client_instagram_assets'] as $edge) {
                 foreach ($this->paginateEdge(
                     "{$this->graphUrl}/{$this->graphVersion}/{$businessId}/{$edge}",
-                    $query
+                    [
+                        'access_token' => $token,
+                        'metadata' => 1,
+                        'fields' => 'id,ig_user_id,ig_username,username,name,profile_picture_url',
+                        'limit' => 50,
+                    ]
+                ) as $row) {
+                    $this->mergeAccountRow($byId, $row, $edge, $token);
+                }
+            }
+
+            // Legacy account edges (still used by some BM setups)
+            foreach (['owned_instagram_accounts', 'instagram_accounts', 'client_instagram_accounts'] as $edge) {
+                foreach ($this->paginateEdge(
+                    "{$this->graphUrl}/{$this->graphVersion}/{$businessId}/{$edge}",
+                    [
+                        'access_token' => $token,
+                        'fields' => 'id,username,name,profile_picture_url',
+                        'limit' => 50,
+                    ]
                 ) as $row) {
                     $this->mergeAccountRow($byId, $row, $edge, $token);
                 }
             }
         }
 
-        // Ad account Instagram accounts (required for ads targeting)
+        // 2) Ad account Instagram accounts (Marketing API — required for ads)
         $adAccount = config('services.meta.ad_account_id')
             ?: $connection?->ad_account_id
             ?: config('platform.meta.ad_account_id');
@@ -100,66 +105,164 @@ class InstagramBusinessAccountService
             }
         }
 
-        // Pages → connected / business Instagram
+        // 3) Page → Instagram business / connected account (most reliable for @username)
+        $pageId = (string) (
+            config('services.meta.page_id')
+            ?: config('platform.meta.page_id')
+            ?: $connection?->page_id
+            ?: ''
+        );
+        $pageIg = $this->fetchPageInstagram($pageId, $token);
+        if ($pageIg) {
+            $id = (string) $pageIg['id'];
+            $byId[$id] = isset($byId[$id])
+                ? $this->preferRicherRow($byId[$id], $pageIg)
+                : $pageIg;
+        }
+
         try {
             foreach ($this->meta->listPagesWithInstagram() as $page) {
                 if (empty($page['instagram_id'])) {
                     continue;
                 }
                 $id = (string) $page['instagram_id'];
-                if (! isset($byId[$id])) {
-                    $byId[$id] = [
-                        'id' => $id,
-                        'username' => $page['instagram_username'] ?? null,
-                        'name' => $page['name'] ?? null,
-                        'source' => 'page',
-                        'profile_picture_url' => null,
-                        'page_id' => $page['id'] ?? null,
-                    ];
-                } elseif (empty($byId[$id]['username']) && ! empty($page['instagram_username'])) {
-                    $byId[$id]['username'] = $page['instagram_username'];
-                    $byId[$id]['page_id'] = $page['id'] ?? null;
-                }
+                $row = [
+                    'id' => $id,
+                    'username' => ! empty($page['instagram_username'])
+                        ? ltrim((string) $page['instagram_username'], '@')
+                        : null,
+                    'name' => $page['name'] ?? null,
+                    'source' => 'page',
+                    'profile_picture_url' => null,
+                    'page_id' => $page['id'] ?? null,
+                ];
+                $byId[$id] = isset($byId[$id]) ? $this->preferRicherRow($byId[$id], $row) : $row;
             }
         } catch (\Throwable $e) {
             Log::warning('IG_LIST_PAGES_FAILED', ['error' => $e->getMessage()]);
         }
 
-        // Locally linked / env defaults — resolve to ig user + username; never keep bare orphans
-        foreach ($this->linkedInstagramIds($connection) as $linkedId) {
+        // 4) Guaranteed seeds (.env + connection) — never allow a total empty directory
+        foreach ($this->knownInstagramIds($connection) as $seedId) {
+            if (isset($byId[$seedId])) {
+                continue;
+            }
             $already = collect($byId)->contains(
-                fn ($row) => ($row['id'] ?? '') === $linkedId || ($row['asset_id'] ?? '') === $linkedId
+                fn ($row) => ($row['asset_id'] ?? '') === $seedId
             );
             if ($already) {
                 continue;
             }
-            $detail = $this->getAccount($linkedId);
-            if ($detail) {
-                $resolvedId = (string) ($detail['id'] ?? $linkedId);
-                if (! isset($byId[$resolvedId])) {
-                    $byId[$resolvedId] = $detail;
-                } else {
-                    $byId[$resolvedId] = $this->preferRicherRow($byId[$resolvedId], $detail);
-                }
-            }
-            // Do not insert unresolved numeric IDs — they create duplicate "linked" rows without names
+            $detail = $this->getAccount($seedId);
+            $byId[$detail['id'] ?? $seedId] = $detail ?? [
+                'id' => $seedId,
+                'username' => null,
+                'name' => config('services.meta.page_name') ?: config('platform.meta.page_name'),
+                'source' => 'seed',
+                'profile_picture_url' => null,
+            ];
         }
 
-        $envIg = preg_replace('/\D+/', '', (string) config('services.meta.instagram_user_id', '')) ?: '';
-        if ($envIg !== '') {
-            if (! isset($byId[$envIg])) {
-                $detail = $this->getAccount($envIg);
-                $byId[$envIg] = $detail ?? [
-                    'id' => $envIg,
+        $byId = $this->finalizeAccounts($byId, $token);
+
+        // Last resort: if Graph returned nothing usable, still show env/connection IG
+        if ($byId === []) {
+            foreach ($this->knownInstagramIds($connection) as $seedId) {
+                $byId[$seedId] = [
+                    'id' => $seedId,
                     'username' => null,
-                    'name' => null,
-                    'source' => 'env',
+                    'name' => config('services.meta.page_name') ?: 'Instagram account',
+                    'source' => 'seed',
                     'profile_picture_url' => null,
                 ];
             }
+            if ($pageIg) {
+                $byId[(string) $pageIg['id']] = $pageIg;
+            }
         }
 
-        return array_values($this->finalizeAccounts($byId, $token));
+        Log::info('IG_LIST_ACCOUNTS_RESULT', [
+            'count' => count($byId),
+            'ids' => array_keys($byId),
+            'usernames' => collect($byId)->pluck('username')->filter()->values()->all(),
+        ]);
+
+        return array_values($byId);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function knownInstagramIds(?PlatformMetaConnection $connection): array
+    {
+        $ids = [
+            config('services.meta.instagram_user_id'),
+            config('platform.meta.instagram_user_id'),
+            $connection?->instagram_business_account_id,
+        ];
+        foreach ($this->linkedInstagramIds($connection) as $id) {
+            $ids[] = $id;
+        }
+
+        $out = [];
+        foreach ($ids as $id) {
+            $id = preg_replace('/\D+/', '', (string) $id) ?: '';
+            if ($id !== '' && ! in_array($id, $out, true)) {
+                $out[] = $id;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * GET /{page-id}?fields=instagram_business_account{id,username},connected_instagram_account{id,username}
+     *
+     * @return array{id:string,username:?string,name:?string,source:string,profile_picture_url:?string,page_id:?string}|null
+     */
+    protected function fetchPageInstagram(string $pageId, string $token): ?array
+    {
+        $pageId = preg_replace('/\D+/', '', $pageId) ?: '';
+        if ($pageId === '') {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(30)->get(
+                "{$this->graphUrl}/{$this->graphVersion}/{$pageId}",
+                [
+                    'access_token' => $token,
+                    'fields' => 'id,name,instagram_business_account{id,username},connected_instagram_account{id,username}',
+                ]
+            );
+            if (! $response->ok()) {
+                Log::info('IG_PAGE_LOOKUP_FAILED', [
+                    'page_id' => $pageId,
+                    'error' => data_get($response->json(), 'error.message'),
+                ]);
+
+                return null;
+            }
+
+            $json = $response->json();
+            $ig = $json['instagram_business_account'] ?? $json['connected_instagram_account'] ?? null;
+            if (! is_array($ig) || empty($ig['id'])) {
+                return null;
+            }
+
+            return [
+                'id' => (string) $ig['id'],
+                'username' => ! empty($ig['username']) ? ltrim((string) $ig['username'], '@') : null,
+                'name' => $json['name'] ?? null,
+                'source' => 'page',
+                'profile_picture_url' => null,
+                'page_id' => (string) ($json['id'] ?? $pageId),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('IG_PAGE_LOOKUP_EXCEPTION', ['page_id' => $pageId, 'error' => $e->getMessage()]);
+
+            return null;
+        }
     }
 
     /**
@@ -176,6 +279,19 @@ class InstagramBusinessAccountService
             return ['accounts' => $accounts, 'linked_count' => 0];
         }
 
+        // Never wipe previously linked accounts if Graph temporarily returns nothing
+        if ($accounts === []) {
+            Log::warning('IG_SYNC_EMPTY_PRESERVING_LINKED', [
+                'connection_id' => $connection->id,
+                'linked' => $connection->linked_instagram_ids,
+            ]);
+
+            return [
+                'accounts' => $this->seedDirectoryFromConnection($connection),
+                'linked_count' => count($this->linkedInstagramIds($connection)),
+            ];
+        }
+
         $linked = [];
         foreach ($accounts as $row) {
             $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
@@ -184,7 +300,6 @@ class InstagramBusinessAccountService
             }
         }
 
-        // Prefer Ads Instagram user id (1784…) over BM asset ids when choosing default
         $preferred = preg_replace('/\D+/', '', (string) (
             config('services.meta.instagram_user_id')
             ?: config('platform.meta.instagram_user_id')
@@ -192,7 +307,6 @@ class InstagramBusinessAccountService
         )) ?: '';
 
         $default = preg_replace('/\D+/', '', (string) ($connection->instagram_business_account_id ?? '')) ?: '';
-        // Upgrade stale asset-id defaults to resolved ig_user_id when present in sync
         if ($default !== '') {
             foreach ($accounts as $row) {
                 if (($row['asset_id'] ?? null) === $default && ! empty($row['id'])) {
@@ -200,31 +314,15 @@ class InstagramBusinessAccountService
                     break;
                 }
             }
-            // Drop default if it was an unresolved asset id no longer in the directory
             if ($default !== '' && ! collect($accounts)->contains(fn ($r) => (string) ($r['id'] ?? '') === $default)) {
-                $resolved = $this->getAccount($default);
-                if ($resolved && ! empty($resolved['id'])) {
-                    $default = (string) $resolved['id'];
-                    if (! in_array($default, $linked, true)) {
-                        $linked[] = $default;
-                    }
-                } elseif ($linked !== []) {
-                    $default = $linked[0];
-                }
+                $default = $preferred !== '' ? $preferred : ($linked[0] ?? '');
             }
         }
-        if ($preferred !== '' && collect($accounts)->contains(fn ($r) => (string) ($r['id'] ?? '') === $preferred)) {
+        if ($preferred !== '' && in_array($preferred, $linked, true)) {
             $default = $preferred;
         }
         if ($default === '' && $linked !== []) {
             $default = $linked[0];
-        } elseif ($default !== '' && ! in_array($default, $linked, true)) {
-            // Only keep default if it resolves to a real account in this sync
-            if (collect($accounts)->contains(fn ($r) => (string) ($r['id'] ?? '') === $default)) {
-                $linked[] = $default;
-            } elseif ($linked !== []) {
-                $default = $linked[0];
-            }
         }
 
         $connection->forceFill([
@@ -236,6 +334,25 @@ class InstagramBusinessAccountService
             'accounts' => $accounts,
             'linked_count' => count($linked),
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function seedDirectoryFromConnection(?PlatformMetaConnection $connection): array
+    {
+        $items = [];
+        foreach ($this->knownInstagramIds($connection) as $id) {
+            $items[] = [
+                'id' => $id,
+                'username' => null,
+                'name' => config('services.meta.page_name') ?: 'Instagram account',
+                'source' => 'seed',
+                'profile_picture_url' => null,
+            ];
+        }
+
+        return $items;
     }
 
     /**

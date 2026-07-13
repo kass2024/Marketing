@@ -126,7 +126,16 @@ class InstagramAccountsController extends Controller
         $items = [];
         $seen = [];
 
+        $ids = array_filter([
+            config('services.meta.instagram_user_id'),
+            config('platform.meta.instagram_user_id'),
+            $connection?->instagram_business_account_id,
+        ]);
         foreach ((array) ($connection?->linked_instagram_ids ?? []) as $id) {
+            $ids[] = $id;
+        }
+
+        foreach ($ids as $id) {
             $id = preg_replace('/\D+/', '', (string) $id) ?: '';
             if ($id === '' || isset($seen[$id])) {
                 continue;
@@ -135,18 +144,8 @@ class InstagramAccountsController extends Controller
             $items[] = [
                 'id' => $id,
                 'username' => null,
-                'name' => null,
-                'source' => 'linked',
-            ];
-        }
-
-        $default = preg_replace('/\D+/', '', (string) ($connection?->instagram_business_account_id ?? '')) ?: '';
-        if ($default !== '' && ! isset($seen[$default])) {
-            $items[] = [
-                'id' => $default,
-                'username' => null,
-                'name' => null,
-                'source' => 'connection',
+                'name' => config('services.meta.page_name') ?: 'Instagram account',
+                'source' => 'seed',
             ];
         }
 

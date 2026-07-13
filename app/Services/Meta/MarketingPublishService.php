@@ -31,11 +31,13 @@ class MarketingPublishService
      */
     public function publishFromWizard(array $wizardData, bool $activate = false): array
     {
-        // Soft sync only — never block publish on a full Meta phone directory pull
-        try {
-            app(MetaAutoSyncService::class)->sync(false);
-        } catch (\Throwable) {
-            // continue; connection validator still runs below
+        // Soft sync only — never block publish; skip entirely while Meta is rate-limiting
+        if (! \Illuminate\Support\Facades\Cache::get('meta_wa_rate_limited')) {
+            try {
+                app(MetaAutoSyncService::class)->sync(false);
+            } catch (\Throwable) {
+                // continue; connection validator still runs below
+            }
         }
 
         $connection = $this->connectionValidator->assertValid();

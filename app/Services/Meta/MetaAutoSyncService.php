@@ -283,7 +283,11 @@ class MetaAutoSyncService
 
         $chosen = null;
         foreach ($phones as $phone) {
-            if ($preferredId !== '' && (string) ($phone['id'] ?? '') === $preferredId) {
+            $id = (string) ($phone['id'] ?? '');
+            if ($id === '' || str_starts_with($id, 'display:')) {
+                continue;
+            }
+            if ($preferredId !== '' && $id === $preferredId) {
                 $chosen = $phone;
                 break;
             }
@@ -291,6 +295,10 @@ class MetaAutoSyncService
 
         if (! $chosen) {
             foreach ($phones as $phone) {
+                $id = (string) ($phone['id'] ?? '');
+                if ($id === '' || str_starts_with($id, 'display:')) {
+                    continue;
+                }
                 if (strtoupper((string) ($phone['code_verification_status'] ?? '')) === 'VERIFIED') {
                     $chosen = $phone;
                     break;
@@ -298,7 +306,19 @@ class MetaAutoSyncService
             }
         }
 
-        $chosen = $chosen ?: $phones[0];
+        if (! $chosen) {
+            foreach ($phones as $phone) {
+                $id = (string) ($phone['id'] ?? '');
+                if ($id !== '' && ! str_starts_with($id, 'display:')) {
+                    $chosen = $phone;
+                    break;
+                }
+            }
+        }
+
+        if (! $chosen) {
+            return count($phones);
+        }
 
         $connection->forceFill(array_filter([
             'whatsapp_phone_number_id' => (string) ($chosen['id'] ?? ''),

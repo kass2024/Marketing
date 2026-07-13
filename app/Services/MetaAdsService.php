@@ -2631,32 +2631,53 @@ public function getAccountStatus($accountId)
     public function humanizeMetaError(Throwable $e): string
     {
         $message = $e->getMessage();
+        $lower = strtolower($message);
 
         // Interest/targeting subcodes (2446394/2446395) must be checked before any "2446" prefix match.
         if ($this->isDetailedTargetingError($e)) {
             return 'Audience targeting needs an update — remove or replace deprecated interests and try again. $5 daily budgets are fine.';
         }
 
+        // Rate limits must win over the generic "WhatsApp … Page" mapping (#80008 contains "WhatsApp").
+        if (
+            str_contains($message, '80008')
+            || str_contains($message, '(#4)')
+            || str_contains($lower, 'request limit')
+            || str_contains($lower, 'rate limit')
+            || str_contains($lower, 'too many calls')
+            || str_contains($lower, 'application request limit')
+        ) {
+            return 'Meta is rate-limiting WhatsApp/Graph calls right now. Wait 30–60 minutes, avoid Sync/Refresh, then publish again. Your draft is fine.';
+        }
+
+        if (str_contains($message, 'display:') || str_contains($lower, 'synthetic')) {
+            return 'That WhatsApp number is display-only until Meta returns its real Phone Number ID. Pick a Cloud API number (green Verified) or wait for Sync after rate limits clear.';
+        }
+
         return match (true) {
-            str_contains($message, 'permission') || str_contains($message, 'OAuthException') =>
+            str_contains($lower, 'permission') || (str_contains($message, 'OAuthException') && ! str_contains($message, '80008')) =>
                 'Permission missing — reconnect Meta and grant ads_management, pages_manage_ads, and WhatsApp permissions.',
-            str_contains($message, 'access token') || str_contains($message, '190') =>
+            str_contains($lower, 'access token') || str_contains($message, '(#190)') =>
                 'Invalid or expired token — reconnect Meta in Admin → Meta Connection.',
-            str_contains($message, 'ad account') && str_contains($message, 'disabled') =>
+            str_contains($lower, 'ad account') && str_contains($lower, 'disabled') =>
                 'Ad account disabled or restricted — check Meta Business Manager account status.',
-            str_contains($message, 'WhatsApp') || str_contains($message, 'whatsapp') =>
+            // Only map true Page↔WhatsApp link failures (not every string that mentions WhatsApp)
+            str_contains($lower, 'not connected')
+                || str_contains($lower, 'page is not connected')
+                || str_contains($lower, 'whatsapp business number is not linked')
+                || str_contains($lower, 'link your whatsapp') =>
                 'WhatsApp number not connected to Page — link WhatsApp in Meta Business Suite.',
-            str_contains($message, 'placement') =>
+            str_contains($lower, 'placement') =>
                 'Placement unsupported for Click-to-WhatsApp — use Facebook/Instagram feed, stories, or reels.',
             // Real budget errors only (do NOT match 2446 — that prefixes interest subcodes 2446394/2446395)
             str_contains($message, '1885272')
                 || str_contains($message, '1885650')
                 || str_contains($message, '1487901')
-                || str_contains(strtolower($message), 'budget is too low')
-                || str_contains(strtolower($message), 'budget too low')
-                || str_contains(strtolower($message), 'minimum budget') =>
+                || str_contains($lower, 'budget is too low')
+                || str_contains($lower, 'budget too low')
+                || str_contains($lower, 'minimum budget') =>
                 'Budget too low for this ad set setup — $5/day is normally fine for USD accounts. Try publishing again or check the ad account currency in Meta.',
-            str_contains($message, 'creative') || str_contains($message, '1487') =>
+            str_contains($lower, 'creative') || str_contains($message, '1487') =>
                 'Creative invalid — check image size, text length, and WhatsApp CTA configuration.',
             default => $message,
         };

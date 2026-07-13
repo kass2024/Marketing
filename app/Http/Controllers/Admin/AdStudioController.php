@@ -91,9 +91,11 @@ class AdStudioController extends Controller
     public function identities(): JsonResponse
     {
         // Soft sync (throttled) then pull pages / IG — used after page paint
-        try {
-            $this->autoSync->sync(false);
-        } catch (Throwable) {
+        if (! Cache::get('meta_wa_rate_limited')) {
+            try {
+                $this->autoSync->sync(false);
+            } catch (Throwable) {
+            }
         }
 
         $connection = app(TenantConnectionResolver::class)->forCurrentUser();
@@ -183,23 +185,29 @@ class AdStudioController extends Controller
 
     public function whatsappNumbers(Request $request): JsonResponse
     {
-        // Throttled sync by default; force only when user clicks Refresh
+        // Throttled sync by default; force only when user clicks Refresh (and Meta isn't cooling down)
         try {
-            if ($request->boolean('force')) {
+            if ($request->boolean('force') && ! Cache::get('meta_wa_rate_limited')) {
                 $this->autoSync->syncAlways();
-            } else {
+            } elseif (! Cache::get('meta_wa_rate_limited')) {
                 $this->autoSync->sync(false);
             }
         } catch (Throwable) {
         }
 
         $connection = app(TenantConnectionResolver::class)->forCurrentUser();
+        try {
+            app(WhatsAppBusinessAccountService::class)->applyDurableWhatsAppDirectory($connection);
+            $connection = $connection?->fresh() ?? $connection;
+        } catch (Throwable) {
+        }
 
         return response()->json([
             'success' => true,
             'data' => $this->resolveWhatsAppNumbers($connection),
-            'synced_from_meta' => true,
+            'synced_from_meta' => ! (bool) Cache::get('meta_wa_rate_limited'),
             'auto_sync' => true,
+            'rate_limited' => (bool) Cache::get('meta_wa_rate_limited'),
             'synced_at' => now()->toIso8601String(),
         ]);
     }
@@ -785,31 +793,39 @@ class AdStudioController extends Controller
                 return;
             }
             $seen[$digits] = true;
+            $synthetic = str_starts_with($id, 'display:');
             $numbers[] = [
                 'id' => $id,
-                'label' => $label,
+                'label' => $synthetic ? ($label.' (synced from Meta BM)') : $label,
                 'phone' => $digits,
                 'display' => $this->formatDisplayPhone($digits),
-                'phone_number_id' => $id,
+                'phone_number_id' => $synthetic ? '' : $id,
                 'verified' => $verified,
                 'waba_name' => $wabaName,
+                'display_only' => $synthetic,
             ];
         };
 
-        $phones = [];
-        try {
-            $wabaService = app(WhatsAppBusinessAccountService::class);
-            // Force BM discovery before listing so all owned/client WABAs appear
-            $wabaService->resolveBusinessManagerId($connection);
-            $phones = $wabaService->listAllPhoneNumbers();
-        } catch (Throwable $e) {
-            Log::warning('AD_STUDIO_WA_LIST_FAILED', ['error' => $e->getMessage()]);
-            $cacheKey = 'meta_wa_phone_directory_'.($connection?->id ?? 'platform');
-            $cached = Cache::get($cacheKey);
-            if (is_array($cached)) {
-                $phones = $cached;
+        // Prefer durable local directory — do not hit Graph while Meta is rate-limiting.
+        $wabaService = app(WhatsAppBusinessAccountService::class);
+        $phones = $wabaService->loadPhoneDirectory($connection);
+
+        if ($phones === [] && ! Cache::get('meta_wa_rate_limited')) {
+            try {
+                $wabaService->resolveBusinessManagerId($connection);
+                $phones = $wabaService->listAllPhoneNumbers(false);
+            } catch (Throwable $e) {
+                Log::warning('AD_STUDIO_WA_LIST_FAILED', ['error' => $e->getMessage()]);
             }
         }
+
+        // Real Meta phone ids first, synthetic display: stubs last
+        usort($phones, function ($a, $b) {
+            $aSyn = is_array($a) && str_starts_with((string) ($a['id'] ?? ''), 'display:');
+            $bSyn = is_array($b) && str_starts_with((string) ($b['id'] ?? ''), 'display:');
+
+            return ((int) $aSyn) <=> ((int) $bSyn);
+        });
 
         foreach ($phones as $phone) {
             if (! is_array($phone)) {
@@ -824,18 +840,21 @@ class AdStudioController extends Controller
             }
             $verified = array_key_exists('verified', $phone)
                 ? (bool) $phone['verified']
-                : app(WhatsAppBusinessAccountService::class)->isPhoneVerified($phone);
+                : $wabaService->isPhoneVerified($phone);
             $push((string) ($phone['id'] ?? ''), $label, $digits, $verified, $wabaName !== '' ? $wabaName : null);
         }
 
         if ($connection?->whatsapp_phone_number) {
             $digits = preg_replace('/\D+/', '', $connection->whatsapp_phone_number) ?? '';
-            $push(
-                (string) ($connection->whatsapp_phone_number_id ?: 'platform'),
-                $connection->page_name ?? $connection->business_name ?? 'Platform default',
-                $digits,
-                true
-            );
+            $platformId = (string) ($connection->whatsapp_phone_number_id ?: 'platform');
+            if (! str_starts_with($platformId, 'display:')) {
+                $push(
+                    $platformId,
+                    $connection->page_name ?? $connection->business_name ?? 'Platform default',
+                    $digits,
+                    true
+                );
+            }
         }
 
         return $numbers;

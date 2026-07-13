@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\Meta\InstagramBusinessAccountService;
 use App\Services\Meta\MetaAutoSyncService;
+use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -20,13 +21,13 @@ class InstagramAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        // Menu clicks are always cache/DB-only. Meta Graph only via POST sync.
         $connection = $this->instagram->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $igCacheKey = 'meta_ig_directory_'.$cacheSuffix;
         $syncedAtKey = 'meta_ig_synced_at_'.$cacheSuffix;
 
         $error = null;
+        $autoSynced = false;
         $accounts = [];
         $fromCache = false;
 
@@ -36,6 +37,21 @@ class InstagramAccountsController extends Controller
             $fromCache = true;
         } else {
             $accounts = $this->seedFromConnection($connection);
+        }
+
+        // Auto-sync when opening the page if cache is empty, missing usernames, or stale
+        if ($this->shouldAutoSync($accounts, $syncedAtKey)) {
+            try {
+                $this->autoSync->sync(false);
+                $result = $this->instagram->syncToConnection();
+                $accounts = $result['accounts'];
+                Cache::put($igCacheKey, $accounts, now()->addMinutes(30));
+                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+                $fromCache = false;
+                $autoSynced = true;
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+            }
         }
 
         $selectedId = (string) ($request->query('ig')
@@ -60,8 +76,39 @@ class InstagramAccountsController extends Controller
             'error' => $error,
             'lastSyncedAt' => Cache::get($syncedAtKey) ?: ($fromCache ? 'cached' : null),
             'needsSync' => ! $fromCache && $accounts === [],
+            'autoSynced' => $autoSynced,
             'metaBusinessSuiteUrl' => 'https://business.facebook.com/latest/settings/instagram_account_settings',
         ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $accounts
+     */
+    protected function shouldAutoSync(array $accounts, string $syncedAtKey): bool
+    {
+        if ($accounts === []) {
+            return true;
+        }
+
+        foreach ($accounts as $row) {
+            if (! is_array($row)) {
+                return true;
+            }
+            if (empty($row['username'])) {
+                return true;
+            }
+        }
+
+        $at = Cache::get($syncedAtKey);
+        if (! $at || $at === 'cached') {
+            return true;
+        }
+
+        try {
+            return Carbon::parse((string) $at)->lt(now()->subMinutes(15));
+        } catch (\Throwable) {
+            return true;
+        }
     }
 
     /**
@@ -77,6 +124,7 @@ class InstagramAccountsController extends Controller
             if ($id === '' || isset($seen[$id])) {
                 continue;
             }
+            // Prefer Ads IG user ids; skip likely BM asset ids when a user id is already linked
             $seen[$id] = true;
             $items[] = [
                 'id' => $id,
@@ -108,6 +156,7 @@ class InstagramAccountsController extends Controller
         try {
             $result = $this->instagram->importExistingAccount($data['instagram_id']);
             Cache::forget('meta_ig_directory_'.($this->instagram->connection()?->id ?? 'platform'));
+            Cache::forget('meta_ig_synced_at_'.($this->instagram->connection()?->id ?? 'platform'));
 
             return redirect()
                 ->route('admin.meta.instagram.index', [
@@ -150,9 +199,20 @@ class InstagramAccountsController extends Controller
             Cache::put('meta_ig_directory_'.$suffix, $result['accounts'], now()->addMinutes(30));
             Cache::put('meta_ig_synced_at_'.$suffix, now()->toDateTimeString(), now()->addMinutes(30));
 
+            $names = collect($result['accounts'])
+                ->map(fn ($a) => ! empty($a['username']) ? '@'.$a['username'] : ($a['id'] ?? ''))
+                ->filter()
+                ->values()
+                ->all();
+
+            $label = count($result['accounts']) === 1
+                ? ('Synced '.($names[0] ?? '1 Instagram account').' from Meta.')
+                : (count($result['accounts']).' Instagram account(s) synced from Meta'
+                    .($names !== [] ? ': '.implode(', ', $names) : '').'.');
+
             return redirect()
                 ->route('admin.meta.instagram.index')
-                ->with('success', count($result['accounts']).' Instagram account(s) synced from Meta.');
+                ->with('success', $label);
         } catch (\Throwable $e) {
             return redirect()
                 ->route('admin.meta.instagram.index')

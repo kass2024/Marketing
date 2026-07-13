@@ -30,8 +30,9 @@ class InstagramBusinessAccountService
         protected WhatsAppBusinessAccountService $whatsapp,
         protected MetaAdsService $meta
     ) {
-        $this->graphVersion = config('platform.meta.graph_version', config('services.meta.graph_version', 'v22.0'));
-        $this->graphUrl = rtrim(config('platform.meta.graph_url', config('services.meta.graph_url', 'https://graph.facebook.com')), '/');
+        // Keep Graph version aligned with MetaAdsService (ads + pages lookups)
+        $this->graphVersion = config('services.meta.graph_version', config('platform.meta.graph_version', 'v22.0'));
+        $this->graphUrl = rtrim(config('services.meta.graph_url', config('platform.meta.graph_url', 'https://graph.facebook.com')), '/');
     }
 
     public function connection(): ?PlatformMetaConnection
@@ -124,9 +125,11 @@ class InstagramBusinessAccountService
             Log::warning('IG_LIST_PAGES_FAILED', ['error' => $e->getMessage()]);
         }
 
-        // Locally linked / env defaults
+        // Locally linked / env defaults — resolve to ig user + username; never keep bare orphans
         foreach ($this->linkedInstagramIds($connection) as $linkedId) {
-            $already = collect($byId)->contains(fn ($row) => ($row['id'] ?? '') === $linkedId || ($row['asset_id'] ?? '') === $linkedId);
+            $already = collect($byId)->contains(
+                fn ($row) => ($row['id'] ?? '') === $linkedId || ($row['asset_id'] ?? '') === $linkedId
+            );
             if ($already) {
                 continue;
             }
@@ -135,31 +138,28 @@ class InstagramBusinessAccountService
                 $resolvedId = (string) ($detail['id'] ?? $linkedId);
                 if (! isset($byId[$resolvedId])) {
                     $byId[$resolvedId] = $detail;
+                } else {
+                    $byId[$resolvedId] = $this->preferRicherRow($byId[$resolvedId], $detail);
                 }
-            } else {
-                $byId[$linkedId] = [
-                    'id' => $linkedId,
+            }
+            // Do not insert unresolved numeric IDs — they create duplicate "linked" rows without names
+        }
+
+        $envIg = preg_replace('/\D+/', '', (string) config('services.meta.instagram_user_id', '')) ?: '';
+        if ($envIg !== '') {
+            if (! isset($byId[$envIg])) {
+                $detail = $this->getAccount($envIg);
+                $byId[$envIg] = $detail ?? [
+                    'id' => $envIg,
                     'username' => null,
                     'name' => null,
-                    'source' => 'linked',
+                    'source' => 'env',
                     'profile_picture_url' => null,
                 ];
             }
         }
 
-        $envIg = preg_replace('/\D+/', '', (string) config('services.meta.instagram_user_id', '')) ?: '';
-        if ($envIg !== '' && ! isset($byId[$envIg])) {
-            $detail = $this->getAccount($envIg);
-            $byId[$envIg] = $detail ?? [
-                'id' => $envIg,
-                'username' => null,
-                'name' => null,
-                'source' => 'env',
-                'profile_picture_url' => null,
-            ];
-        }
-
-        return array_values($this->hydrateMissingUsernames($byId, $token));
+        return array_values($this->finalizeAccounts($byId, $token));
     }
 
     /**
@@ -200,6 +200,18 @@ class InstagramBusinessAccountService
                     break;
                 }
             }
+            // Drop default if it was an unresolved asset id no longer in the directory
+            if ($default !== '' && ! collect($accounts)->contains(fn ($r) => (string) ($r['id'] ?? '') === $default)) {
+                $resolved = $this->getAccount($default);
+                if ($resolved && ! empty($resolved['id'])) {
+                    $default = (string) $resolved['id'];
+                    if (! in_array($default, $linked, true)) {
+                        $linked[] = $default;
+                    }
+                } elseif ($linked !== []) {
+                    $default = $linked[0];
+                }
+            }
         }
         if ($preferred !== '' && collect($accounts)->contains(fn ($r) => (string) ($r['id'] ?? '') === $preferred)) {
             $default = $preferred;
@@ -207,7 +219,12 @@ class InstagramBusinessAccountService
         if ($default === '' && $linked !== []) {
             $default = $linked[0];
         } elseif ($default !== '' && ! in_array($default, $linked, true)) {
-            $linked[] = $default;
+            // Only keep default if it resolves to a real account in this sync
+            if (collect($accounts)->contains(fn ($r) => (string) ($r['id'] ?? '') === $default)) {
+                $linked[] = $default;
+            } elseif ($linked !== []) {
+                $default = $linked[0];
+            }
         }
 
         $connection->forceFill([
@@ -348,8 +365,39 @@ class InstagramBusinessAccountService
             $igUserId = preg_replace('/\D+/', '', (string) ($json['ig_user_id'] ?? '')) ?: '';
             $username = $json['ig_username'] ?? $json['username'] ?? null;
             if ($igUserId !== '' || $username) {
+                $resolvedId = (string) ($igUserId !== '' ? $igUserId : $instagramId);
+                // Metadata often returns ig_user_id without username — fetch it from the IG user node
+                if (! $username && $resolvedId !== '') {
+                    $userRes = Http::timeout(30)->get(
+                        "{$this->graphUrl}/{$this->graphVersion}/{$resolvedId}",
+                        [
+                            'access_token' => $token,
+                            'fields' => 'id,username,name,profile_picture_url',
+                        ]
+                    );
+                    if ($userRes->ok()) {
+                        $userJson = $userRes->json();
+                        $username = $userJson['username'] ?? $userJson['ig_username'] ?? null;
+                        $json['name'] = $json['name'] ?? ($userJson['name'] ?? null);
+                        $json['profile_picture_url'] = $json['profile_picture_url']
+                            ?? ($userJson['profile_picture_url'] ?? $userJson['profile_pic'] ?? null);
+                    }
+                }
+                if (! $username) {
+                    try {
+                        foreach ($this->meta->listPagesWithInstagram() as $page) {
+                            if ((string) ($page['instagram_id'] ?? '') === $resolvedId && ! empty($page['instagram_username'])) {
+                                $username = $page['instagram_username'];
+                                break;
+                            }
+                        }
+                    } catch (\Throwable) {
+                        // ignore
+                    }
+                }
+
                 return [
-                    'id' => (string) ($igUserId !== '' ? $igUserId : $instagramId),
+                    'id' => $resolvedId,
                     'username' => $username ? ltrim((string) $username, '@') : null,
                     'name' => $json['name'] ?? null,
                     'source' => 'asset_metadata',
@@ -473,6 +521,155 @@ class InstagramBusinessAccountService
     }
 
     /**
+     * Hydrate usernames, collapse BM asset IDs into IG user IDs, drop duplicates.
+     *
+     * @param  array<string, array<string, mixed>>  $byId
+     * @return array<string, array<string, mixed>>
+     */
+    protected function finalizeAccounts(array $byId, string $token): array
+    {
+        $byId = $this->hydrateMissingUsernames($byId, $token);
+
+        // Collapse any row that is only a BM asset pointing at another IG user row
+        $assetOwners = [];
+        foreach ($byId as $id => $row) {
+            $assetId = preg_replace('/\D+/', '', (string) ($row['asset_id'] ?? '')) ?: '';
+            if ($assetId !== '' && $assetId !== $id) {
+                $assetOwners[$assetId] = (string) $id;
+            }
+        }
+        foreach (array_keys($byId) as $id) {
+            if (isset($assetOwners[$id]) && $assetOwners[$id] !== $id) {
+                $ownerId = $assetOwners[$id];
+                if (isset($byId[$ownerId])) {
+                    $byId[$ownerId] = $this->preferRicherRow($byId[$ownerId], array_merge($byId[$id], [
+                        'id' => $ownerId,
+                        'asset_id' => $id,
+                    ]));
+                }
+                unset($byId[$id]);
+            }
+        }
+
+        // Resolve leftover non-IG-user ids (BM assets like 629…) into 1784… user ids
+        foreach (array_keys($byId) as $id) {
+            if (! isset($byId[$id])) {
+                continue;
+            }
+            if ($this->looksLikeIgUserId($id) && ! empty($byId[$id]['username'])) {
+                continue;
+            }
+            $detail = $this->getAccount((string) $id);
+            if (! $detail || empty($detail['id'])) {
+                // Drop nameless unresolved asset clones when we already have a real IG user
+                if (! $this->looksLikeIgUserId($id) && $this->hasNamedIgUser($byId)) {
+                    unset($byId[$id]);
+                }
+                continue;
+            }
+            $resolvedId = (string) $detail['id'];
+            if ($resolvedId === $id) {
+                $byId[$id] = $this->preferRicherRow($byId[$id], $detail);
+                continue;
+            }
+            $merged = $this->preferRicherRow($byId[$id], $detail);
+            $merged['id'] = $resolvedId;
+            $merged['asset_id'] = $merged['asset_id'] ?? $id;
+            unset($byId[$id]);
+            $byId[$resolvedId] = isset($byId[$resolvedId])
+                ? $this->preferRicherRow($byId[$resolvedId], $merged)
+                : $merged;
+        }
+
+        // Page-connected Instagram is the most reliable username source
+        try {
+            foreach ($this->meta->listPagesWithInstagram() as $page) {
+                $igId = preg_replace('/\D+/', '', (string) ($page['instagram_id'] ?? '')) ?: '';
+                $username = $page['instagram_username'] ?? null;
+                if ($igId === '') {
+                    continue;
+                }
+                if (! isset($byId[$igId])) {
+                    $byId[$igId] = [
+                        'id' => $igId,
+                        'username' => $username ? ltrim((string) $username, '@') : null,
+                        'name' => $page['name'] ?? null,
+                        'source' => 'page',
+                        'profile_picture_url' => null,
+                        'page_id' => $page['id'] ?? null,
+                    ];
+                } elseif ($username && empty($byId[$igId]['username'])) {
+                    $byId[$igId]['username'] = ltrim((string) $username, '@');
+                    $byId[$igId]['page_id'] = $page['id'] ?? $byId[$igId]['page_id'] ?? null;
+                    if (empty($byId[$igId]['name']) && ! empty($page['name'])) {
+                        $byId[$igId]['name'] = $page['name'];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('IG_FINALIZE_PAGES_FAILED', ['error' => $e->getMessage()]);
+        }
+
+        // Final cleanup: drop unresolved asset rows when a named IG user exists
+        if ($this->hasNamedIgUser($byId)) {
+            foreach (array_keys($byId) as $id) {
+                if (! $this->looksLikeIgUserId($id) && empty($byId[$id]['username'])) {
+                    unset($byId[$id]);
+                }
+            }
+        }
+
+        // Normalize username display
+        foreach ($byId as $id => $row) {
+            if (! empty($row['username'])) {
+                $byId[$id]['username'] = ltrim((string) $row['username'], '@');
+            }
+        }
+
+        return $byId;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $byId
+     */
+    protected function hasNamedIgUser(array $byId): bool
+    {
+        foreach ($byId as $id => $row) {
+            if ($this->looksLikeIgUserId((string) $id) && ! empty($row['username'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function looksLikeIgUserId(string $id): bool
+    {
+        // Ads / Instagram Graph user ids are typically 17+ digits starting with 1784
+        return str_starts_with($id, '1784') || strlen($id) >= 16;
+    }
+
+    /**
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     * @return array<string, mixed>
+     */
+    protected function preferRicherRow(array $a, array $b): array
+    {
+        $out = $a;
+        foreach (['username', 'name', 'profile_picture_url', 'page_id', 'asset_id', 'source'] as $key) {
+            if (empty($out[$key]) && ! empty($b[$key])) {
+                $out[$key] = $b[$key];
+            }
+        }
+        if (! empty($b['username']) && empty($a['username'])) {
+            $out['username'] = ltrim((string) $b['username'], '@');
+        }
+
+        return $out;
+    }
+
+    /**
      * Fill @username / name for any rows that still only have numeric IDs.
      *
      * @param  array<string, array<string, mixed>>  $byId
@@ -510,7 +707,7 @@ class InstagramBusinessAccountService
                 'username' => $username ?: ($row['username'] ?? null),
                 'name' => $detail['name'] ?? ($row['name'] ?? null),
                 'profile_picture_url' => $detail['profile_picture_url'] ?? ($row['profile_picture_url'] ?? null),
-                'source' => $row['source'] ?? ($detail['source'] ?? 'graph'),
+                'source' => ! empty($detail['username']) ? ($detail['source'] ?? $row['source'] ?? 'graph') : ($row['source'] ?? 'graph'),
             ]);
             if (! empty($detail['asset_id'])) {
                 $merged['asset_id'] = $detail['asset_id'];
@@ -521,7 +718,9 @@ class InstagramBusinessAccountService
             if ($resolvedId !== $id) {
                 unset($byId[$id]);
             }
-            $byId[$resolvedId] = $merged;
+            $byId[$resolvedId] = isset($byId[$resolvedId])
+                ? $this->preferRicherRow($byId[$resolvedId], $merged)
+                : $merged;
         }
 
         return $byId;
@@ -561,7 +760,8 @@ class InstagramBusinessAccountService
             $username = $json['ig_username'] ?? $json['username'] ?? null;
 
             return [
-                'ig_user_id' => preg_replace('/\D+/', '', (string) ($json['ig_user_id'] ?? $json['id'] ?? '')) ?: null,
+                'ig_user_id' => preg_replace('/\D+/', '', (string) ($json['ig_user_id'] ?? ''))
+                    ?: (preg_replace('/\D+/', '', (string) ($json['id'] ?? '')) ?: null),
                 'ig_username' => $username,
                 'username' => $username,
             ];

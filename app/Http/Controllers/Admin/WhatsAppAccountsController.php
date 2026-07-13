@@ -21,7 +21,6 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        // Menu clicks are always cache/DB-only. Meta Graph only via POST syncNow.
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
@@ -38,6 +37,30 @@ class WhatsAppAccountsController extends Controller
             $fromCache = true;
         } else {
             $accounts = $this->seedWabasFromConnection($connection);
+        }
+
+        // Auto-sync when opening if empty or stale (15 min)
+        $syncedAt = Cache::get($syncedAtKey);
+        $stale = ! $syncedAt || $syncedAt === 'cached';
+        if (! $stale) {
+            try {
+                $stale = \Carbon\Carbon::parse((string) $syncedAt)->lt(now()->subMinutes(15));
+            } catch (\Throwable) {
+                $stale = true;
+            }
+        }
+        if ($accounts === [] || $stale) {
+            try {
+                $this->autoSync->sync(false);
+                $connection = $this->whatsapp->connection();
+                $this->whatsapp->resolveBusinessManagerId($connection);
+                $accounts = $this->whatsapp->listWabas();
+                Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+                $fromCache = false;
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+            }
         }
 
         $selectedId = (string) ($request->query('waba') ?: ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? '')));

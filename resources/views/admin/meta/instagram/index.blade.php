@@ -23,10 +23,13 @@
             <p class="text-xs font-medium text-slate-500">Business Manager / Accounts</p>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Instagram accounts</h1>
             <p class="mt-0.5 text-sm text-slate-600">
-                Opens instantly from cache — use <strong>Sync now</strong> to refresh from Meta.
+                Auto-syncs when you open this page (and every 15 minutes). Use <strong>Sync now</strong> to force a refresh.
                 @isset($lastSyncedAt)
                     <span class="text-slate-400">Last sync: {{ $lastSyncedAt }}</span>
                 @endisset
+                @if(!empty($autoSynced))
+                    <span class="text-emerald-600"> · Just refreshed from Meta</span>
+                @endif
             </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">

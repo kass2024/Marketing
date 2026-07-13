@@ -9,6 +9,7 @@ use App\Services\Tenant\TenantConnectionResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -28,15 +29,21 @@ class AdminMetaController extends Controller
 
     public function index()
     {
-        // Soft auto-sync from .env / Graph so Connection page stays fresh
-        try {
-            app(MetaAutoSyncService::class)->sync(false);
-        } catch (\Throwable $e) {
-            Log::warning('META_CONNECTION_PAGE_AUTO_SYNC_FAILED', ['error' => $e->getMessage()]);
-        }
-
+        // Instant DB read. Soft Meta sync after the HTML is sent.
         $platformMeta = PlatformMetaConnection::query()->platformDefault()->active()->first()
             ?? PlatformMetaConnection::query()->where('connected_by', Auth::id())->first();
+
+        if (Cache::add('meta_connection_bg_sync', 1, now()->addMinutes(2))) {
+            dispatch(function () {
+                try {
+                    app(MetaAutoSyncService::class)->sync(false);
+                } catch (\Throwable $e) {
+                    Log::warning('META_CONNECTION_BG_SYNC_FAILED', ['error' => $e->getMessage()]);
+                } finally {
+                    Cache::forget('meta_connection_bg_sync');
+                }
+            })->afterResponse();
+        }
 
         return view('admin.meta.index', compact('platformMeta'));
     }

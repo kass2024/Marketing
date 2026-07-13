@@ -16,7 +16,14 @@ class TenantMonitorController extends Controller
 {
     public function index(MetaAutoSyncService $autoSync): View
     {
-        $autoSync->sync(false);
+        // Don't block tenant monitor on Meta — refresh after response
+        dispatch(function () use ($autoSync) {
+            try {
+                $autoSync->sync(false);
+            } catch (\Throwable) {
+                // ignore background failures
+            }
+        })->afterResponse();
 
         $tenants = Client::query()
             ->with(['user', 'platformMetaConnections'])

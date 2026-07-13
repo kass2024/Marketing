@@ -21,6 +21,7 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
+        // Instant: cache/DB only. Meta Graph syncs after response when stale.
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
@@ -39,9 +40,8 @@ class WhatsAppAccountsController extends Controller
             $accounts = $this->seedWabasFromConnection($connection);
         }
 
-        // Auto-sync when opening if empty or stale (15 min)
         $syncedAt = Cache::get($syncedAtKey);
-        $stale = ! $syncedAt || $syncedAt === 'cached';
+        $stale = ! $syncedAt || $syncedAt === 'cached' || $accounts === [];
         if (! $stale) {
             try {
                 $stale = \Carbon\Carbon::parse((string) $syncedAt)->lt(now()->subMinutes(15));
@@ -49,17 +49,24 @@ class WhatsAppAccountsController extends Controller
                 $stale = true;
             }
         }
-        if ($accounts === [] || $stale) {
-            try {
-                $this->autoSync->sync(false);
-                $connection = $this->whatsapp->connection();
-                $this->whatsapp->resolveBusinessManagerId($connection);
-                $accounts = $this->whatsapp->listWabas();
-                Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
-                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-                $fromCache = false;
-            } catch (\Throwable $e) {
-                $error = $e->getMessage();
+        if ($stale) {
+            $lockKey = 'meta_wa_bg_sync_'.$cacheSuffix;
+            if (Cache::add($lockKey, 1, now()->addMinutes(2))) {
+                dispatch(function () use ($cacheSuffix, $lockKey, $wabaCacheKey, $syncedAtKey) {
+                    try {
+                        app(MetaAutoSyncService::class)->sync(false);
+                        $wa = app(WhatsAppBusinessAccountService::class);
+                        $connection = $wa->connection();
+                        $wa->resolveBusinessManagerId($connection);
+                        $accounts = $wa->listWabas();
+                        Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                        Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('WA_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
+                    } finally {
+                        Cache::forget($lockKey);
+                    }
+                })->afterResponse();
             }
         }
 

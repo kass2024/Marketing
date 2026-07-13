@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -21,13 +22,12 @@ class InstagramAccountsController extends Controller
 
     public function index(Request $request): View
     {
+        // Instant: cache/DB only. Meta Graph runs after the response (or Sync now).
         $connection = $this->instagram->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $igCacheKey = 'meta_ig_directory_'.$cacheSuffix;
         $syncedAtKey = 'meta_ig_synced_at_'.$cacheSuffix;
 
-        $error = null;
-        $autoSynced = false;
         $accounts = [];
         $fromCache = false;
 
@@ -39,19 +39,8 @@ class InstagramAccountsController extends Controller
             $accounts = $this->seedFromConnection($connection);
         }
 
-        // Auto-sync when opening the page if cache is empty, missing usernames, or stale
-        if ($this->shouldAutoSync($accounts, $syncedAtKey)) {
-            try {
-                $this->autoSync->sync(false);
-                $result = $this->instagram->syncToConnection();
-                $accounts = $result['accounts'];
-                Cache::put($igCacheKey, $accounts, now()->addMinutes(30));
-                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
-                $fromCache = false;
-                $autoSynced = true;
-            } catch (\Throwable $e) {
-                $error = $e->getMessage();
-            }
+        if ($this->shouldBackgroundSync($accounts, $syncedAtKey)) {
+            $this->queueBackgroundSync($cacheSuffix);
         }
 
         $selectedId = (string) ($request->query('ig')
@@ -73,10 +62,10 @@ class InstagramAccountsController extends Controller
             'selectedId' => $selectedId,
             'selected' => $selected,
             'search' => $search,
-            'error' => $error,
+            'error' => null,
             'lastSyncedAt' => Cache::get($syncedAtKey) ?: ($fromCache ? 'cached' : null),
             'needsSync' => ! $fromCache && $accounts === [],
-            'autoSynced' => $autoSynced,
+            'autoSynced' => false,
             'metaBusinessSuiteUrl' => 'https://business.facebook.com/latest/settings/instagram_account_settings',
         ]);
     }
@@ -84,17 +73,14 @@ class InstagramAccountsController extends Controller
     /**
      * @param  array<int, array<string, mixed>>  $accounts
      */
-    protected function shouldAutoSync(array $accounts, string $syncedAtKey): bool
+    protected function shouldBackgroundSync(array $accounts, string $syncedAtKey): bool
     {
         if ($accounts === []) {
             return true;
         }
 
         foreach ($accounts as $row) {
-            if (! is_array($row)) {
-                return true;
-            }
-            if (empty($row['username'])) {
+            if (! is_array($row) || empty($row['username'])) {
                 return true;
             }
         }
@@ -111,6 +97,27 @@ class InstagramAccountsController extends Controller
         }
     }
 
+    protected function queueBackgroundSync(string $cacheSuffix): void
+    {
+        $lockKey = 'meta_ig_bg_sync_'.$cacheSuffix;
+        if (! Cache::add($lockKey, 1, now()->addMinutes(2))) {
+            return;
+        }
+
+        dispatch(function () use ($cacheSuffix, $lockKey) {
+            try {
+                app(MetaAutoSyncService::class)->sync(false);
+                $result = app(InstagramBusinessAccountService::class)->syncToConnection();
+                Cache::put('meta_ig_directory_'.$cacheSuffix, $result['accounts'], now()->addMinutes(30));
+                Cache::put('meta_ig_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
+            } catch (\Throwable $e) {
+                Log::warning('IG_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
+            } finally {
+                Cache::forget($lockKey);
+            }
+        })->afterResponse();
+    }
+
     /**
      * @return array<int, array{id:string,username:?string,name:?string,source:string}>
      */
@@ -124,7 +131,6 @@ class InstagramAccountsController extends Controller
             if ($id === '' || isset($seen[$id])) {
                 continue;
             }
-            // Prefer Ads IG user ids; skip likely BM asset ids when a user id is already linked
             $seen[$id] = true;
             $items[] = [
                 'id' => $id,

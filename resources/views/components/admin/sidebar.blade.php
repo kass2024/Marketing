@@ -24,7 +24,18 @@ $r = $routeName ?: Route::currentRouteName();
         openAutomation: {{ str_contains($r, 'admin.inbox')
             || str_contains($r, 'admin.faq')
             || str_contains($r, 'admin.bulk') ? 'true' : 'false' }},
-        openSettings: {{ str_contains($r, 'admin.settings') || str_contains($r, 'admin.users') ? 'true' : 'false' }}
+        openSettings: {{ str_contains($r, 'admin.settings') || str_contains($r, 'admin.users') ? 'true' : 'false' }},
+        prefetch(url) {
+            if (!url || url === '#' || url.startsWith('javascript:')) return;
+            this._prefetched = this._prefetched || new Set();
+            if (this._prefetched.has(url)) return;
+            this._prefetched.add(url);
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.href = url;
+            link.as = 'document';
+            document.head.appendChild(link);
+        }
     }"
     class="flex h-full w-full min-h-0 flex-col border-r border-white/10 bg-gradient-to-b from-xander-navy via-xander-navy to-xander-accent text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
 >
@@ -74,6 +85,8 @@ $r = $routeName ?: Route::currentRouteName();
     <nav
         class="flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-2.5 py-3 text-sm [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.2)_transparent]"
         @click.capture="if ($event.target.closest('a[href]')) { $dispatch('close-mobile-nav') }"
+        @mouseover="const a = $event.target.closest('a[href]'); if (a) prefetch(a.href)"
+        @focusin="const a = $event.target.closest('a[href]'); if (a) prefetch(a.href)"
     >
 
         @if($isSuperAdmin)

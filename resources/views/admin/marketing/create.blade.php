@@ -40,6 +40,8 @@
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">Ad Studio</h1>
             <p class="mt-0.5 text-sm text-slate-600">
                 Upload a creative — Gemini fills campaign, ad set, and ad copy automatically (Click-to-WhatsApp).
+                <span class="text-slate-400" x-show="liveSyncing"> · Syncing Meta in background…</span>
+                <span class="text-emerald-600" x-show="!liveSyncing && liveSyncedOnce"> · Live data ready</span>
             </p>
         </div>
         <div class="flex shrink-0 flex-wrap items-center gap-2">
@@ -504,7 +506,7 @@
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <p class="text-sm font-bold text-slate-900">WhatsApp phone number</p>
                                 <div class="flex items-center gap-3">
-                                    <button type="button" @click="refreshWhatsAppNumbers()" :disabled="waLoading"
+                                    <button type="button" @click="refreshWhatsAppNumbers(true)" :disabled="waLoading"
                                         class="text-xs font-semibold text-[#075E54] underline disabled:opacity-50">
                                         <span x-show="!waLoading">Refresh</span>
                                         <span x-show="waLoading">Syncing…</span>
@@ -878,6 +880,8 @@ function adStudio(config) {
         identityError: '',
         identitySuccess: '',
         showAddIg: false,
+        liveSyncing: false,
+        liveSyncedOnce: false,
         countryOptions: config.countryOptions || {},
         waLoading: false,
         waError: '',
@@ -946,12 +950,25 @@ function adStudio(config) {
             if (!this.form.instagram_user_id && this.instagramAccounts.length) {
                 this.form.instagram_user_id = this.instagramAccounts[0].id;
             }
-            this.refreshWhatsAppNumbers();
-            this.refreshIdentities();
             this.$watch('form.countries', () => this.scheduleCitySuggestions());
             this.$watch('form.geo_mode', () => this.scheduleCitySuggestions());
             if (this.form.geo_mode === 'countries_and_cities') {
                 this.scheduleCitySuggestions();
+            }
+            // Live-load Meta after first paint (do not block navigation)
+            requestAnimationFrame(() => this.liveSyncMeta(false));
+        },
+
+        async liveSyncMeta(force = false) {
+            this.liveSyncing = true;
+            try {
+                await Promise.all([
+                    this.refreshWhatsAppNumbers(force),
+                    this.refreshIdentities(),
+                ]);
+                this.liveSyncedOnce = true;
+            } finally {
+                this.liveSyncing = false;
             }
         },
 
@@ -1315,11 +1332,12 @@ function adStudio(config) {
             this.form.regions = this.form.regions.filter(r => r.key !== key);
         },
 
-        async refreshWhatsAppNumbers() {
+        async refreshWhatsAppNumbers(force = false) {
             this.waLoading = true;
             this.waError = '';
             try {
-                const res = await fetch('{{ route('admin.marketing.create.whatsapp-numbers') }}', {
+                const url = '{{ route('admin.marketing.create.whatsapp-numbers') }}' + (force ? '?force=1' : '');
+                const res = await fetch(url, {
                     headers: { 'Accept': 'application/json' },
                 });
                 const data = await res.json();

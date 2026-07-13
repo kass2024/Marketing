@@ -51,33 +51,14 @@ class AdStudioController extends Controller
 
     public function create(): View
     {
-        if (config('platform.whatsapp_always_sync', true)) {
-            $this->autoSync->syncAlways();
-        } else {
-            $this->autoSync->sync(false);
-        }
-
+        // Fast path: never block Ad Studio render on Meta Graph calls.
+        // Live sync happens client-side via /identities + /whatsapp-numbers.
         $connection = app(TenantConnectionResolver::class)->forCurrentUser();
         $connectionStatus = $this->connectionValidator->validate($connection);
-        $pages = [];
-        $instagramAccounts = [];
 
-        try {
-            $pages = TenantScope::filterPages($this->meta->listPagesWithInstagram());
-        } catch (Throwable) {
-            try {
-                $pages = TenantScope::filterPages($this->meta->getPages());
-            } catch (Throwable) {
-            }
-        }
-
-        try {
-            $instagramAccounts = $this->resolveInstagramAccounts($connection, $pages);
-        } catch (Throwable) {
-            $instagramAccounts = [];
-        }
-
-        $whatsappNumbers = $this->resolveWhatsAppNumbers($connection);
+        $pages = $this->seedPagesFromConnection($connection);
+        $instagramAccounts = $this->seedInstagramFromConnection($connection);
+        $whatsappNumbers = $this->seedWhatsAppFromCache($connection);
 
         return view('admin.marketing.create', [
             'connection' => $connection,
@@ -86,7 +67,7 @@ class AdStudioController extends Controller
             'instagramAccounts' => $instagramAccounts,
             'whatsappNumbers' => $whatsappNumbers,
             'countryOptions' => config('meta.countries', []),
-            'metaAutoSynced' => true,
+            'metaAutoSynced' => false,
             'objectives' => ClickToWhatsAppCreativeBuilder::campaignObjectives(),
             'templates' => CreativeTemplateRegistry::templates(),
             'placementOptions' => CreativeTemplateRegistry::placements(),
@@ -104,12 +85,23 @@ class AdStudioController extends Controller
 
     public function identities(): JsonResponse
     {
+        // Soft sync (throttled) then pull pages / IG — used after page paint
+        try {
+            $this->autoSync->sync(false);
+        } catch (Throwable) {
+        }
+
         $connection = app(TenantConnectionResolver::class)->forCurrentUser();
         $pages = [];
         try {
             $pages = TenantScope::filterPages($this->meta->listPagesWithInstagram());
         } catch (Throwable $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'pages' => $this->seedPagesFromConnection($connection),
+                'instagram' => $this->seedInstagramFromConnection($connection),
+            ], 422);
         }
 
         $instagram = $this->resolveInstagramAccounts($connection, $pages);
@@ -184,9 +176,18 @@ class AdStudioController extends Controller
         ]);
     }
 
-    public function whatsappNumbers(): JsonResponse
+    public function whatsappNumbers(Request $request): JsonResponse
     {
-        $this->autoSync->syncAlways();
+        // Throttled sync by default; force only when user clicks Refresh
+        try {
+            if ($request->boolean('force')) {
+                $this->autoSync->syncAlways();
+            } else {
+                $this->autoSync->sync(false);
+            }
+        } catch (Throwable) {
+        }
+
         $connection = app(TenantConnectionResolver::class)->forCurrentUser();
 
         return response()->json([
@@ -502,6 +503,119 @@ class AdStudioController extends Controller
     /**
      * @return array<int, array{id: string, label: string, phone: string, display: string, phone_number_id: string, verified: bool, waba_name?: string}>
      */
+    /**
+     * Instant seed from DB — no Graph round-trips (Ad Studio first paint).
+     *
+     * @return array<int, array{id:string,name:string,instagram_id:?string,instagram_username:?string}>
+     */
+    protected function seedPagesFromConnection(?PlatformMetaConnection $connection): array
+    {
+        if (! $connection?->page_id) {
+            return [];
+        }
+
+        return [[
+            'id' => (string) $connection->page_id,
+            'name' => (string) ($connection->page_name ?: $connection->page_id),
+            'instagram_id' => $connection->instagram_business_account_id
+                ? (string) $connection->instagram_business_account_id
+                : null,
+            'instagram_username' => null,
+        ]];
+    }
+
+    /**
+     * @return array<int, array{id:string,username:?string,label:string,source:string,page_id:?string}>
+     */
+    protected function seedInstagramFromConnection(?PlatformMetaConnection $connection): array
+    {
+        $items = [];
+        $seen = [];
+
+        foreach ((array) ($connection?->linked_instagram_ids ?? []) as $id) {
+            $id = preg_replace('/\D+/', '', (string) $id) ?: '';
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = [
+                'id' => $id,
+                'username' => null,
+                'label' => $id,
+                'source' => 'manual',
+                'page_id' => $connection?->page_id,
+            ];
+        }
+
+        $default = preg_replace('/\D+/', '', (string) ($connection?->instagram_business_account_id ?? '')) ?: '';
+        if ($default !== '' && ! isset($seen[$default])) {
+            $items[] = [
+                'id' => $default,
+                'username' => null,
+                'label' => $default,
+                'source' => 'connection',
+                'page_id' => $connection?->page_id,
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Prefer cached phone directory so first paint stays instant.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function seedWhatsAppFromCache(?PlatformMetaConnection $connection): array
+    {
+        $cacheKey = 'meta_wa_phone_directory_'.($connection?->id ?? 'platform');
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && $cached !== []) {
+            // Lightweight map without calling Meta
+            $numbers = [];
+            $seen = [];
+            foreach ($cached as $phone) {
+                if (! is_array($phone)) {
+                    continue;
+                }
+                $digits = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?? '';
+                if ($digits === '' || isset($seen[$digits])) {
+                    continue;
+                }
+                $seen[$digits] = true;
+                $name = trim((string) ($phone['verified_name'] ?? ''));
+                $numbers[] = [
+                    'id' => (string) ($phone['id'] ?? $digits),
+                    'label' => $name !== '' ? $name : 'WhatsApp number',
+                    'phone' => $digits,
+                    'display' => $this->formatDisplayPhone($digits),
+                    'phone_number_id' => (string) ($phone['id'] ?? ''),
+                    'verified' => true,
+                    'waba_name' => $phone['waba_name'] ?? null,
+                ];
+            }
+            if ($numbers !== []) {
+                return $numbers;
+            }
+        }
+
+        if ($connection?->whatsapp_phone_number) {
+            $digits = preg_replace('/\D+/', '', $connection->whatsapp_phone_number) ?? '';
+
+            return [[
+                'id' => (string) ($connection->whatsapp_phone_number_id ?: 'platform'),
+                'label' => $connection->page_name ?? $connection->business_name ?? 'Platform default',
+                'phone' => $digits,
+                'display' => $this->formatDisplayPhone($digits),
+                'phone_number_id' => (string) ($connection->whatsapp_phone_number_id ?: ''),
+                'verified' => true,
+                'waba_name' => null,
+            ]];
+        }
+
+        return [];
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $pages
      * @return array<int, array{id:string,username:?string,label:string,source:string,page_id:?string}>

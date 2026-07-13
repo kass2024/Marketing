@@ -399,28 +399,19 @@ protected function handleError($response, $endpoint, $payload = [])
             }
         }
 
-        // Deep lookup for preferred / all pages when Graph nested fields were empty
-        $pageIds = array_unique(array_filter(array_merge(
-            [$preferredPageId],
-            array_column($this->listPagesWithInstagram(), 'id')
-        )));
-
-        foreach ($pageIds as $pageId) {
-            $diag = $this->diagnoseInstagramConnection((string) $pageId);
+        // Only deep-lookup the preferred page (avoid N Graph calls per page — was making Ad Studio hang)
+        $preferred = trim((string) ($preferredPageId ?? ''));
+        if ($preferred !== '' && ! collect($byId)->contains(fn ($row) => ($row['page_id'] ?? null) === $preferred)) {
+            $diag = $this->diagnoseInstagramConnection($preferred);
             $igId = (string) ($diag['instagram_user_id'] ?? '');
-            if ($igId === '') {
-                continue;
-            }
-            if (! isset($byId[$igId])) {
+            if ($igId !== '' && ! isset($byId[$igId])) {
                 $byId[$igId] = [
                     'id' => $igId,
                     'username' => $diag['instagram_username'] ?? null,
                     'source' => (string) ($diag['source'] ?? 'page'),
-                    'page_id' => (string) $pageId,
+                    'page_id' => $preferred,
                     'page_name' => null,
                 ];
-            } elseif (empty($byId[$igId]['username']) && ! empty($diag['instagram_username'])) {
-                $byId[$igId]['username'] = $diag['instagram_username'];
             }
         }
 

@@ -19,8 +19,12 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        // Always sync WhatsApp assets when opening this page
-        $this->autoSync->syncAlways();
+        // Sync only when forced — page loads stay fast; Refresh / force_sync still live-pulls Meta
+        if ($request->boolean('force_sync')) {
+            $this->autoSync->syncAlways();
+        } else {
+            $this->autoSync->sync(false);
+        }
 
         $connection = $this->whatsapp->connection();
         $error = null;

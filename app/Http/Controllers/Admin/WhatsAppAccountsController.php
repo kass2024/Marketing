@@ -23,6 +23,11 @@ class WhatsAppAccountsController extends Controller
     {
         // Always instant from cache/DB — never block Business Manager navigation on Meta Graph.
         $connection = $this->whatsapp->connection();
+
+        // Forever floor: fix bad WABA ids + apply Meta BM seeds (names/phones) before render
+        $healed = $this->whatsapp->applyDurableWhatsAppDirectory($connection);
+        $connection = $this->whatsapp->connection();
+
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
         $phoneCacheKey = 'meta_wa_phone_directory_'.$cacheSuffix;
@@ -34,7 +39,7 @@ class WhatsAppAccountsController extends Controller
 
         $cached = Cache::get($wabaCacheKey);
         if (is_array($cached) && $cached !== []) {
-            $accounts = $cached;
+            $accounts = $this->whatsapp->mergePreferringRealNames($healed['accounts'] ?? [], $cached);
             $fromCache = true;
         } else {
             // Durable local directory first (DB), then id seeds
@@ -44,10 +49,14 @@ class WhatsAppAccountsController extends Controller
                     $this->seedWabasFromConnection($connection),
                     $dbAccounts
                 );
+                $accounts = $this->whatsapp->mergePreferringRealNames($healed['accounts'] ?? [], $accounts);
                 Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
                 $fromCache = true;
             } else {
-                $accounts = $this->seedWabasFromConnection($connection);
+                $accounts = $this->whatsapp->mergePreferringRealNames(
+                    $healed['accounts'] ?? [],
+                    $this->seedWabasFromConnection($connection)
+                );
             }
         }
 
@@ -57,6 +66,8 @@ class WhatsAppAccountsController extends Controller
             if ($dbPhones !== []) {
                 Cache::put($phoneCacheKey, $dbPhones, now()->addMinutes(30));
             }
+        } elseif (! empty($healed['phones'])) {
+            Cache::put($phoneCacheKey, $healed['phones'], now()->addMinutes(30));
         }
 
         $needsNames = $this->accountsNeedNameRefresh($accounts);
@@ -67,6 +78,10 @@ class WhatsAppAccountsController extends Controller
         }
 
         $selectedId = (string) ($request->query('waba') ?: ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? '')));
+        $aliases = (array) config('whatsapp_directory.id_aliases', []);
+        if ($selectedId !== '' && isset($aliases[$selectedId])) {
+            $selectedId = $aliases[$selectedId];
+        }
         $selected = collect($accounts)->firstWhere('id', $selectedId);
         $detail = $selected ?: ($selectedId !== '' ? [
             'id' => $selectedId,
@@ -273,6 +288,10 @@ class WhatsAppAccountsController extends Controller
     {
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
+
+        // Floor first — names/numbers visible even if Graph is still #80008'd
+        $this->whatsapp->applyDurableWhatsAppDirectory($connection);
+        $connection = $this->whatsapp->connection();
         $phoneSnapshot = $this->whatsapp->loadPhoneDirectory($connection);
 
         if ($force) {
@@ -417,6 +436,10 @@ class WhatsAppAccountsController extends Controller
         }
 
         $this->whatsapp->persistWabaDirectory($connection, $accounts);
+        // Re-apply seeds so Graph placeholders cannot blank Meta-known names/numbers
+        $healed = $this->whatsapp->applyDurableWhatsAppDirectory($connection);
+        $accounts = $this->whatsapp->mergePreferringRealNames($healed['accounts'] ?? [], $accounts);
+        Cache::put($cacheKey, $accounts, now()->addMinutes(30));
 
         return [
             'connection' => $connection,

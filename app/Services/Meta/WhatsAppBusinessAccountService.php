@@ -456,6 +456,8 @@ class WhatsAppBusinessAccountService
         ])->saveQuietly();
 
         $this->persistWabaDirectory($connection, $accounts);
+        $healed = $this->applyDurableWhatsAppDirectory($connection);
+        $accounts = $this->mergePreferringRealNames($healed['accounts'] ?? [], $accounts);
 
         return [
             'accounts' => $accounts,
@@ -686,6 +688,252 @@ class WhatsAppBusinessAccountService
     }
 
     /**
+     * Canonicalize bad linked ids + apply durable Meta BM seeds so placeholder names
+     * and known Business App numbers never disappear under Graph #80008 / empty pulls.
+     *
+     * @return array{accounts: array<int, array<string, mixed>>, phones: array<int, array<string, mixed>>}
+     */
+    public function applyDurableWhatsAppDirectory(?PlatformMetaConnection $connection = null): array
+    {
+        $connection ??= $this->connection();
+        $accounts = [];
+        $phones = [];
+
+        if (! $connection) {
+            return ['accounts' => [], 'phones' => []];
+        }
+
+        $aliases = (array) config('whatsapp_directory.id_aliases', []);
+        $seeds = (array) config('whatsapp_directory.seeds', []);
+
+        // --- Fix wrong WABA ids (e.g. 2185…0246 → 2185…8246) ---
+        $linked = $this->linkedWabaIds($connection);
+        $rewritten = false;
+        $newLinked = [];
+        foreach ($linked as $id) {
+            $canon = (string) ($aliases[$id] ?? $id);
+            if ($canon !== $id) {
+                $rewritten = true;
+            }
+            if ($canon !== '' && ! in_array($canon, $newLinked, true)) {
+                $newLinked[] = $canon;
+            }
+        }
+        foreach (array_keys($seeds) as $seedId) {
+            $seedId = preg_replace('/\D+/', '', (string) $seedId) ?: '';
+            if ($seedId !== '' && ! in_array($seedId, $newLinked, true)) {
+                $newLinked[] = $seedId;
+                $rewritten = true;
+            }
+        }
+
+        $dir = (array) ($connection->linked_waba_directory ?? []);
+        $dirById = [];
+        foreach ($dir as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($id === '') {
+                continue;
+            }
+            if (isset($aliases[$id])) {
+                $id = $aliases[$id];
+                $row['id'] = $id;
+                $rewritten = true;
+            }
+            $dirById[$id] = $row;
+        }
+
+        // --- Seed floor names ---
+        foreach ($seeds as $seedId => $seed) {
+            if (! is_array($seed)) {
+                continue;
+            }
+            $seedId = preg_replace('/\D+/', '', (string) $seedId) ?: '';
+            if ($seedId === '') {
+                continue;
+            }
+            $seedName = trim((string) ($seed['name'] ?? ''));
+            $existing = $dirById[$seedId] ?? null;
+            $existingName = is_array($existing) ? (string) ($existing['name'] ?? '') : '';
+            if ($seedName === '') {
+                continue;
+            }
+            if (! is_array($existing) || $this->isPlaceholderWabaName($existingName, $seedId)) {
+                $dirById[$seedId] = array_merge(is_array($existing) ? $existing : [], [
+                    'id' => $seedId,
+                    'name' => $seedName,
+                    'ownership_type' => $seed['ownership_type'] ?? ($existing['ownership_type'] ?? 'meta_seed'),
+                ]);
+                $rewritten = true;
+            }
+        }
+
+        // Ensure every linked id stays in the directory (never shrink to seed-only).
+        foreach ($newLinked as $id) {
+            if (isset($dirById[$id])) {
+                continue;
+            }
+            $dirById[$id] = [
+                'id' => $id,
+                'name' => isset($seeds[$id]['name'])
+                    ? (string) $seeds[$id]['name']
+                    : ('WhatsApp Business Account '.$id),
+                'ownership_type' => $seeds[$id]['ownership_type'] ?? 'linked_import',
+            ];
+        }
+
+        $accounts = array_values($dirById);
+        if ($rewritten || $accounts !== []) {
+            // Persist names without wiping other linked ids
+            $previousLinked = $this->linkedWabaIds($connection);
+            $this->persistWabaDirectory($connection, $accounts);
+            $mergedLinked = array_values(array_unique(array_filter(array_merge($previousLinked, $newLinked))));
+            if ($mergedLinked !== []) {
+                $connection->forceFill(['linked_waba_ids' => $mergedLinked])->saveQuietly();
+            }
+            Cache::put(
+                'meta_waba_directory_'.($connection->id ?? 'platform'),
+                $accounts,
+                now()->addMinutes(30)
+            );
+        }
+
+        // --- Seed floor phones (upgrade synthetic → real Graph id when present) ---
+        $previous = $this->loadPhoneDirectory($connection);
+        $byKey = [];
+        foreach ($previous as $phone) {
+            if (! is_array($phone) || empty($phone['id'])) {
+                continue;
+            }
+            $wid = (string) ($phone['waba_id'] ?? '');
+            if (isset($aliases[$wid])) {
+                $phone['waba_id'] = $aliases[$wid];
+                $wid = $aliases[$wid];
+            }
+            $digits = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?: '';
+            $key = $wid.'|'.(strlen($digits) >= 10 ? substr($digits, -10) : (string) $phone['id']);
+            $byKey[$key] = $phone;
+        }
+
+        foreach ($seeds as $seedId => $seed) {
+            if (! is_array($seed)) {
+                continue;
+            }
+            $seedId = preg_replace('/\D+/', '', (string) $seedId) ?: '';
+            foreach ((array) ($seed['phones'] ?? []) as $seedPhone) {
+                if (! is_array($seedPhone)) {
+                    continue;
+                }
+                $display = (string) ($seedPhone['display_phone_number'] ?? '');
+                $digits = preg_replace('/\D+/', '', $display) ?: '';
+                if ($seedId === '' || $digits === '') {
+                    continue;
+                }
+                $tail = strlen($digits) >= 10 ? substr($digits, -10) : $digits;
+                $key = $seedId.'|'.$tail;
+
+                // Prefer existing Graph row that already has a real Meta phone id
+                if (isset($byKey[$key])) {
+                    $existingId = (string) ($byKey[$key]['id'] ?? '');
+                    if ($existingId !== '' && ! str_starts_with($existingId, 'display:')) {
+                        continue;
+                    }
+                }
+
+                $syntheticId = (string) ($seedPhone['id'] ?? ('display:'.$seedId.':'.$tail));
+                $byKey[$key] = array_merge($byKey[$key] ?? [], [
+                    'id' => isset($byKey[$key]['id']) && ! str_starts_with((string) $byKey[$key]['id'], 'display:')
+                        ? $byKey[$key]['id']
+                        : $syntheticId,
+                    'display_phone_number' => $display,
+                    'verified_name' => $seedPhone['verified_name'] ?? ($seed['name'] ?? null),
+                    'status' => $seedPhone['status'] ?? 'CONNECTED',
+                    'verified' => (bool) ($seedPhone['verified'] ?? true),
+                    'platform_type' => $seedPhone['platform_type'] ?? 'NOT_APPLICABLE',
+                    'code_verification_status' => $seedPhone['code_verification_status'] ?? 'VERIFIED',
+                    'quality_rating' => $seedPhone['quality_rating'] ?? null,
+                    'waba_id' => $seedId,
+                    'waba_name' => $seed['name'] ?? null,
+                ]);
+            }
+        }
+
+        // Drop phones still pointing at aliased-away wrong WABA ids
+        foreach ($byKey as $key => $phone) {
+            $wid = (string) ($phone['waba_id'] ?? '');
+            if (isset($aliases[$wid])) {
+                unset($byKey[$key]);
+            }
+        }
+
+        $phones = array_values($byKey);
+        $this->persistPhoneDirectory($connection, $phones);
+
+        Log::info('WA_DURABLE_DIRECTORY_APPLIED', [
+            'connection_id' => $connection->id,
+            'accounts' => count($accounts),
+            'phones' => count($phones),
+            'aliases_applied' => $rewritten,
+        ]);
+
+        return [
+            'accounts' => $accounts,
+            'phones' => $phones,
+        ];
+    }
+
+    /**
+     * When Graph returns real phone ids, replace durable display: stubs matched by last 10 digits.
+     *
+     * @param  array<int, array<string, mixed>>  $incoming
+     * @return array<int, array<string, mixed>>
+     */
+    public function upgradeSyntheticPhones(array $previous, array $incoming): array
+    {
+        $realByWabaDigits = [];
+        foreach ($incoming as $phone) {
+            if (! is_array($phone) || empty($phone['id'])) {
+                continue;
+            }
+            $id = (string) $phone['id'];
+            if (str_starts_with($id, 'display:')) {
+                continue;
+            }
+            $wid = (string) ($phone['waba_id'] ?? '');
+            $digits = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?: '';
+            $tail = strlen($digits) >= 10 ? substr($digits, -10) : $digits;
+            if ($wid === '' || $tail === '') {
+                continue;
+            }
+            $realByWabaDigits[$wid.'|'.$tail] = $phone;
+        }
+
+        if ($realByWabaDigits === []) {
+            return $this->mergePhoneDirectories($previous, $incoming);
+        }
+
+        $kept = [];
+        foreach ($previous as $phone) {
+            if (! is_array($phone) || empty($phone['id'])) {
+                continue;
+            }
+            $id = (string) $phone['id'];
+            $wid = (string) ($phone['waba_id'] ?? '');
+            $digits = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?: '';
+            $tail = strlen($digits) >= 10 ? substr($digits, -10) : $digits;
+            $key = $wid.'|'.$tail;
+            if (str_starts_with($id, 'display:') && isset($realByWabaDigits[$key])) {
+                continue; // drop stub — real row added via merge below
+            }
+            $kept[] = $phone;
+        }
+
+        return $this->mergePhoneDirectories($kept, $incoming);
+    }
+
+    /**
      * Persist WABA names locally — never overwrite a real name with a placeholder.
      *
      * @param  array<int, array<string, mixed>>  $accounts
@@ -697,6 +945,19 @@ class WhatsAppBusinessAccountService
         if (! $connection) {
             return $accounts;
         }
+
+        // Canonicalize ids before merge
+        $aliases = (array) config('whatsapp_directory.id_aliases', []);
+        foreach ($accounts as &$row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($id !== '' && isset($aliases[$id])) {
+                $row['id'] = $aliases[$id];
+            }
+        }
+        unset($row);
 
         $merged = $this->mergePreferringRealNames(
             (array) ($connection->linked_waba_directory ?? []),
@@ -712,6 +973,9 @@ class WhatsAppBusinessAccountService
             if ($id === '') {
                 continue;
             }
+            if (isset($aliases[$id])) {
+                $id = $aliases[$id];
+            }
             $slim[] = [
                 'id' => $id,
                 'name' => $this->bestWabaDisplayName($row, $id),
@@ -719,16 +983,21 @@ class WhatsAppBusinessAccountService
             ];
         }
 
-        $updates = [
-            'linked_waba_ids' => array_values(array_unique(array_column($slim, 'id'))),
-        ];
+        $updates = [];
         if (\Illuminate\Support\Facades\Schema::hasColumn($connection->getTable(), 'linked_waba_directory')) {
             $updates['linked_waba_directory'] = array_values($slim);
         }
+        // Merge linked ids — never shrink the known list when only a partial directory is persisted
+        $prevLinked = $this->linkedWabaIds($connection);
+        $fromSlim = array_column($slim, 'id');
+        $updates['linked_waba_ids'] = array_values(array_unique(array_filter(array_merge($prevLinked, $fromSlim))));
         $connection->forceFill($updates)->saveQuietly();
 
-        $cacheKey = 'meta_waba_directory_'.($connection->id ?? 'platform');
-        Cache::put($cacheKey, array_values($slim), now()->addMinutes(30));
+        Cache::put(
+            'meta_waba_directory_'.($connection->id ?? 'platform'),
+            array_values($slim),
+            now()->addMinutes(30)
+        );
 
         return array_values($slim);
     }
@@ -778,10 +1047,10 @@ class WhatsAppBusinessAccountService
         if ($incoming === []) {
             $merged = $previous;
         } else {
-            $merged = $this->mergePhoneDirectories($previous, $incoming);
+            $merged = $this->upgradeSyntheticPhones($previous, $incoming);
             // If Meta returns far fewer phones, keep the richer local set (rate-limit safety)
             if (count($previous) > count($incoming) && count($incoming) <= 2 && count($previous) > 2) {
-                $merged = $this->mergePhoneDirectories($previous, $incoming);
+                $merged = $this->upgradeSyntheticPhones($previous, $incoming);
             }
         }
 

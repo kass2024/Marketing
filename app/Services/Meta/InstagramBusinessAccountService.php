@@ -5,6 +5,7 @@ namespace App\Services\Meta;
 use App\Models\PlatformMetaConnection;
 use App\Services\MetaAdsService;
 use App\Services\Tenant\TenantConnectionResolver;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -51,8 +52,19 @@ class InstagramBusinessAccountService
      */
     public function listAccounts(?string $businessId = null): array
     {
-        $token = $this->requireToken();
         $connection = $this->connection();
+
+        // When Meta is throttling, serve last synced directory (Meta + platform-linked)
+        if (Cache::get('meta_ig_rate_limited')) {
+            $seeded = $this->seedDirectoryFromConnection($connection);
+            if ($seeded !== []) {
+                Log::info('IG_LIST_USING_PERSISTED_DIRECTORY', ['count' => count($seeded)]);
+
+                return $seeded;
+            }
+        }
+
+        $token = $this->requireToken();
         $businessId = $businessId ?: $this->whatsapp->resolveBusinessManagerId($connection);
         $byId = [];
 
@@ -131,7 +143,8 @@ class InstagramBusinessAccountService
                     'username' => ! empty($page['instagram_username'])
                         ? ltrim((string) $page['instagram_username'], '@')
                         : null,
-                    'name' => $page['name'] ?? null,
+                    // Never use Facebook Page name as the Instagram label
+                    'name' => ! empty($page['instagram_name']) ? (string) $page['instagram_name'] : null,
                     'source' => 'page',
                     'profile_picture_url' => null,
                     'page_id' => $page['id'] ?? null,
@@ -142,7 +155,7 @@ class InstagramBusinessAccountService
             Log::warning('IG_LIST_PAGES_FAILED', ['error' => $e->getMessage()]);
         }
 
-        // 4) Guaranteed seeds (.env + connection) — never allow a total empty directory
+        // 4) Previously synced / linked IDs — hydrate from Meta, never from .env username
         foreach ($this->knownInstagramIds($connection) as $seedId) {
             if (isset($byId[$seedId])) {
                 continue;
@@ -154,28 +167,25 @@ class InstagramBusinessAccountService
                 continue;
             }
             $detail = $this->getAccount($seedId);
-            $byId[$detail['id'] ?? $seedId] = $detail ?? [
-                'id' => $seedId,
-                'username' => $this->configuredUsernameFor($seedId),
-                'name' => null,
-                'source' => 'seed',
-                'profile_picture_url' => null,
-            ];
+            if ($detail) {
+                $byId[$detail['id'] ?? $seedId] = $detail;
+            } else {
+                $byId[$seedId] = $this->rowFromPersistedDirectory($connection, $seedId) ?? [
+                    'id' => $seedId,
+                    'username' => null,
+                    'name' => null,
+                    'source' => 'linked',
+                    'profile_picture_url' => null,
+                ];
+            }
         }
 
         $byId = $this->finalizeAccounts($byId, $token);
-        $byId = $this->applyConfiguredUsernameFallbacks($byId);
 
-        // Last resort: if Graph returned nothing usable, still show env/connection IG
+        // Last resort: show previously synced Meta directory (or linked ids) — not .env handles
         if ($byId === []) {
-            foreach ($this->knownInstagramIds($connection) as $seedId) {
-                $byId[$seedId] = [
-                    'id' => $seedId,
-                    'username' => $this->configuredUsernameFor($seedId),
-                    'name' => null,
-                    'source' => 'seed',
-                    'profile_picture_url' => null,
-                ];
+            foreach ($this->seedDirectoryFromConnection($connection) as $row) {
+                $byId[(string) $row['id']] = $row;
             }
             if ($pageIg) {
                 $byId[(string) $pageIg['id']] = $pageIg;
@@ -184,6 +194,10 @@ class InstagramBusinessAccountService
 
         foreach ($byId as $id => $row) {
             $byId[$id] = $this->sanitizeAccountLabels(is_array($row) ? $row : []);
+        }
+
+        if (collect($byId)->contains(fn ($row) => ! empty($row['username']))) {
+            Cache::forget('meta_ig_rate_limited');
         }
 
         Log::info('IG_LIST_ACCOUNTS_RESULT', [
@@ -237,7 +251,7 @@ class InstagramBusinessAccountService
                 "{$this->graphUrl}/{$this->graphVersion}/{$pageId}",
                 [
                     'access_token' => $token,
-                    'fields' => 'id,name,instagram_business_account{id,username},connected_instagram_account{id,username}',
+                    'fields' => 'id,name,access_token,instagram_business_account{id,username,name},connected_instagram_account{id,username,name}',
                 ]
             );
             if (! $response->ok()) {
@@ -255,10 +269,30 @@ class InstagramBusinessAccountService
                 return null;
             }
 
+            $username = ! empty($ig['username']) ? ltrim((string) $ig['username'], '@') : null;
+            $igName = ! empty($ig['name']) ? (string) $ig['name'] : null;
+
+            // Nested username often missing on system-user token — retry IG node with page token
+            if (! $username && ! empty($json['access_token'])) {
+                $igRes = Http::timeout(30)->get(
+                    "{$this->graphUrl}/{$this->graphVersion}/{$ig['id']}",
+                    [
+                        'access_token' => $json['access_token'],
+                        'fields' => 'id,username,name,profile_picture_url',
+                    ]
+                );
+                if ($igRes->ok()) {
+                    $username = ! empty($igRes->json('username'))
+                        ? ltrim((string) $igRes->json('username'), '@')
+                        : null;
+                    $igName = $igName ?: ($igRes->json('name') ?: null);
+                }
+            }
+
             return [
                 'id' => (string) $ig['id'],
-                'username' => ! empty($ig['username']) ? ltrim((string) $ig['username'], '@') : null,
-                'name' => $json['name'] ?? null,
+                'username' => $username,
+                'name' => $igName,
                 'source' => 'page',
                 'profile_picture_url' => null,
                 'page_id' => (string) ($json['id'] ?? $pageId),
@@ -297,6 +331,9 @@ class InstagramBusinessAccountService
             ];
         }
 
+        // Preserve previously synced @usernames when Meta is rate-limited / omits them
+        $accounts = $this->mergePreservedUsernames($accounts, $connection);
+
         $linked = [];
         foreach ($accounts as $row) {
             $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
@@ -332,6 +369,7 @@ class InstagramBusinessAccountService
 
         $connection->forceFill([
             'linked_instagram_ids' => array_values($linked),
+            'linked_instagram_directory' => $this->slimDirectory($accounts),
             'instagram_business_account_id' => $default !== '' ? $default : $connection->instagram_business_account_id,
         ])->saveQuietly();
 
@@ -342,71 +380,131 @@ class InstagramBusinessAccountService
     }
 
     /**
+     * Keep last Meta-synced @username when the latest Graph pull omitted it.
+     *
+     * @param  array<int, array<string, mixed>>  $accounts
+     * @return array<int, array<string, mixed>>
+     */
+    protected function mergePreservedUsernames(array $accounts, PlatformMetaConnection $connection): array
+    {
+        $prev = [];
+        foreach ((array) ($connection->linked_instagram_directory ?? []) as $row) {
+            if (! is_array($row) || empty($row['id'])) {
+                continue;
+            }
+            $prev[(string) $row['id']] = $row;
+        }
+
+        foreach ($accounts as $i => $row) {
+            $id = (string) ($row['id'] ?? '');
+            if ($id === '' || ! empty($row['username']) || empty($prev[$id]['username'])) {
+                continue;
+            }
+            $accounts[$i]['username'] = ltrim((string) $prev[$id]['username'], '@');
+            if (empty($accounts[$i]['name']) && ! empty($prev[$id]['name'])) {
+                $accounts[$i]['name'] = $prev[$id]['name'];
+            }
+            $accounts[$i] = $this->sanitizeAccountLabels($accounts[$i]);
+        }
+
+        return $accounts;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function seedDirectoryForDisplay(?PlatformMetaConnection $connection = null): array
+    {
+        return $this->seedDirectoryFromConnection($connection ?? $this->connection());
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     protected function seedDirectoryFromConnection(?PlatformMetaConnection $connection): array
     {
         $items = [];
-        foreach ($this->knownInstagramIds($connection) as $id) {
-            $items[] = [
+        $seen = [];
+
+        foreach ((array) ($connection?->linked_instagram_directory ?? []) as $row) {
+            if (! is_array($row) || empty($row['id'])) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) $row['id']) ?: '';
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = $this->sanitizeAccountLabels([
                 'id' => $id,
-                'username' => $this->configuredUsernameFor($id),
+                'username' => $row['username'] ?? null,
+                'name' => $row['name'] ?? null,
+                'source' => $row['source'] ?? 'synced',
+                'profile_picture_url' => $row['profile_picture_url'] ?? null,
+            ]);
+        }
+
+        foreach ($this->knownInstagramIds($connection) as $id) {
+            if (isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = $this->sanitizeAccountLabels([
+                'id' => $id,
+                'username' => null,
                 'name' => null,
-                'source' => 'seed',
+                'source' => 'linked',
                 'profile_picture_url' => null,
+            ]);
+        }
+
+        return $items;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $accounts
+     * @return array<int, array{id:string,username:?string,name:?string,source:?string,profile_picture_url:?string}>
+     */
+    protected function slimDirectory(array $accounts): array
+    {
+        $out = [];
+        foreach ($accounts as $row) {
+            if (! is_array($row) || empty($row['id'])) {
+                continue;
+            }
+            $out[] = [
+                'id' => (string) $row['id'],
+                'username' => ! empty($row['username']) ? ltrim((string) $row['username'], '@') : null,
+                'name' => $row['name'] ?? null,
+                'source' => $row['source'] ?? 'synced',
+                'profile_picture_url' => $row['profile_picture_url'] ?? null,
             ];
         }
 
-        return array_map(fn ($row) => $this->sanitizeAccountLabels($row), $items);
+        return $out;
     }
 
     /**
-     * Optional .env fallback when Graph omits username (system-user tokens often do).
+     * @return array<string, mixed>|null
      */
-    protected function configuredUsernameFor(?string $instagramId = null): ?string
+    protected function rowFromPersistedDirectory(?PlatformMetaConnection $connection, string $instagramId): ?array
     {
-        $configured = config('services.meta.instagram_username')
-            ?: config('platform.meta.instagram_username')
-            ?: null;
-        if (! $configured) {
-            return null;
-        }
-        $configured = ltrim((string) $configured, '@');
-        if ($configured === '') {
-            return null;
-        }
-
-        $expectedId = preg_replace('/\D+/', '', (string) (
-            config('services.meta.instagram_user_id')
-            ?: config('platform.meta.instagram_user_id')
-            ?: ''
-        )) ?: '';
-
-        if ($instagramId && $expectedId !== '' && $instagramId !== $expectedId) {
-            return null;
-        }
-
-        return $configured;
-    }
-
-    /**
-     * @param  array<string, array<string, mixed>>  $byId
-     * @return array<string, array<string, mixed>>
-     */
-    protected function applyConfiguredUsernameFallbacks(array $byId): array
-    {
-        foreach ($byId as $id => $row) {
-            if (! empty($row['username'])) {
+        foreach ((array) ($connection?->linked_instagram_directory ?? []) as $row) {
+            if (! is_array($row)) {
                 continue;
             }
-            $fallback = $this->configuredUsernameFor((string) $id);
-            if ($fallback) {
-                $byId[$id]['username'] = $fallback;
-                $byId[$id]['source'] = ($row['source'] ?? 'seed').'+env';
+            if ((string) ($row['id'] ?? '') === $instagramId) {
+                return [
+                    'id' => $instagramId,
+                    'username' => $row['username'] ?? null,
+                    'name' => $row['name'] ?? null,
+                    'source' => $row['source'] ?? 'synced',
+                    'profile_picture_url' => $row['profile_picture_url'] ?? null,
+                ];
             }
         }
 
-        return $byId;
+        return null;
     }
 
     /**
@@ -431,14 +529,9 @@ class InstagramBusinessAccountService
 
         if (! empty($row['username'])) {
             $row['username'] = ltrim((string) $row['username'], '@');
-        } else {
-            $fallback = $this->configuredUsernameFor((string) ($row['id'] ?? ''));
-            if ($fallback) {
-                $row['username'] = $fallback;
-            }
         }
 
-        // Prefer IG handle as the human label Meta shows in Business Manager
+        // Prefer IG handle from Meta; never invent from .env
         $row['label'] = ! empty($row['username'])
             ? '@'.$row['username']
             : ('IG '.$row['id']);
@@ -508,8 +601,23 @@ class InstagramBusinessAccountService
             $linked[] = $instagramId;
         }
 
+        $directory = $this->slimDirectory(array_merge(
+            (array) ($connection->linked_instagram_directory ?? []),
+            [$detail]
+        ));
+        // Dedupe directory by id (keep richest username)
+        $byId = [];
+        foreach ($directory as $row) {
+            $id = (string) ($row['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $byId[$id] = isset($byId[$id]) ? $this->preferRicherRow($byId[$id], $row) : $row;
+        }
+
         $connection->forceFill([
             'linked_instagram_ids' => array_values($linked),
+            'linked_instagram_directory' => array_values($byId),
             'instagram_business_account_id' => $connection->instagram_business_account_id ?: $instagramId,
         ])->saveQuietly();
 
@@ -632,6 +740,50 @@ class InstagramBusinessAccountService
                 ]
             );
             if (! $alt->ok()) {
+                // Last Meta path: Page token from connected pages
+                try {
+                    foreach ($this->meta->listPagesWithInstagram() as $page) {
+                        if ((string) ($page['instagram_id'] ?? '') !== $instagramId) {
+                            continue;
+                        }
+                        $username = $page['instagram_username'] ?? null;
+                        if ($username || ! empty($page['access_token'])) {
+                            if (! $username && ! empty($page['access_token'])) {
+                                $igRes = Http::timeout(30)->get(
+                                    "{$this->graphUrl}/{$this->graphVersion}/{$instagramId}",
+                                    [
+                                        'access_token' => $page['access_token'],
+                                        'fields' => 'id,username,name,profile_picture_url',
+                                    ]
+                                );
+                                if ($igRes->ok()) {
+                                    return $this->sanitizeAccountLabels([
+                                        'id' => (string) ($igRes->json('id') ?: $instagramId),
+                                        'username' => $igRes->json('username')
+                                            ? ltrim((string) $igRes->json('username'), '@')
+                                            : null,
+                                        'name' => $igRes->json('name'),
+                                        'source' => 'page_token',
+                                        'profile_picture_url' => $igRes->json('profile_picture_url'),
+                                        'page_id' => $page['id'] ?? null,
+                                    ]);
+                                }
+                            }
+
+                            return $this->sanitizeAccountLabels([
+                                'id' => $instagramId,
+                                'username' => $username ? ltrim((string) $username, '@') : null,
+                                'name' => $page['instagram_name'] ?? null,
+                                'source' => 'page',
+                                'profile_picture_url' => null,
+                                'page_id' => $page['id'] ?? null,
+                            ]);
+                        }
+                    }
+                } catch (\Throwable) {
+                    // fall through
+                }
+
                 Log::info('IG_GET_ACCOUNT_FAILED', [
                     'id' => $instagramId,
                     'error' => data_get($response->json(), 'error.message'),
@@ -801,7 +953,7 @@ class InstagramBusinessAccountService
                     $byId[$igId] = [
                         'id' => $igId,
                         'username' => $username ? ltrim((string) $username, '@') : null,
-                        'name' => $page['name'] ?? null,
+                        'name' => ! empty($page['instagram_name']) ? (string) $page['instagram_name'] : null,
                         'source' => 'page',
                         'profile_picture_url' => null,
                         'page_id' => $page['id'] ?? null,
@@ -809,8 +961,8 @@ class InstagramBusinessAccountService
                 } elseif ($username && empty($byId[$igId]['username'])) {
                     $byId[$igId]['username'] = ltrim((string) $username, '@');
                     $byId[$igId]['page_id'] = $page['id'] ?? $byId[$igId]['page_id'] ?? null;
-                    if (empty($byId[$igId]['name']) && ! empty($page['name'])) {
-                        $byId[$igId]['name'] = $page['name'];
+                    if (empty($byId[$igId]['name']) && ! empty($page['instagram_name'])) {
+                        $byId[$igId]['name'] = $page['instagram_name'];
                     }
                 }
             }
@@ -1000,11 +1152,17 @@ class InstagramBusinessAccountService
             }
 
             if (! $response->ok()) {
+                $code = (int) data_get($response->json(), 'error.code');
                 Log::info('IG_EDGE_NOT_OK', [
                     'url' => $url,
                     'status' => $response->status(),
                     'error' => data_get($response->json(), 'error.message'),
+                    'code' => $code,
                 ]);
+                // Rate limit / app throttle — stop walking more edges in this request
+                if (in_array($code, [4, 17, 32, 613, 80004, 80008], true)) {
+                    Cache::put('meta_ig_rate_limited', 1, now()->addMinutes(10));
+                }
                 break;
             }
 

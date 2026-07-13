@@ -342,6 +342,20 @@ protected function handleError($response, $endpoint, $payload = [])
                 'page_id' => $pageId,
             ]);
 
+            try {
+                $page = $this->get((string) $pageId, [
+                    'fields' => 'id,name,access_token,instagram_business_account{id,username,name},connected_instagram_account{id,username,name}',
+                ]);
+                if (! empty($page['id'])) {
+                    return [$page];
+                }
+            } catch (Throwable $e) {
+                Log::warning('META_GET_PAGE_FALLBACK_FAILED', [
+                    'page_id' => $pageId,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+
             return [
                 [
                     'id' => (string) $pageId,
@@ -367,11 +381,55 @@ protected function handleError($response, $endpoint, $payload = [])
                 continue;
             }
             $ig = $page['connected_instagram_account'] ?? $page['instagram_business_account'] ?? null;
+            $pageToken = $page['access_token'] ?? null;
+
+            // me/accounts sometimes omits nested IG — hydrate from the Page node
+            if ((! is_array($ig) || empty($ig['id']) || empty($ig['username'])) && $id !== '') {
+                try {
+                    $hydrated = $this->get($id, [
+                        'fields' => 'id,name,access_token,instagram_business_account{id,username,name},connected_instagram_account{id,username,name}',
+                    ]);
+                    $ig = $hydrated['connected_instagram_account']
+                        ?? $hydrated['instagram_business_account']
+                        ?? $ig;
+                    if (! $pageToken && ! empty($hydrated['access_token'])) {
+                        $pageToken = $hydrated['access_token'];
+                    }
+                } catch (Throwable $e) {
+                    Log::info('META_PAGE_IG_HYDRATE_FAILED', [
+                        'page_id' => $id,
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            // Username often requires the Page access token (not system-user token)
+            if (is_array($ig) && ! empty($ig['id']) && empty($ig['username']) && $pageToken) {
+                try {
+                    $igUser = Http::timeout(30)->get(
+                        rtrim((string) config('services.meta.graph_url', 'https://graph.facebook.com'), '/').'/'
+                        .config('services.meta.graph_version', 'v19.0').'/'.$ig['id'],
+                        [
+                            'access_token' => $pageToken,
+                            'fields' => 'id,username,name,profile_picture_url',
+                        ]
+                    );
+                    if ($igUser->ok() && ! empty($igUser->json('username'))) {
+                        $ig['username'] = $igUser->json('username');
+                        $ig['name'] = $igUser->json('name') ?: ($ig['name'] ?? null);
+                    }
+                } catch (Throwable) {
+                    // directory still has the IG id
+                }
+            }
+
             $pages[] = [
                 'id' => $id,
                 'name' => (string) ($page['name'] ?? $id),
+                'access_token' => $pageToken,
                 'instagram_id' => is_array($ig) && ! empty($ig['id']) ? (string) $ig['id'] : null,
                 'instagram_username' => is_array($ig) && ! empty($ig['username']) ? (string) $ig['username'] : null,
+                'instagram_name' => is_array($ig) && ! empty($ig['name']) ? (string) $ig['name'] : null,
             ];
         }
 

@@ -128,37 +128,12 @@ class InstagramAccountsController extends Controller
      */
     protected function seedFromConnection($connection): array
     {
-        $items = [];
-        $seen = [];
-
-        $ids = array_filter([
-            config('services.meta.instagram_user_id'),
-            config('platform.meta.instagram_user_id'),
-            $connection?->instagram_business_account_id,
-        ]);
-        foreach ((array) ($connection?->linked_instagram_ids ?? []) as $id) {
-            $ids[] = $id;
-        }
-
-        foreach ($ids as $id) {
-            $id = preg_replace('/\D+/', '', (string) $id) ?: '';
-            if ($id === '' || isset($seen[$id])) {
-                continue;
-            }
-            $seen[$id] = true;
-            $items[] = $this->normalizeAccountLabel([
-                'id' => $id,
-                'username' => null,
-                'name' => null,
-                'source' => 'seed',
-            ]);
-        }
-
-        return $items;
+        return app(InstagramBusinessAccountService::class)
+            ->seedDirectoryForDisplay($connection);
     }
 
     /**
-     * Prefer @username; never show Facebook Page / page_name as the IG label.
+     * Prefer @username from Meta-synced data; never invent from .env / page name.
      *
      * @param  array<string, mixed>  $row
      * @return array<string, mixed>
@@ -179,22 +154,7 @@ class InstagramAccountsController extends Controller
             $row['name'] = null;
         }
 
-        if (empty($row['username'])) {
-            $configured = ltrim((string) (
-                config('services.meta.instagram_username')
-                ?: config('platform.meta.instagram_username')
-                ?: ''
-            ), '@');
-            $expectedId = preg_replace('/\D+/', '', (string) (
-                config('services.meta.instagram_user_id')
-                ?: config('platform.meta.instagram_user_id')
-                ?: ''
-            )) ?: '';
-            $rowId = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
-            if ($configured !== '' && ($expectedId === '' || $rowId === $expectedId)) {
-                $row['username'] = $configured;
-            }
-        } else {
+        if (! empty($row['username'])) {
             $row['username'] = ltrim((string) $row['username'], '@');
         }
 

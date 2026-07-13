@@ -151,13 +151,12 @@ class MetaAutoSyncService
         $connection = $this->resolver->forCurrentUser()
             ?? PlatformMetaConnection::query()->platformDefault()->active()->first();
         if ($connection) {
-            Cache::forget('meta_wa_phone_directory_'.$connection->id);
+            // Never wipe phone directory here — Meta rate limits often return empty and would lose numbers.
             Cache::forget('meta_ig_directory_'.$connection->id);
             Cache::forget('meta_waba_directory_'.$connection->id);
             Cache::forget('meta_bm_synced_at_'.$connection->id);
             Cache::forget('meta_ig_synced_at_'.$connection->id);
         }
-        Cache::forget('meta_wa_phone_directory_platform');
         Cache::forget('meta_ig_directory_platform');
         Cache::forget('meta_waba_directory_platform');
 
@@ -198,6 +197,10 @@ class MetaAutoSyncService
             $accounts = $result['accounts'] ?? [];
             $key = 'meta_waba_directory_'.($connection->id ?? 'platform');
             $prev = Cache::get($key);
+
+            if (is_array($prev) && $prev !== []) {
+                $accounts = $this->whatsapp->mergePreferringRealNames($prev, $accounts);
+            }
 
             // Rate-limit / Graph errors must not shrink a previously good directory to 1 env WABA
             if (
@@ -271,27 +274,30 @@ class MetaAutoSyncService
         }
 
         if ($phones === []) {
-            return 0;
+            return is_array($prevPhones = Cache::get('meta_wa_phone_directory_'.($connection->id ?? 'platform')))
+                ? count($prevPhones)
+                : 0;
         }
 
         $phoneKey = 'meta_wa_phone_directory_'.($connection->id ?? 'platform');
         $prevPhones = Cache::get($phoneKey);
-        // Don't replace a full multi-WABA phone list with a rate-limited partial pull
-        if (is_array($prevPhones) && count($prevPhones) > count($phones) && count($phones) <= 2) {
+        $merged = $this->whatsapp->mergePhoneDirectories(
+            is_array($prevPhones) ? $prevPhones : [],
+            $phones
+        );
+
+        // Don't shrink a full multi-WABA phone list with a rate-limited partial pull
+        if (is_array($prevPhones) && count($prevPhones) > count($merged) && count($phones) <= 2) {
             Log::warning('META_AUTO_SYNC_PHONES_PRESERVED', [
                 'prev' => count($prevPhones),
                 'new' => count($phones),
+                'merged' => count($merged),
             ]);
-
-            return count($prevPhones);
+            $merged = $prevPhones;
         }
 
-        // Cache full phone list for Ad Studio dropdown (survives brief Graph blips)
-        Cache::put(
-            $phoneKey,
-            $phones,
-            now()->addMinutes(30)
-        );
+        Cache::put($phoneKey, $merged, now()->addMinutes(30));
+        $phones = $merged;
 
         // Persist discovered Business Manager id when missing/wrong
         try {

@@ -1262,13 +1262,95 @@ class WhatsAppBusinessAccountService
     }
 
     /**
+     * Merge phone directories without dropping numbers when Meta returns a partial/empty pull.
+     *
+     * @param  array<int, array<string, mixed>>  $previous
+     * @param  array<int, array<string, mixed>>  $incoming
+     * @return array<int, array<string, mixed>>
+     */
+    public function mergePhoneDirectories(array $previous, array $incoming): array
+    {
+        $byId = [];
+        foreach ($previous as $phone) {
+            if (! is_array($phone)) {
+                continue;
+            }
+            $id = (string) ($phone['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $byId[$id] = $phone;
+        }
+
+        $incomingWabas = [];
+        foreach ($incoming as $phone) {
+            if (! is_array($phone)) {
+                continue;
+            }
+            $id = (string) ($phone['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $wabaId = (string) ($phone['waba_id'] ?? '');
+            if ($wabaId !== '') {
+                $incomingWabas[$wabaId] = true;
+            }
+            $byId[$id] = array_merge($byId[$id] ?? [], $phone);
+        }
+
+        // If a WABA was in the incoming batch with an explicit empty list, callers should
+        // not pass empty — they omit that WABA so previous numbers for it stay intact.
+
+        return array_values($byId);
+    }
+
+    /**
+     * Replace phones for one WABA only; keep every other WABA's numbers intact.
+     * Empty $phonesForWaba keeps the previous numbers for that WABA (rate-limit safe).
+     *
+     * @param  array<int, array<string, mixed>>  $previous
+     * @param  array<int, array<string, mixed>>  $phonesForWaba
+     * @return array<int, array<string, mixed>>
+     */
+    public function upsertPhonesForWaba(array $previous, string $wabaId, array $phonesForWaba, ?string $wabaName = null): array
+    {
+        $wabaId = (string) $wabaId;
+        if ($phonesForWaba === []) {
+            return $previous;
+        }
+
+        $kept = [];
+        foreach ($previous as $phone) {
+            if (! is_array($phone)) {
+                continue;
+            }
+            if ((string) ($phone['waba_id'] ?? '') === $wabaId) {
+                continue;
+            }
+            $kept[] = $phone;
+        }
+
+        foreach ($phonesForWaba as $phone) {
+            if (! is_array($phone) || empty($phone['id'])) {
+                continue;
+            }
+            $kept[] = array_merge($phone, array_filter([
+                'waba_id' => $wabaId,
+                'waba_name' => $wabaName ?: ($phone['waba_name'] ?? null),
+            ], fn ($v) => $v !== null && $v !== ''));
+        }
+
+        return array_values($kept);
+    }
+
+    /**
      * @return array<int, array{id: string, display_phone_number: string, verified_name: ?string, code_verification_status: ?string, quality_rating: ?string, status: ?string, name_status: ?string, platform_type: ?string, verified: bool}>
      */
     public function listPhoneNumbers(string $wabaId): array
     {
         $token = $this->requireToken();
 
-        $response = Http::timeout(30)->get(
+        $response = Http::timeout(25)->get(
             "{$this->graphUrl}/{$this->graphVersion}/{$wabaId}/phone_numbers",
             [
                 'access_token' => $token,
@@ -1278,14 +1360,22 @@ class WhatsAppBusinessAccountService
         );
 
         if (! $response->ok()) {
+            $body = strtolower((string) $response->body());
+            if (
+                $response->status() === 403
+                || str_contains($body, 'request limit')
+                || str_contains($body, 'rate limit')
+                || str_contains($body, 'too many')
+            ) {
+                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+            }
             Log::warning('WABA_LIST_PHONES_FAILED', [
                 'waba_id' => $wabaId,
                 'response' => $response->json(),
             ]);
 
-            throw ValidationException::withMessages([
-                'waba' => $response->json('error.message') ?? 'Could not list WhatsApp phone numbers.',
-            ]);
+            // Soft-fail — callers merge with cache instead of wiping numbers
+            return [];
         }
 
         return collect($response->json('data', []))

@@ -229,6 +229,13 @@ class WhatsAppAccountsController extends Controller
      */
     protected function runFullDirectorySync(string $waba = '', bool $force = true): array
     {
+        $connection = $this->whatsapp->connection();
+        $cacheSuffix = (string) ($connection?->id ?? 'platform');
+        $phoneCacheKey = 'meta_wa_phone_directory_'.$cacheSuffix;
+        // Snapshot phones BEFORE any sync so rate-limited pulls cannot erase them.
+        $phoneSnapshot = Cache::get($phoneCacheKey);
+        $phoneSnapshot = is_array($phoneSnapshot) ? $phoneSnapshot : [];
+
         if ($force) {
             $this->autoSync->syncAlways();
         } else {
@@ -252,6 +259,12 @@ class WhatsAppAccountsController extends Controller
         Cache::put($cacheKey, $accounts, now()->addMinutes(30));
         Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
 
+        // Restore/merge phones — never publish an empty directory over a known good snapshot.
+        $phoneCacheKey = 'meta_wa_phone_directory_'.$cacheSuffix;
+        $currentPhones = Cache::get($phoneCacheKey);
+        $currentPhones = is_array($currentPhones) ? $currentPhones : [];
+        $mergedPhones = $this->whatsapp->mergePhoneDirectories($phoneSnapshot, $currentPhones);
+
         $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
         if ($selectedId !== '') {
             try {
@@ -266,26 +279,56 @@ class WhatsAppAccountsController extends Controller
                     unset($row);
                     Cache::put($cacheKey, $accounts, now()->addMinutes(30));
                 }
-                $phones = $this->whatsapp->listPhoneNumbers($selectedId);
-                $allPhones = [];
-                foreach ($phones as $phone) {
-                    $allPhones[] = array_merge($phone, [
-                        'waba_id' => $selectedId,
-                        'waba_name' => $detail['name'] ?? null,
-                    ]);
+                $fetched = $this->whatsapp->listPhoneNumbers($selectedId);
+                if ($fetched !== []) {
+                    $mergedPhones = $this->whatsapp->upsertPhonesForWaba(
+                        $mergedPhones,
+                        $selectedId,
+                        $fetched,
+                        $detail['name'] ?? null
+                    );
                 }
-                $prevPhones = Cache::get('meta_wa_phone_directory_'.$cacheSuffix);
-                if (is_array($prevPhones)) {
-                    foreach ($prevPhones as $p) {
-                        if (is_array($p) && (string) ($p['waba_id'] ?? '') !== $selectedId) {
-                            $allPhones[] = $p;
-                        }
-                    }
-                }
-                Cache::put('meta_wa_phone_directory_'.$cacheSuffix, $allPhones, now()->addMinutes(30));
             } catch (\Throwable) {
-                // list still cached
+                // keep snapshot
             }
+        }
+
+        // Best-effort: fill other WABA phone lists without wiping on empty responses
+        if (! Cache::get('meta_wa_rate_limited')) {
+            foreach ($accounts as $account) {
+                $id = (string) ($account['id'] ?? '');
+                if ($id === '' || $id === $selectedId) {
+                    continue;
+                }
+                $hasPhones = collect($mergedPhones)->contains(
+                    fn ($p) => is_array($p) && (string) ($p['waba_id'] ?? '') === $id
+                );
+                if ($hasPhones) {
+                    continue;
+                }
+                try {
+                    $fetched = $this->whatsapp->listPhoneNumbers($id);
+                    if ($fetched !== []) {
+                        $mergedPhones = $this->whatsapp->upsertPhonesForWaba(
+                            $mergedPhones,
+                            $id,
+                            $fetched,
+                            $account['name'] ?? null
+                        );
+                    }
+                } catch (\Throwable) {
+                    break;
+                }
+                if (Cache::get('meta_wa_rate_limited')) {
+                    break;
+                }
+            }
+        }
+
+        if ($mergedPhones !== []) {
+            Cache::put($phoneCacheKey, $mergedPhones, now()->addMinutes(30));
+        } elseif ($phoneSnapshot !== []) {
+            Cache::put($phoneCacheKey, $phoneSnapshot, now()->addMinutes(30));
         }
 
         $stillPlaceholders = $this->accountsNeedNameRefresh($accounts);

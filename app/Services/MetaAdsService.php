@@ -322,7 +322,10 @@ protected function handleError($response, $endpoint, $payload = [])
     public function getPages(): array
     {
         try {
-            $res = $this->get('me/accounts');
+            $res = $this->get('me/accounts', [
+                'fields' => 'id,name,access_token,instagram_business_account{id,username},connected_instagram_account{id,username}',
+                'limit' => 100,
+            ]);
             $data = $res['data'] ?? [];
             if ($data !== []) {
                 return $data;
@@ -348,6 +351,116 @@ protected function handleError($response, $endpoint, $payload = [])
         }
 
         return [];
+    }
+
+    /**
+     * Pages enriched with linked Instagram accounts (for Ad Studio identity / destinations).
+     *
+     * @return array<int, array{id:string,name:string,instagram_id:?string,instagram_username:?string}>
+     */
+    public function listPagesWithInstagram(): array
+    {
+        $pages = [];
+        foreach ($this->getPages() as $page) {
+            $id = (string) ($page['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $ig = $page['connected_instagram_account'] ?? $page['instagram_business_account'] ?? null;
+            $pages[] = [
+                'id' => $id,
+                'name' => (string) ($page['name'] ?? $id),
+                'instagram_id' => is_array($ig) && ! empty($ig['id']) ? (string) $ig['id'] : null,
+                'instagram_username' => is_array($ig) && ! empty($ig['username']) ? (string) $ig['username'] : null,
+            ];
+        }
+
+        return $pages;
+    }
+
+    /**
+     * All Instagram business accounts discoverable from pages + ad account.
+     *
+     * @return array<int, array{id:string,username:?string,source:string,page_id:?string,page_name:?string}>
+     */
+    public function listInstagramAccounts(?string $preferredPageId = null): array
+    {
+        $byId = [];
+
+        foreach ($this->listPagesWithInstagram() as $page) {
+            if (! empty($page['instagram_id'])) {
+                $byId[$page['instagram_id']] = [
+                    'id' => $page['instagram_id'],
+                    'username' => $page['instagram_username'],
+                    'source' => 'page',
+                    'page_id' => $page['id'],
+                    'page_name' => $page['name'],
+                ];
+            }
+        }
+
+        // Deep lookup for preferred / all pages when Graph nested fields were empty
+        $pageIds = array_unique(array_filter(array_merge(
+            [$preferredPageId],
+            array_column($this->listPagesWithInstagram(), 'id')
+        )));
+
+        foreach ($pageIds as $pageId) {
+            $diag = $this->diagnoseInstagramConnection((string) $pageId);
+            $igId = (string) ($diag['instagram_user_id'] ?? '');
+            if ($igId === '') {
+                continue;
+            }
+            if (! isset($byId[$igId])) {
+                $byId[$igId] = [
+                    'id' => $igId,
+                    'username' => $diag['instagram_username'] ?? null,
+                    'source' => (string) ($diag['source'] ?? 'page'),
+                    'page_id' => (string) $pageId,
+                    'page_name' => null,
+                ];
+            } elseif (empty($byId[$igId]['username']) && ! empty($diag['instagram_username'])) {
+                $byId[$igId]['username'] = $diag['instagram_username'];
+            }
+        }
+
+        try {
+            $accountId = $this->formatAccount(config('services.meta.ad_account_id'));
+            $res = $this->get("{$accountId}/instagram_accounts", [
+                'fields' => 'id,username',
+                'limit' => 50,
+            ]);
+            foreach ($res['data'] ?? [] as $row) {
+                $id = (string) ($row['id'] ?? '');
+                if ($id === '') {
+                    continue;
+                }
+                if (! isset($byId[$id])) {
+                    $byId[$id] = [
+                        'id' => $id,
+                        'username' => $row['username'] ?? null,
+                        'source' => 'ad_account',
+                        'page_id' => null,
+                        'page_name' => null,
+                    ];
+                }
+            }
+        } catch (Throwable $e) {
+            Log::warning('META_LIST_INSTAGRAM_ACCOUNTS_FAILED', ['error' => $e->getMessage()]);
+        }
+
+        $envIg = trim((string) config('services.meta.instagram_user_id', ''));
+        if ($envIg !== '' && ! isset($byId[$envIg])) {
+            $byId[$envIg] = [
+                'id' => $envIg,
+                'username' => null,
+                'source' => 'env',
+                'page_id' => null,
+                'page_name' => null,
+            ];
+        }
+
+        return array_values($byId);
     }
 
     /*

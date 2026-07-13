@@ -92,6 +92,7 @@ return new class extends Migration
 
         $this->ensure('platform_meta_connections', [
             'linked_waba_ids' => fn (Blueprint $t) => $t->json('linked_waba_ids')->nullable(),
+            'linked_instagram_ids' => fn (Blueprint $t) => $t->json('linked_instagram_ids')->nullable(),
             'client_id' => fn (Blueprint $t) => $t->unsignedBigInteger('client_id')->nullable()->index(),
             'is_platform_default' => fn (Blueprint $t) => $t->boolean('is_platform_default')->default(false),
             'page_id' => fn (Blueprint $t) => $t->string('page_id')->nullable(),

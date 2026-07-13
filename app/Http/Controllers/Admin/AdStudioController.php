@@ -60,10 +60,21 @@ class AdStudioController extends Controller
         $connection = app(TenantConnectionResolver::class)->forCurrentUser();
         $connectionStatus = $this->connectionValidator->validate($connection);
         $pages = [];
+        $instagramAccounts = [];
 
         try {
-            $pages = TenantScope::filterPages($this->meta->getPages());
+            $pages = TenantScope::filterPages($this->meta->listPagesWithInstagram());
         } catch (Throwable) {
+            try {
+                $pages = TenantScope::filterPages($this->meta->getPages());
+            } catch (Throwable) {
+            }
+        }
+
+        try {
+            $instagramAccounts = $this->resolveInstagramAccounts($connection, $pages);
+        } catch (Throwable) {
+            $instagramAccounts = [];
         }
 
         $whatsappNumbers = $this->resolveWhatsAppNumbers($connection);
@@ -72,6 +83,7 @@ class AdStudioController extends Controller
             'connection' => $connection,
             'connectionStatus' => $connectionStatus,
             'pages' => $pages,
+            'instagramAccounts' => $instagramAccounts,
             'whatsappNumbers' => $whatsappNumbers,
             'countryOptions' => config('meta.countries', []),
             'metaAutoSynced' => true,
@@ -87,6 +99,88 @@ class AdStudioController extends Controller
                 'LINK_CLICKS' => 'Maximize link clicks',
                 'IMPRESSIONS' => 'Maximize impressions',
             ],
+        ]);
+    }
+
+    public function identities(): JsonResponse
+    {
+        $connection = app(TenantConnectionResolver::class)->forCurrentUser();
+        $pages = [];
+        try {
+            $pages = TenantScope::filterPages($this->meta->listPagesWithInstagram());
+        } catch (Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        $instagram = $this->resolveInstagramAccounts($connection, $pages);
+
+        return response()->json([
+            'success' => true,
+            'pages' => $pages,
+            'instagram' => $instagram,
+            'synced_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function saveIdentity(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'page_id' => 'nullable|string|max:64',
+            'page_name' => 'nullable|string|max:255',
+            'instagram_user_id' => 'nullable|string|max:64',
+            'instagram_username' => 'nullable|string|max:255',
+            'add_instagram_id' => 'nullable|string|max:64',
+        ]);
+
+        $connection = app(TenantConnectionResolver::class)->forCurrentUser();
+        if (! $connection) {
+            return response()->json(['success' => false, 'message' => 'No Meta connection.'], 422);
+        }
+
+        $updates = [];
+        if (! empty($data['page_id'])) {
+            $updates['page_id'] = preg_replace('/\D+/', '', $data['page_id']) ?: $data['page_id'];
+            if (! empty($data['page_name'])) {
+                $updates['page_name'] = $data['page_name'];
+            }
+        }
+
+        $linked = array_values(array_filter(array_map(
+            fn ($id) => preg_replace('/\D+/', '', (string) $id) ?: '',
+            (array) ($connection->linked_instagram_ids ?? [])
+        )));
+
+        $addIg = preg_replace('/\D+/', '', (string) ($data['add_instagram_id'] ?? $data['instagram_user_id'] ?? '')) ?: '';
+        if ($addIg !== '' && ! in_array($addIg, $linked, true)) {
+            $linked[] = $addIg;
+        }
+
+        if (! empty($data['instagram_user_id']) || $addIg !== '') {
+            $selected = preg_replace('/\D+/', '', (string) ($data['instagram_user_id'] ?: $addIg)) ?: '';
+            if ($selected !== '') {
+                $updates['instagram_business_account_id'] = $selected;
+                if (! in_array($selected, $linked, true)) {
+                    $linked[] = $selected;
+                }
+            }
+        }
+
+        $updates['linked_instagram_ids'] = array_values($linked);
+        $connection->forceFill($updates)->save();
+
+        $pages = [];
+        try {
+            $pages = TenantScope::filterPages($this->meta->listPagesWithInstagram());
+        } catch (Throwable) {
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Identity saved — Instagram / Page synced for ads.',
+            'pages' => $pages,
+            'instagram' => $this->resolveInstagramAccounts($connection->fresh(), $pages),
+            'page_id' => $connection->page_id,
+            'instagram_user_id' => $connection->instagram_business_account_id,
         ]);
     }
 
@@ -408,6 +502,78 @@ class AdStudioController extends Controller
     /**
      * @return array<int, array{id: string, label: string, phone: string, display: string, phone_number_id: string, verified: bool, waba_name?: string}>
      */
+    /**
+     * @param  array<int, array<string, mixed>>  $pages
+     * @return array<int, array{id:string,username:?string,label:string,source:string,page_id:?string}>
+     */
+    protected function resolveInstagramAccounts(?PlatformMetaConnection $connection, array $pages = []): array
+    {
+        $byId = [];
+
+        try {
+            foreach ($this->meta->listInstagramAccounts($connection?->page_id) as $ig) {
+                $id = (string) ($ig['id'] ?? '');
+                if ($id === '') {
+                    continue;
+                }
+                $username = $ig['username'] ?? null;
+                $byId[$id] = [
+                    'id' => $id,
+                    'username' => $username,
+                    'label' => $username ? '@'.$username : $id,
+                    'source' => (string) ($ig['source'] ?? 'meta'),
+                    'page_id' => $ig['page_id'] ?? null,
+                ];
+            }
+        } catch (Throwable $e) {
+            Log::warning('AD_STUDIO_IG_LIST_FAILED', ['error' => $e->getMessage()]);
+        }
+
+        foreach ($pages as $page) {
+            $igId = (string) ($page['instagram_id'] ?? '');
+            if ($igId === '') {
+                continue;
+            }
+            if (! isset($byId[$igId])) {
+                $username = $page['instagram_username'] ?? null;
+                $byId[$igId] = [
+                    'id' => $igId,
+                    'username' => $username,
+                    'label' => $username ? '@'.$username : $igId,
+                    'source' => 'page',
+                    'page_id' => $page['id'] ?? null,
+                ];
+            }
+        }
+
+        foreach ((array) ($connection?->linked_instagram_ids ?? []) as $manualId) {
+            $id = preg_replace('/\D+/', '', (string) $manualId) ?: '';
+            if ($id === '' || isset($byId[$id])) {
+                continue;
+            }
+            $byId[$id] = [
+                'id' => $id,
+                'username' => null,
+                'label' => $id,
+                'source' => 'manual',
+                'page_id' => null,
+            ];
+        }
+
+        $default = (string) ($connection?->instagram_business_account_id ?? '');
+        if ($default !== '' && ! isset($byId[$default])) {
+            $byId[$default] = [
+                'id' => $default,
+                'username' => null,
+                'label' => $default,
+                'source' => 'connection',
+                'page_id' => $connection?->page_id,
+            ];
+        }
+
+        return array_values($byId);
+    }
+
     protected function resolveWhatsAppNumbers(?PlatformMetaConnection $connection): array
     {
         $numbers = [];

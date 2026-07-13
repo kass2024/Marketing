@@ -21,11 +21,17 @@
     'defaultPageId' => (string) $defaultPageId,
     'defaultIg' => (string) $defaultIg,
     'whatsappNumbers' => $whatsappNumbers,
+    'instagramAccounts' => $instagramAccounts ?? [],
+    'pages' => collect($pages)->map(fn ($p) => [
+        'id' => (string) ($p['id'] ?? ''),
+        'name' => (string) ($p['name'] ?? $p['id'] ?? ''),
+        'instagram_id' => $p['instagram_id'] ?? null,
+        'instagram_username' => $p['instagram_username'] ?? null,
+    ])->values(),
     'countryOptions' => $countryOptions,
     'connectionValid' => $connValid,
     'connectionErrors' => $connectionStatus['errors'] ?? [],
     'pageName' => $connection?->page_name ?? 'Your Page',
-    'pages' => collect($pages)->map(fn($p) => ['id' => $p['id'], 'name' => $p['name']])->values(),
 ]))" x-init="init()">
 
     <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -182,23 +188,57 @@
                         </div>
 
                         <div class="space-y-4 rounded-xl border border-slate-200 p-4">
-                            <p class="text-sm font-bold text-slate-800">Identity</p>
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <p class="text-sm font-bold text-slate-800">Identity</p>
+                                <button type="button" @click="refreshIdentities()" :disabled="identityLoading"
+                                    class="text-xs font-semibold text-sky-700 underline disabled:opacity-50">
+                                    <span x-show="!identityLoading">Sync pages &amp; Instagram</span>
+                                    <span x-show="identityLoading">Syncing…</span>
+                                </button>
+                            </div>
+
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-500">Facebook Page</label>
-                                <select name="page_id" x-model="form.page_id" required class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                                    @foreach($pages as $page)
-                                        <option value="{{ $page['id'] }}">{{ $page['name'] }}</option>
-                                    @endforeach
-                                    @if(empty($pages) && $connection?->page_id)
-                                        <option value="{{ $connection->page_id }}">{{ $connection->page_name ?? $connection->page_id }}</option>
-                                    @endif
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-semibold uppercase text-slate-500">Instagram profile (optional)</label>
-                                <input type="text" name="instagram_user_id" x-model="form.instagram_user_id"
-                                    placeholder="Instagram business account ID"
+                                <select x-model="form.page_id" @change="onPageChange()" required
                                     class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                                    <option value="">Select a Facebook Page…</option>
+                                    <template x-for="p in pages" :key="p.id">
+                                        <option :value="p.id" x-text="p.name + (p.instagram_username ? ' · @' + p.instagram_username : '')"></option>
+                                    </template>
+                                    <option value="__manual_page__">Enter Page ID manually…</option>
+                                </select>
+                                <input type="hidden" name="page_id" :value="form.page_id === '__manual_page__' ? form.page_id_manual : form.page_id">
+                                <div x-show="form.page_id === '__manual_page__' || (!pages.length && !identityLoading)" class="mt-2 flex flex-wrap gap-2">
+                                    <input type="text" x-model="form.page_id_manual" placeholder="Facebook Page ID"
+                                        class="min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-2.5 font-mono text-sm">
+                                    <button type="button" @click="saveManualPage()" class="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white">Add page</button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-500">Instagram profile</label>
+                                <select x-model="form.instagram_user_id" @change="onInstagramSelect()"
+                                    class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                                    <option value="">None (optional)</option>
+                                    <template x-for="ig in instagramAccounts" :key="ig.id">
+                                        <option :value="ig.id" x-text="ig.label + (ig.source === 'manual' ? ' · added' : '')"></option>
+                                    </template>
+                                    <option value="__manual_ig__">Add Instagram account ID…</option>
+                                </select>
+                                <input type="hidden" name="instagram_user_id"
+                                    :value="form.instagram_user_id === '__manual_ig__' ? form.instagram_manual : form.instagram_user_id">
+                                <div x-show="form.instagram_user_id === '__manual_ig__' || showAddIg" class="mt-2 space-y-2 rounded-xl border border-pink-100 bg-pink-50/40 p-3">
+                                    <p class="text-xs text-slate-600">Paste the Instagram business account ID from Meta Business Settings → Instagram accounts (e.g. 17841468010858538).</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <input type="text" x-model="form.instagram_manual" placeholder="Instagram business account ID"
+                                            class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-mono text-sm">
+                                        <button type="button" @click="addInstagramAccount()" class="rounded-xl bg-[#0866FF] px-4 py-2 text-xs font-semibold text-white">Add &amp; sync</button>
+                                    </div>
+                                </div>
+                                <button type="button" @click="showAddIg = !showAddIg; if (showAddIg) form.instagram_user_id = '__manual_ig__'"
+                                    class="mt-2 text-xs font-semibold text-[#0866FF] hover:underline">+ Add Instagram account</button>
+                                <p x-show="identityError" class="mt-2 text-xs text-amber-800" x-text="identityError"></p>
+                                <p x-show="identitySuccess" class="mt-2 text-xs text-emerald-700" x-text="identitySuccess"></p>
                             </div>
                         </div>
 
@@ -405,18 +445,65 @@
                     </div>
                 </section>
 
-                {{-- STAGE 4: WhatsApp --}}
+                {{-- STAGE 4: Message destinations --}}
                 <section x-show="stage === 4" x-cloak class="rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div class="border-b border-slate-100 px-5 py-4 sm:px-8 sm:py-5">
-                        <h2 class="text-lg font-bold text-slate-900">WhatsApp destination</h2>
-                        <p class="mt-1 text-sm text-slate-500">Message destination for Click-to-WhatsApp — where conversations are delivered.</p>
+                        <h2 class="text-lg font-bold text-slate-900">Message destinations</h2>
+                        <p class="mt-1 text-sm text-slate-500">Choose where to chat with people after they see your ad. Sync Facebook, Instagram, and WhatsApp from Meta — or add them manually.</p>
                     </div>
                     <div class="space-y-5 p-5 sm:p-8">
+                        <div class="space-y-3">
+                            <label class="flex cursor-pointer gap-3 rounded-xl border p-4 transition"
+                                :class="form.message_destination_mode === 'automatic' ? 'border-[#0866FF] bg-sky-50/50 ring-1 ring-[#0866FF]/30' : 'border-slate-200 hover:bg-slate-50'">
+                                <input type="radio" name="message_destination_mode" value="automatic" x-model="form.message_destination_mode" class="mt-1 text-[#0866FF]">
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-sm font-semibold text-slate-900">Automatic destination <span class="font-normal text-slate-500">(recommended)</span></p>
+                                    <p class="mt-0.5 text-xs text-slate-600">We’ll send people to the messaging app where they engage most and lower ad costs.</p>
+                                    <div class="mt-3 flex flex-wrap gap-2">
+                                        <span class="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200">
+                                            <span class="text-[#0866FF]">Messenger</span>
+                                            <span class="max-w-[10rem] truncate text-slate-500" x-text="selectedPageName()"></span>
+                                        </span>
+                                        <span class="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200" x-show="selectedIgLabel()">
+                                            <span class="bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">Instagram</span>
+                                            <span class="max-w-[10rem] truncate text-slate-500" x-text="selectedIgLabel()"></span>
+                                        </span>
+                                        <span class="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200">
+                                            <span class="text-[#25D366]">WhatsApp</span>
+                                            <span class="max-w-[10rem] truncate text-slate-500" x-text="selectedWaLabel()"></span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="flex cursor-pointer gap-3 rounded-xl border p-4 transition"
+                                :class="form.message_destination_mode === 'manual' ? 'border-[#0866FF] bg-sky-50/50 ring-1 ring-[#0866FF]/30' : 'border-slate-200 hover:bg-slate-50'">
+                                <input type="radio" name="message_destination_mode" value="manual" x-model="form.message_destination_mode" class="mt-1 text-[#0866FF]">
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-sm font-semibold text-slate-900">Manual destination</p>
+                                    <p class="mt-0.5 text-xs text-slate-600">We’ll only send people to the messaging apps you choose.</p>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div x-show="form.message_destination_mode === 'manual'" class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                            <label class="flex items-center gap-2 text-sm font-medium text-slate-800">
+                                <input type="checkbox" x-model="form.dest_messenger" class="rounded text-[#0866FF]"> Facebook Messenger
+                                <span class="text-xs font-normal text-slate-500" x-text="'(' + selectedPageName() + ')'"></span>
+                            </label>
+                            <label class="flex items-center gap-2 text-sm font-medium text-slate-800">
+                                <input type="checkbox" x-model="form.dest_instagram" class="rounded text-[#0866FF]"> Instagram
+                                <span class="text-xs font-normal text-slate-500" x-text="selectedIgLabel() ? '(' + selectedIgLabel() + ')' : '(add Instagram above in Ad set)'"></span>
+                            </label>
+                            <label class="flex items-center gap-2 text-sm font-medium text-slate-800">
+                                <input type="checkbox" x-model="form.dest_whatsapp" class="rounded text-[#0866FF]"> WhatsApp
+                            </label>
+                        </div>
+
                         <div class="space-y-4 rounded-xl border-2 border-[#25D366]/30 bg-[#25D366]/5 p-4">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <p class="text-sm font-bold text-slate-900">WhatsApp phone number</p>
                                 <div class="flex items-center gap-3">
-                                    <span class="text-[11px] font-semibold text-emerald-700" x-show="!waLoading && whatsappNumbers.length">Auto-synced from Meta</span>
                                     <button type="button" @click="refreshWhatsAppNumbers()" :disabled="waLoading"
                                         class="text-xs font-semibold text-[#075E54] underline disabled:opacity-50">
                                         <span x-show="!waLoading">Refresh</span>
@@ -425,7 +512,6 @@
                                     <a href="{{ route('admin.meta.whatsapp.index') }}" class="text-xs font-semibold text-[#075E54] underline">Manage numbers</a>
                                 </div>
                             </div>
-                            <p class="text-xs text-slate-600">Numbers always sync from Meta when you open Ad Studio and when you tap Refresh.</p>
 
                             <div x-show="waError" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" x-text="waError"></div>
 
@@ -433,7 +519,7 @@
                                 class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
                                 <template x-for="n in whatsappNumbers" :key="n.id">
                                     <option :value="n.phone"
-                                        x-text="n.display + ' — ' + (n.label || 'WhatsApp') + (n.waba_name ? ' · ' + n.waba_name : '') + (n.verified ? '' : ' · needs SMS verify')"></option>
+                                        x-text="n.display + ' — ' + (n.label || 'WhatsApp') + (n.waba_name ? ' · ' + n.waba_name : '')"></option>
                                 </template>
                                 <option value="__custom__">Enter custom number…</option>
                             </select>
@@ -445,9 +531,6 @@
                                 class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
                             <input type="hidden" name="whatsapp_phone_number"
                                 :value="form.whatsapp_phone_number === '__custom__' ? form.whatsapp_phone_custom.replace(/\D/g,'') : form.whatsapp_phone_number">
-                            <p x-show="!whatsappNumbers.length && !waLoading" class="text-xs text-amber-800">
-                                No Meta numbers found yet — sync above, or add a number in Business Manager.
-                            </p>
 
                             <div>
                                 <label class="block text-xs font-semibold uppercase text-slate-500">Or WhatsApp link (wa.me)</label>
@@ -466,6 +549,11 @@
                                     :placeholder="form.whatsapp_phone_number || 'Same as delivery number'"
                                     class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
                             </div>
+                        </div>
+
+                        <div class="rounded-xl border border-slate-100 bg-slate-50 p-4 text-[11px] leading-relaxed text-slate-600">
+                            WhatsApp names and phone numbers are subject to Meta Advertising Policies and the WhatsApp Commerce Policy.
+                            Click-to-WhatsApp ads can show an “Active on WhatsApp” status when using the WhatsApp Business app.
                         </div>
 
                         <div class="rounded-xl bg-[#e5ddd5] p-4">
@@ -765,7 +853,7 @@ function adStudio(config) {
             { key: 'creative', label: 'Creative' },
             { key: 'campaign', label: 'Campaign' },
             { key: 'audience', label: 'Ad set' },
-            { key: 'whatsapp', label: 'WhatsApp' },
+            { key: 'whatsapp', label: 'Destinations' },
             { key: 'review', label: 'Publish' },
         ],
         stage: config.connectionValid ? 1 : 0,
@@ -784,6 +872,12 @@ function adStudio(config) {
         aiAnalyzeError: '',
         creativeReady: false,
         whatsappNumbers: config.whatsappNumbers || [],
+        pages: config.pages || [],
+        instagramAccounts: config.instagramAccounts || [],
+        identityLoading: false,
+        identityError: '',
+        identitySuccess: '',
+        showAddIg: false,
         countryOptions: config.countryOptions || {},
         waLoading: false,
         waError: '',
@@ -803,7 +897,13 @@ function adStudio(config) {
             adset_name: '',
             ad_name: '',
             page_id: config.defaultPageId || '',
+            page_id_manual: '',
             instagram_user_id: config.defaultIg || '',
+            instagram_manual: '',
+            message_destination_mode: 'automatic',
+            dest_messenger: true,
+            dest_instagram: true,
+            dest_whatsapp: true,
             whatsapp_phone_number: config.defaultPhone || '',
             whatsapp_phone_custom: '',
             whatsapp_chat_url: '',
@@ -843,11 +943,131 @@ function adStudio(config) {
             if (this.whatsappNumbers.length && !this.form.whatsapp_phone_number) {
                 this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
             }
+            if (!this.form.instagram_user_id && this.instagramAccounts.length) {
+                this.form.instagram_user_id = this.instagramAccounts[0].id;
+            }
             this.refreshWhatsAppNumbers();
+            this.refreshIdentities();
             this.$watch('form.countries', () => this.scheduleCitySuggestions());
             this.$watch('form.geo_mode', () => this.scheduleCitySuggestions());
             if (this.form.geo_mode === 'countries_and_cities') {
                 this.scheduleCitySuggestions();
+            }
+        },
+
+        selectedPageName() {
+            const id = this.form.page_id === '__manual_page__' ? this.form.page_id_manual : this.form.page_id;
+            const page = this.pages.find(p => String(p.id) === String(id));
+            return page?.name || id || 'Select a Page';
+        },
+
+        selectedIgLabel() {
+            const id = this.form.instagram_user_id === '__manual_ig__' ? this.form.instagram_manual : this.form.instagram_user_id;
+            if (!id) return '';
+            const ig = this.instagramAccounts.find(i => String(i.id) === String(id));
+            return ig?.label || (id.startsWith('@') ? id : (id.length > 8 ? '@…' + id.slice(-6) : id));
+        },
+
+        selectedWaLabel() {
+            const phone = this.form.whatsapp_phone_number === '__custom__'
+                ? this.form.whatsapp_phone_custom
+                : this.form.whatsapp_phone_number;
+            const n = this.whatsappNumbers.find(w => w.phone === phone);
+            return n?.display || phone || 'Select WhatsApp';
+        },
+
+        onPageChange() {
+            if (this.form.page_id === '__manual_page__') return;
+            const page = this.pages.find(p => String(p.id) === String(this.form.page_id));
+            if (page?.instagram_id) {
+                this.form.instagram_user_id = page.instagram_id;
+            }
+        },
+
+        onInstagramSelect() {
+            this.showAddIg = this.form.instagram_user_id === '__manual_ig__';
+        },
+
+        async refreshIdentities() {
+            this.identityLoading = true;
+            this.identityError = '';
+            this.identitySuccess = '';
+            try {
+                const res = await fetch('{{ route('admin.marketing.create.identities') }}', {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    this.identityError = data.message || 'Could not sync Pages / Instagram from Meta.';
+                    return;
+                }
+                this.pages = data.pages || [];
+                this.instagramAccounts = data.instagram || [];
+                if (this.form.page_id && this.form.page_id !== '__manual_page__') {
+                    const still = this.pages.find(p => String(p.id) === String(this.form.page_id));
+                    if (!still && this.pages.length) this.form.page_id = this.pages[0].id;
+                } else if (!this.form.page_id && this.pages.length) {
+                    this.form.page_id = this.pages[0].id;
+                }
+                this.onPageChange();
+                this.identitySuccess = 'Pages & Instagram synced from Meta.';
+            } catch (e) {
+                this.identityError = 'Could not reach Meta to list Pages / Instagram.';
+            } finally {
+                this.identityLoading = false;
+            }
+        },
+
+        async saveManualPage() {
+            const id = (this.form.page_id_manual || '').replace(/\D/g, '');
+            if (!id) {
+                this.identityError = 'Enter a Facebook Page ID.';
+                return;
+            }
+            this.form.page_id = id;
+            await this.persistIdentity({ page_id: id, page_name: id });
+        },
+
+        async addInstagramAccount() {
+            const id = (this.form.instagram_manual || '').replace(/\D/g, '');
+            if (!id) {
+                this.identityError = 'Enter an Instagram business account ID.';
+                return;
+            }
+            await this.persistIdentity({
+                page_id: this.form.page_id === '__manual_page__' ? this.form.page_id_manual : this.form.page_id,
+                instagram_user_id: id,
+                add_instagram_id: id,
+            });
+            this.form.instagram_user_id = id;
+            this.showAddIg = false;
+        },
+
+        async persistIdentity(payload) {
+            this.identityError = '';
+            this.identitySuccess = '';
+            try {
+                const res = await fetch('{{ route('admin.marketing.create.identities.save') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify(payload),
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    this.identityError = data.message || 'Could not save identity.';
+                    return;
+                }
+                this.pages = data.pages || this.pages;
+                this.instagramAccounts = data.instagram || this.instagramAccounts;
+                if (data.page_id) this.form.page_id = data.page_id;
+                if (data.instagram_user_id) this.form.instagram_user_id = data.instagram_user_id;
+                this.identitySuccess = data.message || 'Saved.';
+            } catch (e) {
+                this.identityError = 'Could not save Page / Instagram identity.';
             }
         },
 

@@ -22,6 +22,7 @@ class PlatformMetaConnection extends Model
         'instagram_business_account_id',
         'whatsapp_business_id',
         'linked_waba_ids',
+        'linked_instagram_ids',
         'whatsapp_phone_number_id',
         'whatsapp_phone_number',
         'access_token',
@@ -33,6 +34,7 @@ class PlatformMetaConnection extends Model
     protected $casts = [
         'granted_permissions' => 'array',
         'linked_waba_ids' => 'array',
+        'linked_instagram_ids' => 'array',
         'token_expires_at' => 'datetime',
         'is_active' => 'boolean',
         'is_platform_default' => 'boolean',

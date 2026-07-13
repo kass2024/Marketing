@@ -12,6 +12,8 @@ class ClickToWhatsAppCreativeBuilder
      *
      * @param  array<string, mixed>  $input
      * @return array<string, mixed>
+     *
+     * @see https://developers.facebook.com/docs/marketing-api/ad-creative/messaging-ads/click-to-whatsapp/
      */
     public function buildObjectStorySpec(array $input): array
     {
@@ -20,26 +22,27 @@ class ClickToWhatsAppCreativeBuilder
             throw new \InvalidArgumentException('page_id is required for Click-to-WhatsApp creatives.');
         }
 
-        $ctaType = $this->resolveCtaType();
-        $whatsappLink = $this->resolveWhatsAppLink(
-            (string) ($input['whatsapp_chat_url'] ?? $input['whatsapp_phone_number'] ?? ''),
-            (string) ($input['whatsapp_prefill_message'] ?? '')
-        );
+        $prefill = (string) ($input['whatsapp_prefill_message'] ?? '');
 
+        // Phone for the conversation is on the ad set promoted_object. Creative CTA must be
+        // WHATSAPP_MESSAGE with api.whatsapp.com/send — SEND_MESSAGE is Messenger-oriented
+        // and fails for WhatsApp destination ad sets (often mislabeled as “permission”).
         $linkData = array_filter([
             'message' => $input['primary_text'] ?? $input['body'] ?? '',
             'name' => $input['headline'] ?? $input['name'] ?? '',
             'description' => $input['description'] ?? '',
             'image_hash' => $input['image_hash'] ?? null,
             'video_id' => $input['video_id'] ?? null,
-            'link' => $whatsappLink,
+            'link' => 'https://api.whatsapp.com/send',
             'call_to_action' => [
-                'type' => $ctaType,
-                'value' => array_filter([
-                    'link' => $whatsappLink,
+                'type' => self::CTA_WHATSAPP_MESSAGE,
+                'value' => [
                     'app_destination' => 'WHATSAPP',
-                ]),
+                ],
             ],
+            'page_welcome_message' => $this->buildPageWelcomeMessage(
+                $prefill !== '' ? $prefill : "Hi! I'd like more details."
+            ),
         ], fn ($v) => $v !== null && $v !== '');
 
         $spec = [
@@ -183,11 +186,12 @@ class ClickToWhatsAppCreativeBuilder
             'OUTCOME_ENGAGEMENT' => 'Engagement (Messages)',
             'OUTCOME_LEADS' => 'Leads',
             'OUTCOME_SALES' => 'Sales',
+            'OUTCOME_TRAFFIC' => 'Traffic',
         ];
     }
 
     /**
-     * Placements compatible with Click-to-WhatsApp.
+     * Default placements for Click-to-WhatsApp (Facebook + Instagram).
      *
      * @return array<string, mixed>
      */
@@ -201,11 +205,25 @@ class ClickToWhatsAppCreativeBuilder
         ];
     }
 
-    protected function resolveCtaType(): string
+    /**
+     * Welcome / autofill message JSON string for link_data.page_welcome_message.
+     */
+    public function buildPageWelcomeMessage(string $autofillContent): string
     {
-        $version = config('services.meta.graph_version', 'v19.0');
-        $major = (int) ltrim(explode('.', $version)[0] ?? '19', 'v');
-
-        return $major >= 20 ? self::CTA_WHATSAPP_MESSAGE : self::CTA_SEND_MESSAGE;
+        return json_encode([
+            'type' => 'VISUAL_EDITOR',
+            'version' => 2,
+            'landing_screen_type' => 'welcome_message',
+            'media_type' => 'text',
+            'text_format' => [
+                'customer_action_type' => 'autofill_message',
+                'message' => [
+                    'text' => 'Thanks for reaching out — send the message below to get started.',
+                    'autofill_message' => [
+                        'content' => $autofillContent,
+                    ],
+                ],
+            ],
+        ], JSON_UNESCAPED_UNICODE) ?: '';
     }
 }

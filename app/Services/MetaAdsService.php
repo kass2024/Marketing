@@ -2653,7 +2653,61 @@ public function getAccountStatus($accountId)
      */
     public function createClickToWhatsAppCreative(string $accountId, array $payload): array
     {
-        return $this->createCreative($accountId, $payload);
+        try {
+            return $this->createCreative($accountId, $payload);
+        } catch (Throwable $first) {
+            $payload = $this->stripWelcomeMessageFromCreativePayload($payload);
+            $msg = strtolower($first->getMessage());
+            $spec = $payload['object_story_spec'] ?? null;
+            $hasIg = is_array($spec) && ! empty($spec['instagram_user_id']);
+            $looksLikeIgAuth = $hasIg && (
+                str_contains($msg, 'instagram')
+                || str_contains($msg, 'permission')
+                || str_contains($msg, '(#10)')
+                || str_contains($msg, '(#200)')
+                || str_contains($msg, 'does not have')
+            );
+
+            Log::warning('META_CTWA_CREATIVE_RETRY', [
+                'error' => $first->getMessage(),
+                'without_welcome' => true,
+                'without_instagram' => $looksLikeIgAuth,
+            ]);
+
+            if ($looksLikeIgAuth) {
+                unset($payload['object_story_spec']['instagram_user_id']);
+            }
+
+            try {
+                return $this->createCreative($accountId, $payload);
+            } catch (Throwable $second) {
+                // Last resort: Facebook placements only — drop IG identity if still present
+                if (is_array($payload['object_story_spec'] ?? null)
+                    && ! empty($payload['object_story_spec']['instagram_user_id'])) {
+                    unset($payload['object_story_spec']['instagram_user_id']);
+                    Log::warning('META_CTWA_CREATIVE_RETRY_FB_ONLY', [
+                        'error' => $second->getMessage(),
+                    ]);
+
+                    return $this->createCreative($accountId, $payload);
+                }
+
+                throw $second;
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    protected function stripWelcomeMessageFromCreativePayload(array $payload): array
+    {
+        if (isset($payload['object_story_spec']['link_data']['page_welcome_message'])) {
+            unset($payload['object_story_spec']['link_data']['page_welcome_message']);
+        }
+
+        return $payload;
     }
 
     /**
@@ -2706,12 +2760,26 @@ public function getAccountStatus($accountId)
         }
 
         return match (true) {
-            str_contains($lower, 'permission') || (str_contains($message, 'OAuthException') && ! str_contains($message, '80008')) =>
+            // Real OAuth/scope failures only — never map every Meta "OAuthException" type here
+            // (almost all Marketing API errors are typed OAuthException, including Invalid parameter).
+            str_contains($message, '(#10)')
+                || str_contains($message, '(#200)')
+                || str_contains($lower, 'does not have permission')
+                || str_contains($lower, 'permissions error')
+                || str_contains($lower, 'missing permission')
+                || str_contains($lower, 'permission denied') =>
                 'Permission missing — reconnect Meta and grant ads_management, pages_manage_ads, and WhatsApp permissions.',
             str_contains($lower, 'access token') || str_contains($message, '(#190)') =>
                 'Invalid or expired token — reconnect Meta in Admin → Meta Connection.',
             str_contains($lower, 'ad account') && str_contains($lower, 'disabled') =>
                 'Ad account disabled or restricted — check Meta Business Manager account status.',
+            str_contains($lower, 'instagram') && (
+                str_contains($lower, 'permission')
+                || str_contains($lower, 'not linked')
+                || str_contains($lower, 'not connected')
+                || str_contains($lower, 'invalid')
+            ) =>
+                'Instagram identity issue on the creative — confirm the Page’s Instagram account in Meta, or publish Facebook-only first.',
             // Only map true Page↔WhatsApp link failures (not every string that mentions WhatsApp)
             str_contains($lower, 'not connected')
                 || str_contains($lower, 'page is not connected')
@@ -2736,6 +2804,11 @@ public function getAccountStatus($accountId)
                 || str_contains($lower, 'budget too low')
                 || str_contains($lower, 'minimum budget') =>
                 'Budget too low for this ad set setup — $5/day is normally fine for USD accounts. Try publishing again or check the ad account currency in Meta.',
+            str_contains($lower, 'call_to_action')
+                || str_contains($lower, 'whatsapp_message')
+                || str_contains($lower, 'send_message')
+                || str_contains($lower, 'app_destination') =>
+                'WhatsApp creative CTA rejected — Ads Manager uses WHATSAPP_MESSAGE. Retry publish after updating Ad Studio.',
             str_contains($lower, 'creative') || str_contains($message, '1487') =>
                 'Creative invalid — check image size, text length, and WhatsApp CTA configuration.',
             default => $message,

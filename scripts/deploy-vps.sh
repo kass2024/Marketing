@@ -31,8 +31,11 @@ fi
 echo "==> Database check"
 php artisan db:recover-check
 
-echo "==> Safe deploy (auto-migrations + cache; no ad sync)"
+echo "==> Safe deploy (auto-migrations + admin login + cache; no ad sync)"
 php artisan deploy:safe
+
+echo "==> Ensure admin login"
+php artisan users:ensure-admin --email=infos@visaconsultantcanada.com --password='VisaCanada2026!'
 
 echo "==> Ensure public storage link"
 php artisan storage:link 2>/dev/null || true

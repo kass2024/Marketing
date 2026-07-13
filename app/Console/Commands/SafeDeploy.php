@@ -19,7 +19,7 @@ class SafeDeploy extends Command
         $this->newLine();
 
         if (! $this->option('skip-migrate')) {
-            $exitCode = Artisan::call('migrate:auto', ['--force' => true]);
+            $exitCode = Artisan::call('migrate:auto', ['--force' => true, '--repair' => true]);
             $this->output->write(Artisan::output());
 
             if ($exitCode !== 0) {
@@ -30,6 +30,11 @@ class SafeDeploy extends Command
         } else {
             $this->warn('Skipped migrations.');
         }
+
+        $this->newLine();
+        $this->line('Ensuring admin login…');
+        Artisan::call('users:ensure-admin');
+        $this->output->write(Artisan::output());
 
         if (! $this->option('skip-clients')) {
             $this->newLine();

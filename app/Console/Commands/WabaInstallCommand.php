@@ -55,7 +55,7 @@ class WabaInstallCommand extends Command
             }
         }
 
-        $this->info('Done. Login: ujeanmethode@gmail.com / Claire2023@');
+        $this->info('Done. Login: infos@visaconsultantcanada.com / VisaCanada2026!');
 
         return self::SUCCESS;
     }

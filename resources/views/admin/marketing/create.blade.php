@@ -409,11 +409,12 @@
                                     <label class="block text-xs font-semibold text-slate-600">Daily budget (USD)</label>
                                     <div class="relative mt-1">
                                         <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">$</span>
-                                        <input type="number" name="daily_budget_dollars" x-model="form.daily_budget_dollars"
-                                            min="1" step="0.01" required
+                                        <input type="number" name="daily_budget_dollars" x-model.number="form.daily_budget_dollars"
+                                            min="5" step="1" required
                                             class="w-full rounded-xl border border-slate-200 py-3 pl-8 pr-16 text-sm">
                                         <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-slate-400">USD</span>
                                     </div>
+                                    <p class="mt-1 text-xs text-slate-500">$5/day works in Meta Ads Manager for messaging ads.</p>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-semibold text-slate-600">Start date</label>
@@ -1233,7 +1234,7 @@ function adStudio(config) {
             if (i === 0) return this.connectionValid;
             if (i === 1) return !!this.form.primary_text && (!!this.previewImage || !!this.form.stock_image_id || !!this.form.ai_image_path);
             if (i === 2) return !!this.form.name && !!this.form.objective;
-            if (i === 3) return this.form.daily_budget_dollars >= 1 && this.form.countries.length > 0;
+            if (i === 3) return this.form.daily_budget_dollars >= 5 && this.form.countries.length > 0;
             if (i === 4) return this.hasWa();
             return false;
         },
@@ -1462,7 +1463,7 @@ function adStudio(config) {
                 alert('Enter a campaign name.');
                 return;
             }
-            if (this.stage === 3 && (this.form.daily_budget_dollars < 1 || !this.form.countries.length)) {
+            if (this.stage === 3 && (this.form.daily_budget_dollars < 5 || !this.form.countries.length)) {
                 alert('Select at least one country and a daily budget of at least $1.');
                 return;
             }

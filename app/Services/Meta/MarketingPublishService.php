@@ -73,6 +73,7 @@ class MarketingPublishService
             ));
             $whatsappPhone = $this->creativeBuilder->phoneFromLink($waDestination) ?? preg_replace('/\D+/', '', $waDestination);
             $status = $activate ? 'ACTIVE' : 'PAUSED';
+            $budgetCents = $this->resolveBudgetCents($wizardData);
 
             $campaign = Campaign::create([
                 'ad_account_id' => $account->id,
@@ -82,7 +83,7 @@ class MarketingPublishService
                 'name' => $wizardData['name'],
                 'objective' => $wizardData['objective'] ?? 'OUTCOME_ENGAGEMENT',
                 'marketing_channel' => 'click_to_whatsapp',
-                'daily_budget' => (int) ($wizardData['daily_budget'] ?? 0),
+                'daily_budget' => $budgetCents,
                 'status' => $activate ? Campaign::STATUS_ACTIVE : Campaign::STATUS_PAUSED,
                 'meta_effective_status' => $status,
                 'wizard_state' => $wizardData,
@@ -107,7 +108,7 @@ class MarketingPublishService
             $adSet = AdSet::create([
                 'campaign_id' => $campaign->id,
                 'name' => $wizardData['adset_name'] ?? ($campaign->name.' — Ad Set'),
-                'daily_budget' => (int) $wizardData['daily_budget'],
+                'daily_budget' => $budgetCents,
                 'optimization_goal' => $adSetDefaults['optimization_goal'],
                 'billing_event' => $adSetDefaults['billing_event'],
                 'destination_type' => $adSetDefaults['destination_type'],
@@ -120,7 +121,7 @@ class MarketingPublishService
             $metaAdSet = $this->meta->createWhatsAppAdSet($accountId, array_merge($adSetDefaults, [
                 'name' => $adSet->name,
                 'campaign_id' => $campaign->meta_id,
-                'daily_budget' => (int) $wizardData['daily_budget'],
+                'daily_budget' => $budgetCents,
                 'targeting' => $targeting,
                 'status' => $status,
                 'start_time' => isset($wizardData['start_date'])
@@ -284,5 +285,29 @@ class MarketingPublishService
         }
 
         return $targeting;
+    }
+
+    /**
+     * Meta daily_budget is account minor units (cents for USD). $5 → 500.
+     *
+     * @param  array<string, mixed>  $wizardData
+     */
+    protected function resolveBudgetCents(array $wizardData): int
+    {
+        if (isset($wizardData['daily_budget_dollars']) && $wizardData['daily_budget_dollars'] !== '' && $wizardData['daily_budget_dollars'] !== null) {
+            return (int) round(max(0, (float) $wizardData['daily_budget_dollars']) * 100);
+        }
+
+        $raw = (float) ($wizardData['daily_budget'] ?? 0);
+        if ($raw <= 0) {
+            return 0;
+        }
+
+        // Bare "5" from the form means $5, not 5 cents.
+        if ($raw < 100) {
+            return (int) round($raw * 100);
+        }
+
+        return (int) round($raw);
     }
 }

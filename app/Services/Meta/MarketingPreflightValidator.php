@@ -48,8 +48,15 @@ class MarketingPreflightValidator
         }
 
         $budget = (int) ($wizardData['daily_budget'] ?? 0);
+        if (isset($wizardData['daily_budget_dollars']) && $wizardData['daily_budget_dollars'] !== '' && $wizardData['daily_budget_dollars'] !== null) {
+            $budget = (int) round(max(0, (float) $wizardData['daily_budget_dollars']) * 100);
+        } elseif ($budget > 0 && $budget < 100) {
+            // Treat bare "5" as $5 (Meta minor units), not 5 cents.
+            $budget = $budget * 100;
+        }
+        // $5/day (500 cents) is valid in Meta Ads Manager; allow from $1 (100 cents).
         if ($budget < 100) {
-            $errors[] = $this->issue('budget_too_low', 'Daily budget must be at least 100 (cents).', 'Increase budget in step 5 — Meta minimum varies by currency.');
+            $errors[] = $this->issue('budget_too_low', 'Daily budget must be at least $1.00 (Meta minimum for many USD accounts).', 'Set daily budget to $5 or more in the Ad set step — $5 works in Meta Ads Manager.');
         }
 
         $countries = $wizardData['countries'] ?? [];
@@ -124,7 +131,8 @@ class MarketingPreflightValidator
                 $errors[] = $this->issue('adset_not_synced', "Ad set \"{$adSet->name}\" is not on Meta.", 'Re-publish from the wizard.');
             }
             if ((int) $adSet->daily_budget < 100) {
-                $errors[] = $this->issue('budget_too_low', "Ad set \"{$adSet->name}\" budget is too low.", 'Increase daily budget.');
+                // Stored in cents; values like 5 mean $0.05 and are invalid. $5 = 500.
+                $errors[] = $this->issue('budget_too_low', "Ad set \"{$adSet->name}\" budget is too low.", 'Set daily budget to at least $5 (as in Meta Ads Manager).');
             }
         }
 

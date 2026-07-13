@@ -454,8 +454,15 @@ class AdStudioController extends Controller
             $data['regions'] = [];
         }
 
-        if (! empty($data['daily_budget_dollars'])) {
-            $data['daily_budget'] = (int) round((float) $data['daily_budget_dollars'] * 100);
+        // Meta expects minor units (cents for USD). $5 → 500.
+        if (isset($data['daily_budget_dollars']) && $data['daily_budget_dollars'] !== '' && $data['daily_budget_dollars'] !== null) {
+            $data['daily_budget'] = (int) round(max(0, (float) $data['daily_budget_dollars']) * 100);
+        } elseif (isset($data['daily_budget']) && $data['daily_budget'] !== '' && $data['daily_budget'] !== null) {
+            $raw = (float) $data['daily_budget'];
+            // Values under 100 are almost certainly dollars typed without conversion (e.g. 5 → $5).
+            $data['daily_budget'] = $raw > 0 && $raw < 100
+                ? (int) round($raw * 100)
+                : (int) round($raw);
         }
 
         if (! empty($data['placements']) && is_array($data['placements'])) {

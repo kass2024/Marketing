@@ -2574,6 +2574,11 @@ public function getAccountStatus($accountId)
     {
         $message = $e->getMessage();
 
+        // Interest/targeting subcodes (2446394/2446395) must be checked before any "2446" prefix match.
+        if ($this->isDetailedTargetingError($e)) {
+            return 'Audience targeting needs an update — remove or replace deprecated interests and try again. $5 daily budgets are fine.';
+        }
+
         return match (true) {
             str_contains($message, 'permission') || str_contains($message, 'OAuthException') =>
                 'Permission missing — reconnect Meta and grant ads_management, pages_manage_ads, and WhatsApp permissions.',
@@ -2585,8 +2590,14 @@ public function getAccountStatus($accountId)
                 'WhatsApp number not connected to Page — link WhatsApp in Meta Business Suite.',
             str_contains($message, 'placement') =>
                 'Placement unsupported for Click-to-WhatsApp — use Facebook/Instagram feed, stories, or reels.',
-            str_contains($message, 'budget') || str_contains($message, '2446') =>
-                'Budget too low — increase daily budget (minimum varies by currency).',
+            // Real budget errors only (do NOT match 2446 — that prefixes interest subcodes 2446394/2446395)
+            str_contains($message, '1885272')
+                || str_contains($message, '1885650')
+                || str_contains($message, '1487901')
+                || str_contains(strtolower($message), 'budget is too low')
+                || str_contains(strtolower($message), 'budget too low')
+                || str_contains(strtolower($message), 'minimum budget') =>
+                'Budget too low for this ad set setup — $5/day is normally fine for USD accounts. Try publishing again or check the ad account currency in Meta.',
             str_contains($message, 'creative') || str_contains($message, '1487') =>
                 'Creative invalid — check image size, text length, and WhatsApp CTA configuration.',
             default => $message,

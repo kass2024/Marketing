@@ -156,22 +156,23 @@ class InstagramBusinessAccountService
             $detail = $this->getAccount($seedId);
             $byId[$detail['id'] ?? $seedId] = $detail ?? [
                 'id' => $seedId,
-                'username' => null,
-                'name' => config('services.meta.page_name') ?: config('platform.meta.page_name'),
+                'username' => $this->configuredUsernameFor($seedId),
+                'name' => null,
                 'source' => 'seed',
                 'profile_picture_url' => null,
             ];
         }
 
         $byId = $this->finalizeAccounts($byId, $token);
+        $byId = $this->applyConfiguredUsernameFallbacks($byId);
 
         // Last resort: if Graph returned nothing usable, still show env/connection IG
         if ($byId === []) {
             foreach ($this->knownInstagramIds($connection) as $seedId) {
                 $byId[$seedId] = [
                     'id' => $seedId,
-                    'username' => null,
-                    'name' => config('services.meta.page_name') ?: 'Instagram account',
+                    'username' => $this->configuredUsernameFor($seedId),
+                    'name' => null,
                     'source' => 'seed',
                     'profile_picture_url' => null,
                 ];
@@ -179,6 +180,10 @@ class InstagramBusinessAccountService
             if ($pageIg) {
                 $byId[(string) $pageIg['id']] = $pageIg;
             }
+        }
+
+        foreach ($byId as $id => $row) {
+            $byId[$id] = $this->sanitizeAccountLabels(is_array($row) ? $row : []);
         }
 
         Log::info('IG_LIST_ACCOUNTS_RESULT', [
@@ -345,14 +350,100 @@ class InstagramBusinessAccountService
         foreach ($this->knownInstagramIds($connection) as $id) {
             $items[] = [
                 'id' => $id,
-                'username' => null,
-                'name' => config('services.meta.page_name') ?: 'Instagram account',
+                'username' => $this->configuredUsernameFor($id),
+                'name' => null,
                 'source' => 'seed',
                 'profile_picture_url' => null,
             ];
         }
 
-        return $items;
+        return array_map(fn ($row) => $this->sanitizeAccountLabels($row), $items);
+    }
+
+    /**
+     * Optional .env fallback when Graph omits username (system-user tokens often do).
+     */
+    protected function configuredUsernameFor(?string $instagramId = null): ?string
+    {
+        $configured = config('services.meta.instagram_username')
+            ?: config('platform.meta.instagram_username')
+            ?: null;
+        if (! $configured) {
+            return null;
+        }
+        $configured = ltrim((string) $configured, '@');
+        if ($configured === '') {
+            return null;
+        }
+
+        $expectedId = preg_replace('/\D+/', '', (string) (
+            config('services.meta.instagram_user_id')
+            ?: config('platform.meta.instagram_user_id')
+            ?: ''
+        )) ?: '';
+
+        if ($instagramId && $expectedId !== '' && $instagramId !== $expectedId) {
+            return null;
+        }
+
+        return $configured;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $byId
+     * @return array<string, array<string, mixed>>
+     */
+    protected function applyConfiguredUsernameFallbacks(array $byId): array
+    {
+        foreach ($byId as $id => $row) {
+            if (! empty($row['username'])) {
+                continue;
+            }
+            $fallback = $this->configuredUsernameFor((string) $id);
+            if ($fallback) {
+                $byId[$id]['username'] = $fallback;
+                $byId[$id]['source'] = ($row['source'] ?? 'seed').'+env';
+            }
+        }
+
+        return $byId;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function sanitizeAccountLabels(array $row): array
+    {
+        $banned = [
+            'facebook page',
+            'platform page',
+            'your page',
+            strtolower((string) (config('services.meta.page_name') ?: '')),
+            strtolower((string) (config('platform.meta.page_name') ?: '')),
+        ];
+        $banned = array_values(array_filter(array_unique($banned)));
+
+        $name = trim((string) ($row['name'] ?? ''));
+        if ($name !== '' && in_array(strtolower($name), $banned, true)) {
+            $row['name'] = null;
+        }
+
+        if (! empty($row['username'])) {
+            $row['username'] = ltrim((string) $row['username'], '@');
+        } else {
+            $fallback = $this->configuredUsernameFor((string) ($row['id'] ?? ''));
+            if ($fallback) {
+                $row['username'] = $fallback;
+            }
+        }
+
+        // Prefer IG handle as the human label Meta shows in Business Manager
+        $row['label'] = ! empty($row['username'])
+            ? '@'.$row['username']
+            : ('IG '.$row['id']);
+
+        return $row;
     }
 
     /**
@@ -513,14 +604,14 @@ class InstagramBusinessAccountService
                     }
                 }
 
-                return [
+                return $this->sanitizeAccountLabels([
                     'id' => $resolvedId,
                     'username' => $username ? ltrim((string) $username, '@') : null,
                     'name' => $json['name'] ?? null,
                     'source' => 'asset_metadata',
                     'profile_picture_url' => $json['profile_picture_url'] ?? $json['profile_pic'] ?? null,
                     'asset_id' => $igUserId !== '' && $igUserId !== $instagramId ? $instagramId : null,
-                ];
+                ]);
             }
         }
 
@@ -559,13 +650,13 @@ class InstagramBusinessAccountService
 
         $username = $json['username'] ?? $json['ig_username'] ?? null;
 
-        return [
+        return $this->sanitizeAccountLabels([
             'id' => (string) $json['id'],
             'username' => $username ? ltrim((string) $username, '@') : null,
             'name' => $json['name'] ?? null,
             'source' => 'graph',
             'profile_picture_url' => $json['profile_picture_url'] ?? $json['profile_pic'] ?? null,
-        ];
+        ]);
     }
 
     /**

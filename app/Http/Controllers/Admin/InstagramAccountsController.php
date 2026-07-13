@@ -39,6 +39,11 @@ class InstagramAccountsController extends Controller
             $accounts = $this->seedFromConnection($connection);
         }
 
+        $accounts = array_values(array_map(
+            fn ($row) => $this->normalizeAccountLabel(is_array($row) ? $row : []),
+            $accounts
+        ));
+
         if ($this->shouldBackgroundSync($accounts, $syncedAtKey)) {
             $this->queueBackgroundSync($cacheSuffix);
         }
@@ -141,15 +146,63 @@ class InstagramAccountsController extends Controller
                 continue;
             }
             $seen[$id] = true;
-            $items[] = [
+            $items[] = $this->normalizeAccountLabel([
                 'id' => $id,
                 'username' => null,
-                'name' => config('services.meta.page_name') ?: 'Instagram account',
+                'name' => null,
                 'source' => 'seed',
-            ];
+            ]);
         }
 
         return $items;
+    }
+
+    /**
+     * Prefer @username; never show Facebook Page / page_name as the IG label.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function normalizeAccountLabel(array $row): array
+    {
+        $banned = [
+            'facebook page',
+            'platform page',
+            'your page',
+            strtolower((string) (config('services.meta.page_name') ?: '')),
+            strtolower((string) (config('platform.meta.page_name') ?: '')),
+        ];
+        $banned = array_values(array_filter(array_unique($banned)));
+
+        $name = trim((string) ($row['name'] ?? ''));
+        if ($name !== '' && in_array(strtolower($name), $banned, true)) {
+            $row['name'] = null;
+        }
+
+        if (empty($row['username'])) {
+            $configured = ltrim((string) (
+                config('services.meta.instagram_username')
+                ?: config('platform.meta.instagram_username')
+                ?: ''
+            ), '@');
+            $expectedId = preg_replace('/\D+/', '', (string) (
+                config('services.meta.instagram_user_id')
+                ?: config('platform.meta.instagram_user_id')
+                ?: ''
+            )) ?: '';
+            $rowId = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($configured !== '' && ($expectedId === '' || $rowId === $expectedId)) {
+                $row['username'] = $configured;
+            }
+        } else {
+            $row['username'] = ltrim((string) $row['username'], '@');
+        }
+
+        $row['label'] = ! empty($row['username'])
+            ? '@'.$row['username']
+            : ('IG '.($row['id'] ?? ''));
+
+        return $row;
     }
 
     public function link(Request $request): RedirectResponse

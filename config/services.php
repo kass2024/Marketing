@@ -51,6 +51,8 @@ return [
         'page_name' => env('META_PAGE_NAME', 'Facebook Page'),
         /** WABA-only Instagram business account ID if Page lookup fails (do not copy from xanderbot). */
         'instagram_user_id' => env('META_INSTAGRAM_USER_ID'),
+        /** Optional @username fallback when Graph does not return username for system-user tokens. */
+        'instagram_username' => env('META_INSTAGRAM_USERNAME'),
 
         /*
         |--------------------------------------------------------------------------

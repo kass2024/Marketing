@@ -119,7 +119,13 @@
                     @php
                         $isActive = (string) $account['id'] === (string) $selectedId;
                         $isDefault = (string) $account['id'] === (string) $defaultIgId;
-                        $label = $account['username'] ? '@'.$account['username'] : ($account['name'] ?? $account['id']);
+                        $label = ! empty($account['username'])
+                            ? '@'.$account['username']
+                            : (! empty($account['label']) ? $account['label'] : ('IG '.$account['id']));
+                        $bannedName = in_array(strtolower((string) ($account['name'] ?? '')), ['facebook page', 'platform page', 'your page'], true);
+                        if ($bannedName && empty($account['username'])) {
+                            $label = 'IG '.$account['id'];
+                        }
                     @endphp
                     <li>
                         <a href="{{ route('admin.meta.instagram.index', ['ig' => $account['id'], 'q' => $search ?: null]) }}"
@@ -154,7 +160,9 @@
                     <div>
                         <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Selected account</p>
                         <h2 class="mt-1 text-xl font-bold text-slate-900">
-                            {{ $selected['username'] ? '@'.$selected['username'] : ($selected['name'] ?? 'Instagram account') }}
+                            {{ !empty($selected['username'])
+                                ? '@'.$selected['username']
+                                : (!empty($selected['label']) ? $selected['label'] : ('IG '.$selected['id'])) }}
                         </h2>
                         <p class="mt-1 font-mono text-sm text-slate-600">Instagram Account ID: {{ $selected['id'] }}</p>
                         <p class="mt-2 text-xs text-slate-500">Source: {{ $selected['source'] ?? 'meta' }}</p>

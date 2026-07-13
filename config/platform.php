@@ -17,6 +17,7 @@ return [
         'page_id'            => env('META_PAGE_ID'),
         'page_name'          => env('META_PAGE_NAME', 'Platform Page'),
         'instagram_user_id'  => env('META_INSTAGRAM_USER_ID'),
+        'instagram_username' => env('META_INSTAGRAM_USERNAME'),
         /** Meta Business Manager ID (not the WABA id). */
         'business_id'        => env('META_BUSINESS_ID', env('META_BUSINESS_MANAGER_ID')),
         'graph_version'      => env('META_GRAPH_VERSION', 'v19.0'),

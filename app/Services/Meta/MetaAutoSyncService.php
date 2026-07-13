@@ -20,6 +20,7 @@ class MetaAutoSyncService
     public function __construct(
         protected PlatformBootstrapService $bootstrap,
         protected WhatsAppBusinessAccountService $whatsapp,
+        protected InstagramBusinessAccountService $instagram,
         protected TenantConnectionResolver $resolver
     ) {}
 
@@ -102,6 +103,8 @@ class MetaAutoSyncService
             }
 
             $phoneCount = $this->syncWhatsAppNumbers($connection);
+            $igCount = $this->syncInstagramAccounts($connection);
+            $this->cacheWabaDirectory($connection);
             $connection = $connection->fresh();
 
             Cache::put(self::CACHE_KEY, now()->timestamp, $ttl);
@@ -109,6 +112,7 @@ class MetaAutoSyncService
             Log::info('META_AUTO_SYNC_OK', [
                 'connection_id' => $connection?->id,
                 'phone_count' => $phoneCount,
+                'instagram_count' => $igCount,
                 'from_env' => $fromEnv,
                 'force' => $force,
             ]);
@@ -118,6 +122,7 @@ class MetaAutoSyncService
                 'skipped' => false,
                 'connection_id' => $connection?->id,
                 'phone_count' => $phoneCount,
+                'instagram_count' => $igCount,
                 'from_env' => $fromEnv,
                 'error' => null,
             ];
@@ -147,10 +152,62 @@ class MetaAutoSyncService
             ?? PlatformMetaConnection::query()->platformDefault()->active()->first();
         if ($connection) {
             Cache::forget('meta_wa_phone_directory_'.$connection->id);
+            Cache::forget('meta_ig_directory_'.$connection->id);
+            Cache::forget('meta_waba_directory_'.$connection->id);
+            Cache::forget('meta_bm_synced_at_'.$connection->id);
+            Cache::forget('meta_ig_synced_at_'.$connection->id);
         }
         Cache::forget('meta_wa_phone_directory_platform');
+        Cache::forget('meta_ig_directory_platform');
+        Cache::forget('meta_waba_directory_platform');
 
         return $this->sync(true);
+    }
+
+    /**
+     * Pull BM / ad-account Instagram accounts and persist for Ad Studio.
+     */
+    protected function syncInstagramAccounts(PlatformMetaConnection $connection): int
+    {
+        try {
+            $result = $this->instagram->syncToConnection($connection);
+            $accounts = $result['accounts'] ?? [];
+            Cache::put(
+                'meta_ig_directory_'.($connection->id ?? 'platform'),
+                $accounts,
+                now()->addMinutes(30)
+            );
+            Cache::put(
+                'meta_ig_synced_at_'.($connection->id ?? 'platform'),
+                now()->toDateTimeString(),
+                now()->addMinutes(30)
+            );
+
+            return count($accounts);
+        } catch (Throwable $e) {
+            Log::warning('META_AUTO_SYNC_IG_FAILED', ['error' => $e->getMessage()]);
+
+            return 0;
+        }
+    }
+
+    protected function cacheWabaDirectory(PlatformMetaConnection $connection): void
+    {
+        try {
+            $accounts = $this->whatsapp->listWabas();
+            Cache::put(
+                'meta_waba_directory_'.($connection->id ?? 'platform'),
+                $accounts,
+                now()->addMinutes(30)
+            );
+            Cache::put(
+                'meta_bm_synced_at_'.($connection->id ?? 'platform'),
+                now()->toDateTimeString(),
+                now()->addMinutes(30)
+            );
+        } catch (Throwable $e) {
+            Log::warning('META_AUTO_SYNC_WABA_CACHE_FAILED', ['error' => $e->getMessage()]);
+        }
     }
 
     /**

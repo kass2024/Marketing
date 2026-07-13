@@ -440,6 +440,60 @@ protected function handleError($response, $endpoint, $payload = [])
             Log::warning('META_LIST_INSTAGRAM_ACCOUNTS_FAILED', ['error' => $e->getMessage()]);
         }
 
+        // Business Manager Instagram assets (Marketing API / BM guides)
+        $businessId = trim((string) (
+            config('platform.meta.business_id')
+            ?: config('services.meta.business_id')
+            ?: ''
+        ));
+        if ($businessId === '') {
+            try {
+                $connection = \App\Models\PlatformMetaConnection::query()->platformDefault()->active()->first();
+                $businessId = trim((string) ($connection?->business_id ?? ''));
+            } catch (Throwable) {
+                $businessId = '';
+            }
+        }
+        if ($businessId !== '') {
+            foreach ([
+                'owned_instagram_accounts',
+                'owned_instagram_assets',
+                'client_instagram_assets',
+                'client_instagram_accounts',
+                'instagram_accounts',
+            ] as $edge) {
+                try {
+                    $res = $this->get("{$businessId}/{$edge}", [
+                        'fields' => 'id,username,name',
+                        'limit' => 50,
+                    ]);
+                    foreach ($res['data'] ?? [] as $row) {
+                        $nested = is_array($row['ig_user'] ?? null) ? $row['ig_user'] : null;
+                        if ($nested) {
+                            $row = array_merge($row, $nested);
+                        }
+                        $id = (string) ($row['id'] ?? '');
+                        if ($id === '') {
+                            continue;
+                        }
+                        if (! isset($byId[$id])) {
+                            $byId[$id] = [
+                                'id' => $id,
+                                'username' => $row['username'] ?? null,
+                                'source' => $edge,
+                                'page_id' => null,
+                                'page_name' => null,
+                            ];
+                        } elseif (empty($byId[$id]['username']) && ! empty($row['username'])) {
+                            $byId[$id]['username'] = $row['username'];
+                        }
+                    }
+                } catch (Throwable $e) {
+                    Log::info('META_BM_IG_EDGE_SKIP', ['edge' => $edge, 'error' => $e->getMessage()]);
+                }
+            }
+        }
+
         $envIg = trim((string) config('services.meta.instagram_user_id', ''));
         if ($envIg !== '' && ! isset($byId[$envIg])) {
             $byId[$envIg] = [

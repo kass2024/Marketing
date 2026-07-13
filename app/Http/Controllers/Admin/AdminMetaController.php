@@ -28,8 +28,7 @@ class AdminMetaController extends Controller
 
     public function index()
     {
-        app(MetaAutoSyncService::class)->sync(false);
-
+        // DB-only — do not sync Meta Graph on every Connection page click
         $platformMeta = PlatformMetaConnection::query()->platformDefault()->active()->first()
             ?? PlatformMetaConnection::query()->where('connected_by', Auth::id())->first();
 

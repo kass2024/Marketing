@@ -124,8 +124,15 @@ $r = $routeName ?: Route::currentRouteName();
                     </svg>
                 </button>
                 <div x-show="openBm" x-transition class="mt-1 space-y-0.5 border-l border-white/20 pl-3 ml-3">
-                    <a href="{{ route('admin.meta.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ $r === 'admin.meta.index' ? 'bg-white/10 text-xander-gold' : '' }}">Connection</a>
-                    <a href="{{ route('admin.meta.whatsapp.index') }}" class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.meta.whatsapp') ? 'bg-white/10 text-xander-gold' : '' }}">WhatsApp accounts</a>
+                    <a href="{{ route('admin.meta.index') }}"
+                       @mouseenter="prefetch(@js(route('admin.meta.index')))"
+                       class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ $r === 'admin.meta.index' ? 'bg-white/10 text-xander-gold' : '' }}">Connection</a>
+                    <a href="{{ route('admin.meta.whatsapp.index') }}"
+                       @mouseenter="prefetch(@js(route('admin.meta.whatsapp.index')))"
+                       class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.meta.whatsapp') ? 'bg-white/10 text-xander-gold' : '' }}">WhatsApp accounts</a>
+                    <a href="{{ route('admin.meta.instagram.index') }}"
+                       @mouseenter="prefetch(@js(route('admin.meta.instagram.index')))"
+                       class="block rounded-lg py-2 pl-2 pr-2 text-sm text-white/78 transition hover:bg-white/8 hover:text-white {{ str_contains($r, 'admin.meta.instagram') ? 'bg-white/10 text-xander-gold' : '' }}">Instagram accounts</a>
                 </div>
             </div>
 

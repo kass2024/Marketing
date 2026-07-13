@@ -295,6 +295,266 @@ class WhatsAppBusinessAccountService
     }
 
     /**
+     * Meta-style “Link WhatsApp Business account” by phone number.
+     * Finds WABAs/phones the token can access, then optionally request_code.
+     *
+     * @return array{
+     *   step: string,
+     *   display_phone: string,
+     *   phone_number_id?: string,
+     *   waba_id?: string,
+     *   matches: array<int, array<string, mixed>>,
+     *   message: string,
+     *   resend_after?: int
+     * }
+     */
+    public function startLinkByPhone(string $countryCode, string $nationalNumber): array
+    {
+        $digits = $this->normalizePhoneDigits($countryCode, $nationalNumber);
+        if (strlen($digits) < 10) {
+            throw ValidationException::withMessages([
+                'phone_number' => 'Enter a valid WhatsApp Business phone number.',
+            ]);
+        }
+
+        $matches = $this->findPhoneMatches($digits);
+        if ($matches === []) {
+            throw ValidationException::withMessages([
+                'phone_number' => 'No WhatsApp Business account with this number is accessible to your Meta token. In Meta Business Suite, share/assign the WhatsApp account to your business (or system user), then try again.',
+            ]);
+        }
+
+        $primary = $matches[0];
+        $phoneNumberId = (string) $primary['phone_number_id'];
+        $display = $this->formatDisplayPhone($digits);
+        $alreadyVerified = (bool) ($primary['verified'] ?? false);
+
+        if ($alreadyVerified) {
+            return [
+                'step' => 'businesses',
+                'display_phone' => $display,
+                'phone_number_id' => $phoneNumberId,
+                'waba_id' => (string) $primary['waba_id'],
+                'matches' => $matches,
+                'message' => 'Number verified. Select the associated business to link.',
+                'resend_after' => 0,
+            ];
+        }
+
+        try {
+            $this->requestVerificationCode($phoneNumberId, 'SMS');
+        } catch (ValidationException $e) {
+            $msg = strtolower(collect($e->errors())->flatten()->first() ?? '');
+            // Already verified / code not needed → continue to business picker
+            if (str_contains($msg, 'already') || str_contains($msg, '136024') || str_contains($msg, 'verified')) {
+                return [
+                    'step' => 'businesses',
+                    'display_phone' => $display,
+                    'phone_number_id' => $phoneNumberId,
+                    'waba_id' => (string) $primary['waba_id'],
+                    'matches' => $matches,
+                    'message' => 'Number already verified with Meta. Select the associated business to link.',
+                    'resend_after' => 0,
+                ];
+            }
+            throw $e;
+        }
+
+        return [
+            'step' => 'code',
+            'display_phone' => $display,
+            'phone_number_id' => $phoneNumberId,
+            'waba_id' => (string) $primary['waba_id'],
+            'matches' => $matches,
+            'message' => "A verification code was sent for {$display}. Enter it here to finish adding your WhatsApp account.",
+            'resend_after' => 30,
+        ];
+    }
+
+    /**
+     * After OTP: mark verified and return associated businesses for selection.
+     *
+     * @return array{step: string, matches: array<int, array<string, mixed>>, display_phone: string, phone_number_id: string, message: string}
+     */
+    public function verifyLinkByPhone(string $phoneNumberId, string $code, ?string $wabaId = null): array
+    {
+        $phoneNumberId = preg_replace('/\D+/', '', $phoneNumberId) ?: '';
+        $code = preg_replace('/\D+/', '', $code) ?: '';
+        if ($phoneNumberId === '' || strlen($code) < 5) {
+            throw ValidationException::withMessages([
+                'code' => 'Enter the 5-digit verification code from WhatsApp / SMS.',
+            ]);
+        }
+
+        $this->verifyAndRegister($phoneNumberId, $code, $wabaId);
+
+        $details = $this->getPhoneDetails($phoneNumberId, $this->requireToken()) ?? [];
+        $displayDigits = TenantMetaPageValidator::normalizeWhatsAppNumber((string) ($details['display_phone_number'] ?? ''));
+        $matches = $displayDigits !== ''
+            ? $this->findPhoneMatches($displayDigits)
+            : $this->matchesFromPhoneId($phoneNumberId, $wabaId);
+
+        if ($matches === []) {
+            $matches = $this->matchesFromPhoneId($phoneNumberId, $wabaId);
+        }
+
+        return [
+            'step' => 'businesses',
+            'display_phone' => $this->formatDisplayPhone($displayDigits ?: $phoneNumberId),
+            'phone_number_id' => $phoneNumberId,
+            'matches' => $matches,
+            'message' => 'Verification successful. Select the associated business to link.',
+        ];
+    }
+
+    /**
+     * Finalize link after user picks a business / WABA from the verified phone matches.
+     *
+     * @return array{waba: array<string, mixed>, phones: array<int, array<string, mixed>>, message: string}
+     */
+    public function completeLinkByPhone(string $wabaId, string $phoneNumberId): array
+    {
+        $result = $this->importExistingWaba($wabaId);
+        $this->setAsPlatformDefault($phoneNumberId, $wabaId);
+
+        $business = $result['waba']['owner_business_info']['name']
+            ?? $result['waba']['on_behalf_of_business_info']['name']
+            ?? $result['waba']['name']
+            ?? $wabaId;
+
+        $result['message'] = "Linked WhatsApp Business account for “{$business}”. Phone set as platform default.";
+
+        return $result;
+    }
+
+    /**
+     * @return array<int, array{
+     *   phone_number_id: string,
+     *   display_phone_number: string,
+     *   verified_name: ?string,
+     *   verified: bool,
+     *   waba_id: string,
+     *   waba_name: ?string,
+     *   business_id: ?string,
+     *   business_name: ?string,
+     *   business_verification_status: ?string
+     * }>
+     */
+    public function findPhoneMatches(string $digits): array
+    {
+        $digits = preg_replace('/\D+/', '', $digits) ?: '';
+        $needle10 = strlen($digits) >= 10 ? substr($digits, -10) : $digits;
+        $matches = [];
+
+        foreach ($this->listAllPhoneNumbers() as $phone) {
+            $display = TenantMetaPageValidator::normalizeWhatsAppNumber((string) ($phone['display_phone_number'] ?? ''));
+            if ($display === '' || (substr($display, -10) !== $needle10 && $display !== $digits)) {
+                continue;
+            }
+
+            $wabaId = (string) ($phone['waba_id'] ?? '');
+            $detail = $wabaId !== '' ? $this->getWaba($wabaId) : null;
+            $businessName = data_get($detail, 'owner_business_info.name')
+                ?: data_get($detail, 'on_behalf_of_business_info.name')
+                ?: ($phone['waba_name'] ?? null)
+                ?: ($detail['name'] ?? null);
+            $businessId = data_get($detail, 'owner_business_info.id')
+                ?: data_get($detail, 'on_behalf_of_business_info.id');
+
+            $matches[] = [
+                'phone_number_id' => (string) ($phone['id'] ?? ''),
+                'display_phone_number' => (string) ($phone['display_phone_number'] ?? ''),
+                'verified_name' => $phone['verified_name'] ?? null,
+                'verified' => (bool) ($phone['verified'] ?? $this->isPhoneVerified($phone)),
+                'waba_id' => $wabaId,
+                'waba_name' => $phone['waba_name'] ?? ($detail['name'] ?? null),
+                'business_id' => $businessId ? (string) $businessId : null,
+                'business_name' => $businessName ? (string) $businessName : null,
+                'business_verification_status' => $detail['business_verification_status'] ?? null,
+            ];
+        }
+
+        // Unique by waba_id + phone_number_id
+        $seen = [];
+        $unique = [];
+        foreach ($matches as $row) {
+            $key = $row['waba_id'].':'.$row['phone_number_id'];
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = $row;
+        }
+
+        return $unique;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    protected function matchesFromPhoneId(string $phoneNumberId, ?string $wabaId = null): array
+    {
+        $details = $this->getPhoneDetails($phoneNumberId, $this->requireToken());
+        if (! $details) {
+            return [];
+        }
+
+        $wabaId = $wabaId ?: '';
+        if ($wabaId === '') {
+            foreach ($this->listAllPhoneNumbers() as $phone) {
+                if ((string) ($phone['id'] ?? '') === $phoneNumberId) {
+                    $wabaId = (string) ($phone['waba_id'] ?? '');
+                    break;
+                }
+            }
+        }
+
+        $detail = $wabaId !== '' ? $this->getWaba($wabaId) : null;
+
+        return [[
+            'phone_number_id' => $phoneNumberId,
+            'display_phone_number' => (string) ($details['display_phone_number'] ?? ''),
+            'verified_name' => $details['verified_name'] ?? null,
+            'verified' => true,
+            'waba_id' => $wabaId,
+            'waba_name' => $detail['name'] ?? null,
+            'business_id' => data_get($detail, 'owner_business_info.id'),
+            'business_name' => data_get($detail, 'owner_business_info.name')
+                ?: data_get($detail, 'on_behalf_of_business_info.name')
+                ?: ($detail['name'] ?? null),
+            'business_verification_status' => $detail['business_verification_status'] ?? null,
+        ]];
+    }
+
+    protected function normalizePhoneDigits(string $countryCode, string $nationalNumber): string
+    {
+        $cc = preg_replace('/\D+/', '', $countryCode) ?: '1';
+        $national = preg_replace('/\D+/', '', $nationalNumber) ?: '';
+        // Avoid double country code when user pastes full international number
+        if (str_starts_with($national, $cc) && strlen($national) > 10) {
+            return $national;
+        }
+        if (strlen($national) === 10) {
+            return $cc.$national;
+        }
+
+        return TenantMetaPageValidator::normalizeWhatsAppNumber($cc.$national);
+    }
+
+    protected function formatDisplayPhone(string $digits): string
+    {
+        $digits = preg_replace('/\D+/', '', $digits) ?: '';
+        if (strlen($digits) === 11 && str_starts_with($digits, '1')) {
+            return '+1 ('.substr($digits, 1, 3).') '.substr($digits, 4, 3).'-'.substr($digits, 7);
+        }
+        if (strlen($digits) === 10) {
+            return '+1 ('.substr($digits, 0, 3).') '.substr($digits, 3, 3).'-'.substr($digits, 6);
+        }
+
+        return $digits !== '' ? '+'.$digits : '';
+    }
+
+    /**
      * Import / link an existing WhatsApp Business Account (same idea as Meta BM
      * "Link a WhatsApp Business account").
      *

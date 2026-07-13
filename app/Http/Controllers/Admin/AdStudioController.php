@@ -21,6 +21,7 @@ use App\Services\Meta\StockMediaRegistry;
 use App\Services\Meta\MetaAutoSyncService;
 use App\Services\MetaAdsService;
 use App\Services\Meta\WhatsAppBusinessAccountService;
+use App\Services\Meta\InstagramBusinessAccountService;
 use App\Support\TenantScope;
 use Exception;
 use Illuminate\Http\JsonResponse;
@@ -46,7 +47,9 @@ class AdStudioController extends Controller
         protected AdPublishNotifier $notifier,
         protected AdImageGenerator $imageGenerator,
         protected AdImageValidator $imageValidator,
-        protected MetaAutoSyncService $autoSync
+        protected MetaAutoSyncService $autoSync,
+        protected InstagramBusinessAccountService $instagramAccounts,
+        protected WhatsAppBusinessAccountService $whatsappAccounts
     ) {}
 
     public function create(): View
@@ -529,6 +532,34 @@ class AdStudioController extends Controller
      */
     protected function seedInstagramFromConnection(?PlatformMetaConnection $connection): array
     {
+        $cacheKey = 'meta_ig_directory_'.($connection?->id ?? 'platform');
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && $cached !== []) {
+            $items = [];
+            $seen = [];
+            foreach ($cached as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+                if ($id === '' || isset($seen[$id])) {
+                    continue;
+                }
+                $seen[$id] = true;
+                $username = $row['username'] ?? null;
+                $items[] = [
+                    'id' => $id,
+                    'username' => $username,
+                    'label' => $username ? '@'.$username : $id,
+                    'source' => (string) ($row['source'] ?? 'cache'),
+                    'page_id' => $row['page_id'] ?? null,
+                ];
+            }
+            if ($items !== []) {
+                return $items;
+            }
+        }
+
         $items = [];
         $seen = [];
 
@@ -625,7 +656,8 @@ class AdStudioController extends Controller
         $byId = [];
 
         try {
-            foreach ($this->meta->listInstagramAccounts($connection?->page_id) as $ig) {
+            $synced = $this->instagramAccounts->syncToConnection($connection);
+            foreach ($synced['accounts'] as $ig) {
                 $id = (string) ($ig['id'] ?? '');
                 if ($id === '') {
                     continue;
@@ -639,8 +671,31 @@ class AdStudioController extends Controller
                     'page_id' => $ig['page_id'] ?? null,
                 ];
             }
+            Cache::put(
+                'meta_ig_directory_'.($connection?->id ?? 'platform'),
+                $synced['accounts'],
+                now()->addMinutes(30)
+            );
         } catch (Throwable $e) {
-            Log::warning('AD_STUDIO_IG_LIST_FAILED', ['error' => $e->getMessage()]);
+            Log::warning('AD_STUDIO_IG_SYNC_FAILED', ['error' => $e->getMessage()]);
+            try {
+                foreach ($this->meta->listInstagramAccounts($connection?->page_id) as $ig) {
+                    $id = (string) ($ig['id'] ?? '');
+                    if ($id === '') {
+                        continue;
+                    }
+                    $username = $ig['username'] ?? null;
+                    $byId[$id] = [
+                        'id' => $id,
+                        'username' => $username,
+                        'label' => $username ? '@'.$username : $id,
+                        'source' => (string) ($ig['source'] ?? 'meta'),
+                        'page_id' => $ig['page_id'] ?? null,
+                    ];
+                }
+            } catch (Throwable $inner) {
+                Log::warning('AD_STUDIO_IG_LIST_FAILED', ['error' => $inner->getMessage()]);
+            }
         }
 
         foreach ($pages as $page) {

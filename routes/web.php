@@ -31,6 +31,7 @@ use App\Http\Controllers\Admin\{
     AdminClientController,
     AdminMetaController,
     WhatsAppAccountsController,
+    InstagramAccountsController,
     AdAccountController,
     CampaignController as AdminCampaignController,
     AdSetController,
@@ -295,12 +296,21 @@ Route::middleware(['auth','verified','role:admin,client'])
 
             Route::get('/whatsapp', [WhatsAppAccountsController::class, 'index'])->name('whatsapp.index');
             Route::post('/whatsapp/link', [WhatsAppAccountsController::class, 'linkWaba'])->name('whatsapp.link');
+            Route::post('/whatsapp/link/phone', [WhatsAppAccountsController::class, 'linkByPhoneStart'])->name('whatsapp.link.phone');
+            Route::post('/whatsapp/link/verify', [WhatsAppAccountsController::class, 'linkByPhoneVerify'])->name('whatsapp.link.verify');
+            Route::post('/whatsapp/link/resend', [WhatsAppAccountsController::class, 'linkByPhoneResend'])->name('whatsapp.link.resend');
+            Route::post('/whatsapp/link/complete', [WhatsAppAccountsController::class, 'linkByPhoneComplete'])->name('whatsapp.link.complete');
             Route::post('/whatsapp/create', [WhatsAppAccountsController::class, 'createWaba'])->name('whatsapp.create');
             Route::post('/whatsapp/request', [WhatsAppAccountsController::class, 'requestClientWaba'])->name('whatsapp.request');
             Route::post('/whatsapp/phones', [WhatsAppAccountsController::class, 'addPhone'])->name('whatsapp.phones.add');
             Route::post('/whatsapp/phones/resend', [WhatsAppAccountsController::class, 'resendCode'])->name('whatsapp.phones.resend');
             Route::post('/whatsapp/phones/verify', [WhatsAppAccountsController::class, 'verifyPhone'])->name('whatsapp.phones.verify');
             Route::post('/whatsapp/phones/default', [WhatsAppAccountsController::class, 'setDefault'])->name('whatsapp.phones.default');
+
+            Route::get('/instagram', [InstagramAccountsController::class, 'index'])->name('instagram.index');
+            Route::post('/instagram/link', [InstagramAccountsController::class, 'link'])->name('instagram.link');
+            Route::post('/instagram/default', [InstagramAccountsController::class, 'setDefault'])->name('instagram.default');
+            Route::post('/instagram/sync', [InstagramAccountsController::class, 'sync'])->name('instagram.sync');
         });
 
 

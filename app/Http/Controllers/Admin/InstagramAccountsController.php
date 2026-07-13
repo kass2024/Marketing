@@ -1,0 +1,179 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Services\Meta\InstagramBusinessAccountService;
+use App\Services\Meta\MetaAutoSyncService;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\ValidationException;
+use Illuminate\View\View;
+
+class InstagramAccountsController extends Controller
+{
+    public function __construct(
+        protected InstagramBusinessAccountService $instagram,
+        protected MetaAutoSyncService $autoSync
+    ) {}
+
+    public function index(Request $request): View
+    {
+        $force = $request->boolean('force_sync');
+        $connection = $this->instagram->connection();
+        $cacheSuffix = (string) ($connection?->id ?? 'platform');
+        $igCacheKey = 'meta_ig_directory_'.$cacheSuffix;
+        $syncedAtKey = 'meta_ig_synced_at_'.$cacheSuffix;
+
+        $error = null;
+        $accounts = [];
+        $fromCache = false;
+
+        if ($force) {
+            try {
+                $this->autoSync->syncAlways();
+                $connection = $this->instagram->connection();
+                $sync = $this->instagram->syncToConnection($connection);
+                $accounts = $sync['accounts'];
+                $connection = $connection?->fresh() ?? $this->instagram->connection();
+                Cache::put($igCacheKey, $accounts, now()->addMinutes(30));
+                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+            } catch (ValidationException $e) {
+                $error = collect($e->errors())->flatten()->first();
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+            }
+        } else {
+            $cached = Cache::get($igCacheKey);
+            if (is_array($cached) && $cached !== []) {
+                $accounts = $cached;
+                $fromCache = true;
+            } else {
+                $accounts = $this->seedFromConnection($connection);
+            }
+        }
+
+        $selectedId = (string) ($request->query('ig')
+            ?: ($connection?->instagram_business_account_id ?? ($accounts[0]['id'] ?? '')));
+        $selected = collect($accounts)->firstWhere('id', $selectedId);
+
+        $search = trim((string) $request->query('q', ''));
+        if ($search !== '') {
+            $accounts = array_values(array_filter($accounts, function ($a) use ($search) {
+                $hay = strtolower(($a['username'] ?? '').' '.($a['name'] ?? '').' '.($a['id'] ?? ''));
+
+                return str_contains($hay, strtolower($search));
+            }));
+        }
+
+        return view('admin.meta.instagram.index', [
+            'connection' => $connection,
+            'accounts' => $accounts,
+            'selectedId' => $selectedId,
+            'selected' => $selected,
+            'search' => $search,
+            'error' => $error,
+            'lastSyncedAt' => Cache::get($syncedAtKey) ?: ($fromCache ? 'cached' : null),
+            'needsSync' => ! $force && ! $fromCache && $accounts === [],
+            'metaBusinessSuiteUrl' => 'https://business.facebook.com/latest/settings/instagram_account_settings',
+        ]);
+    }
+
+    /**
+     * @return array<int, array{id:string,username:?string,name:?string,source:string}>
+     */
+    protected function seedFromConnection($connection): array
+    {
+        $items = [];
+        $seen = [];
+
+        foreach ((array) ($connection?->linked_instagram_ids ?? []) as $id) {
+            $id = preg_replace('/\D+/', '', (string) $id) ?: '';
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = [
+                'id' => $id,
+                'username' => null,
+                'name' => null,
+                'source' => 'linked',
+            ];
+        }
+
+        $default = preg_replace('/\D+/', '', (string) ($connection?->instagram_business_account_id ?? '')) ?: '';
+        if ($default !== '' && ! isset($seen[$default])) {
+            $items[] = [
+                'id' => $default,
+                'username' => null,
+                'name' => null,
+                'source' => 'connection',
+            ];
+        }
+
+        return $items;
+    }
+
+    public function link(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'instagram_id' => 'required|string|max:64',
+        ]);
+
+        try {
+            $result = $this->instagram->importExistingAccount($data['instagram_id']);
+            Cache::forget('meta_ig_directory_'.($this->instagram->connection()?->id ?? 'platform'));
+
+            return redirect()
+                ->route('admin.meta.instagram.index', [
+                    'ig' => $result['account']['id'] ?? $data['instagram_id'],
+                    'force_sync' => 1,
+                ])
+                ->with('success', $result['message']);
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors())->withInput()->with('show_link_ig', true);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage())->withInput()->with('show_link_ig', true);
+        }
+    }
+
+    public function setDefault(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'instagram_id' => 'required|string|max:64',
+        ]);
+
+        try {
+            $this->instagram->setAsPlatformDefault($data['instagram_id']);
+
+            return redirect()
+                ->route('admin.meta.instagram.index', ['ig' => $data['instagram_id']])
+                ->with('success', 'Default Instagram account updated for Ad Studio.');
+        } catch (ValidationException $e) {
+            return back()->withErrors($e->errors());
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function sync(Request $request): RedirectResponse
+    {
+        try {
+            $this->autoSync->syncAlways();
+            $result = $this->instagram->syncToConnection();
+            $connection = $this->instagram->connection();
+            $suffix = (string) ($connection?->id ?? 'platform');
+            Cache::put('meta_ig_directory_'.$suffix, $result['accounts'], now()->addMinutes(30));
+            Cache::put('meta_ig_synced_at_'.$suffix, now()->toDateTimeString(), now()->addMinutes(30));
+
+            return redirect()
+                ->route('admin.meta.instagram.index')
+                ->with('success', count($result['accounts']).' Instagram account(s) synced from Meta.');
+        } catch (\Throwable $e) {
+            return redirect()
+                ->route('admin.meta.instagram.index')
+                ->with('error', $e->getMessage());
+        }
+    }
+}

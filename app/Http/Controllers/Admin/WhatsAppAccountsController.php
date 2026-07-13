@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\Meta\MetaAutoSyncService;
 use App\Services\Meta\WhatsAppBusinessAccountService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 use Illuminate\Validation\ValidationException;
 
@@ -19,50 +21,94 @@ class WhatsAppAccountsController extends Controller
 
     public function index(Request $request): View
     {
-        // Sync only when forced — page loads stay fast; Refresh / force_sync still live-pulls Meta
-        if ($request->boolean('force_sync')) {
-            $this->autoSync->syncAlways();
-        } else {
-            $this->autoSync->sync(false);
-        }
-
+        $force = $request->boolean('force_sync');
         $connection = $this->whatsapp->connection();
+        $cacheSuffix = (string) ($connection?->id ?? 'platform');
+        $wabaCacheKey = 'meta_waba_directory_'.$cacheSuffix;
+        $phoneCacheKey = 'meta_wa_phone_directory_'.$cacheSuffix;
+        $syncedAtKey = 'meta_bm_synced_at_'.$cacheSuffix;
+
         $error = null;
         $accounts = [];
+        $fromCache = false;
 
-        try {
-            $this->whatsapp->resolveBusinessManagerId($connection);
-            $accounts = $this->whatsapp->listWabas();
-        } catch (ValidationException $e) {
-            $error = collect($e->errors())->flatten()->first();
-        } catch (\Throwable $e) {
-            $error = $e->getMessage();
+        if ($force) {
+            try {
+                $this->autoSync->syncAlways();
+                $connection = $this->whatsapp->connection();
+                $this->whatsapp->resolveBusinessManagerId($connection);
+                $accounts = $this->whatsapp->listWabas();
+                Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+            } catch (ValidationException $e) {
+                $error = collect($e->errors())->flatten()->first();
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+            }
+        } else {
+            // Fast path: never block menu navigation on Meta Graph
+            $cached = Cache::get($wabaCacheKey);
+            if (is_array($cached) && $cached !== []) {
+                $accounts = $cached;
+                $fromCache = true;
+            } else {
+                $accounts = $this->seedWabasFromConnection($connection);
+            }
         }
 
         $selectedId = (string) ($request->query('waba') ?: ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? '')));
         $selected = collect($accounts)->firstWhere('id', $selectedId);
-        $detail = null;
+        $detail = $selected;
         $phones = [];
 
         if ($selectedId !== '') {
-            try {
-                $detail = $this->whatsapp->getWaba($selectedId) ?? $selected;
-                $phones = $this->whatsapp->listPhoneNumbers($selectedId);
-            } catch (ValidationException $e) {
-                $error = $error ?: collect($e->errors())->flatten()->first();
-                $detail = $detail ?: $selected;
-            } catch (\Throwable $e) {
-                $error = $error ?: $e->getMessage();
-                $detail = $detail ?: $selected;
+            if ($force) {
+                try {
+                    $detail = $this->whatsapp->getWaba($selectedId) ?? $selected;
+                    $phones = $this->whatsapp->listPhoneNumbers($selectedId);
+                    // Merge into phone directory cache for Ad Studio
+                    $allPhones = Cache::get($phoneCacheKey);
+                    if (! is_array($allPhones)) {
+                        $allPhones = [];
+                    }
+                    foreach ($phones as $phone) {
+                        $allPhones[] = array_merge($phone, [
+                            'waba_id' => $selectedId,
+                            'waba_name' => $detail['name'] ?? null,
+                        ]);
+                    }
+                    Cache::put($phoneCacheKey, $allPhones, now()->addMinutes(30));
+                } catch (ValidationException $e) {
+                    $error = $error ?: collect($e->errors())->flatten()->first();
+                    $detail = $detail ?: $selected;
+                } catch (\Throwable $e) {
+                    $error = $error ?: $e->getMessage();
+                    $detail = $detail ?: $selected;
+                }
+            } else {
+                $cachedPhones = Cache::get($phoneCacheKey);
+                if (is_array($cachedPhones)) {
+                    $phones = array_values(array_filter($cachedPhones, function ($p) use ($selectedId) {
+                        return is_array($p) && (string) ($p['waba_id'] ?? '') === $selectedId;
+                    }));
+                }
+                // Soft-fill detail from list row (no Graph)
+                $detail = $selected ?: [
+                    'id' => $selectedId,
+                    'name' => $connection?->business_name ?? 'WhatsApp Business Account',
+                ];
             }
         }
 
         $search = trim((string) $request->query('q', ''));
         if ($search !== '') {
             $accounts = array_values(array_filter($accounts, function ($a) use ($search) {
-                return str_contains(strtolower($a['name'].' '.$a['id']), strtolower($search));
+                return str_contains(strtolower(($a['name'] ?? '').' '.($a['id'] ?? '')), strtolower($search));
             }));
         }
+
+        $lastSyncedAt = Cache::get($syncedAtKey)
+            ?: ($fromCache ? 'cached' : null);
 
         return view('admin.meta.whatsapp.index', [
             'connection' => $connection,
@@ -73,8 +119,41 @@ class WhatsAppAccountsController extends Controller
             'search' => $search,
             'error' => $error,
             'pendingPhoneId' => old('phone_number_id', session('pending_phone_number_id')),
-            'lastSyncedAt' => now()->toDateTimeString(),
+            'lastSyncedAt' => $lastSyncedAt,
+            'needsSync' => ! $force && ! $fromCache && $accounts === [],
         ]);
+    }
+
+    /**
+     * @return array<int, array{id: string, name: string}>
+     */
+    protected function seedWabasFromConnection($connection): array
+    {
+        $items = [];
+        $seen = [];
+
+        foreach ($this->whatsapp->linkedWabaIds($connection) as $id) {
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = [
+                'id' => $id,
+                'name' => 'WhatsApp Business Account '.$id,
+                'ownership_type' => 'linked_import',
+            ];
+        }
+
+        $default = (string) ($connection?->whatsapp_business_id ?? '');
+        if ($default !== '' && ! isset($seen[$default])) {
+            $items[] = [
+                'id' => $default,
+                'name' => $connection?->business_name ?? 'Platform WhatsApp account',
+                'ownership_type' => 'platform_default',
+            ];
+        }
+
+        return $items;
     }
 
     public function linkWaba(Request $request): RedirectResponse
@@ -98,6 +177,119 @@ class WhatsAppAccountsController extends Controller
             return back()->withErrors($e->errors())->withInput()->with('show_link_waba', true);
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage())->withInput()->with('show_link_waba', true);
+        }
+    }
+
+    /**
+     * Meta-style link step 1: phone number → send verification (or skip to businesses).
+     */
+    public function linkByPhoneStart(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'country_code' => 'required|string|max:8',
+            'phone_number' => 'required|string|max:32',
+        ]);
+
+        try {
+            $this->autoSync->sync(false);
+            $result = $this->whatsapp->startLinkByPhone($data['country_code'], $data['phone_number']);
+
+            return response()->json(['ok' => true] + $result);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'ok' => false,
+                'errors' => $e->errors(),
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Meta-style link step 2: enter 5-digit code.
+     */
+    public function linkByPhoneVerify(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone_number_id' => 'required|string|max:64',
+            'code' => 'required|string|max:12',
+            'waba_id' => 'nullable|string|max:64',
+        ]);
+
+        try {
+            $result = $this->whatsapp->verifyLinkByPhone(
+                $data['phone_number_id'],
+                $data['code'],
+                $data['waba_id'] ?? null
+            );
+
+            return response()->json(['ok' => true] + $result);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'ok' => false,
+                'errors' => $e->errors(),
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function linkByPhoneResend(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone_number_id' => 'required|string|max:64',
+        ]);
+
+        try {
+            $this->whatsapp->requestVerificationCode($data['phone_number_id'], 'SMS');
+
+            return response()->json([
+                'ok' => true,
+                'message' => 'A new verification code was sent.',
+                'resend_after' => 30,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Meta-style link step 3: pick associated business / WABA.
+     */
+    public function linkByPhoneComplete(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'waba_id' => 'required|string|max:64',
+            'phone_number_id' => 'required|string|max:64',
+        ]);
+
+        try {
+            $result = $this->whatsapp->completeLinkByPhone($data['waba_id'], $data['phone_number_id']);
+            $this->autoSync->syncAlways();
+
+            return response()->json([
+                'ok' => true,
+                'message' => $result['message'],
+                'redirect' => route('admin.meta.whatsapp.index', [
+                    'waba' => $result['waba']['id'] ?? $data['waba_id'],
+                    'tab' => 'phones',
+                    'force_sync' => 1,
+                ]),
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => collect($e->errors())->flatten()->first(),
+            ], 422);
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 500);
         }
     }
 

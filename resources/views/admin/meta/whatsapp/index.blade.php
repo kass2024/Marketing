@@ -25,8 +25,170 @@
     showAddPhone: {{ $pendingPhoneId || old('phone_number') ? 'true' : 'false' }},
     panel: @json($openPanel),
     addOpen: false,
-    openPanel(name) { this.panel = name; this.addOpen = false; this.showAddPhone = false; },
-    closePanel() { this.panel = null; }
+    linkModal: {{ session('show_link_waba') || old('waba_id') ? 'true' : 'false' }},
+    linkStep: 'phone',
+    linkCountry: '1',
+    linkPhone: '',
+    linkCode: '',
+    linkPhoneNumberId: '',
+    linkWabaId: '',
+    linkDisplayPhone: '',
+    linkMatches: [],
+    linkBusy: false,
+    linkError: '',
+    linkMessage: '',
+    linkResendIn: 0,
+    linkShowAdvanced: false,
+    linkAdvancedId: '',
+    openPanel(name) {
+        this.panel = name;
+        this.addOpen = false;
+        this.showAddPhone = false;
+        if (name === 'link') {
+            this.linkModal = true;
+            this.linkStep = 'phone';
+            this.linkError = '';
+            this.linkMessage = '';
+            this.linkCode = '';
+            this.linkMatches = [];
+            this.linkShowAdvanced = false;
+        }
+    },
+    closePanel() { this.panel = null; },
+    closeLinkModal() {
+        this.linkModal = false;
+        this.panel = null;
+        this.linkBusy = false;
+        this.linkError = '';
+    },
+    async linkStart() {
+        this.linkBusy = true;
+        this.linkError = '';
+        try {
+            const res = await fetch(@js(route('admin.meta.whatsapp.link.phone')), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                },
+                body: JSON.stringify({
+                    country_code: this.linkCountry,
+                    phone_number: this.linkPhone,
+                }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                this.linkError = data.message || 'Could not start link.';
+                return;
+            }
+            this.linkPhoneNumberId = data.phone_number_id || '';
+            this.linkWabaId = data.waba_id || '';
+            this.linkDisplayPhone = data.display_phone || this.linkPhone;
+            this.linkMatches = data.matches || [];
+            this.linkMessage = data.message || '';
+            this.linkStep = data.step || 'code';
+            this.linkResendIn = data.resend_after || 0;
+            if (this.linkResendIn > 0) this.tickResend();
+        } catch (e) {
+            this.linkError = e.message || 'Network error';
+        } finally {
+            this.linkBusy = false;
+        }
+    },
+    tickResend() {
+        if (this.linkResendIn <= 0) return;
+        setTimeout(() => {
+            this.linkResendIn = Math.max(0, this.linkResendIn - 1);
+            if (this.linkResendIn > 0) this.tickResend();
+        }, 1000);
+    },
+    async linkVerify() {
+        this.linkBusy = true;
+        this.linkError = '';
+        try {
+            const res = await fetch(@js(route('admin.meta.whatsapp.link.verify')), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                },
+                body: JSON.stringify({
+                    phone_number_id: this.linkPhoneNumberId,
+                    code: this.linkCode,
+                    waba_id: this.linkWabaId || null,
+                }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                this.linkError = data.message || 'Invalid code.';
+                return;
+            }
+            this.linkMatches = data.matches || [];
+            this.linkDisplayPhone = data.display_phone || this.linkDisplayPhone;
+            this.linkMessage = data.message || '';
+            this.linkStep = 'businesses';
+        } catch (e) {
+            this.linkError = e.message || 'Network error';
+        } finally {
+            this.linkBusy = false;
+        }
+    },
+    async linkResend() {
+        if (this.linkResendIn > 0 || !this.linkPhoneNumberId) return;
+        this.linkBusy = true;
+        this.linkError = '';
+        try {
+            const res = await fetch(@js(route('admin.meta.whatsapp.link.resend')), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                },
+                body: JSON.stringify({ phone_number_id: this.linkPhoneNumberId }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                this.linkError = data.message || 'Could not resend.';
+                return;
+            }
+            this.linkResendIn = data.resend_after || 30;
+            this.tickResend();
+        } catch (e) {
+            this.linkError = e.message || 'Network error';
+        } finally {
+            this.linkBusy = false;
+        }
+    },
+    async linkComplete(match) {
+        this.linkBusy = true;
+        this.linkError = '';
+        try {
+            const res = await fetch(@js(route('admin.meta.whatsapp.link.complete')), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '',
+                },
+                body: JSON.stringify({
+                    waba_id: match.waba_id,
+                    phone_number_id: match.phone_number_id || this.linkPhoneNumberId,
+                }),
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                this.linkError = data.message || 'Could not link account.';
+                return;
+            }
+            window.location.href = data.redirect || @js(route('admin.meta.whatsapp.index'));
+        } catch (e) {
+            this.linkError = e.message || 'Network error';
+            this.linkBusy = false;
+        }
+    },
 }">
 
     <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -34,7 +196,7 @@
             <p class="text-xs font-medium text-slate-500">Business Manager / Accounts</p>
             <h1 class="text-2xl font-bold tracking-tight text-slate-900">WhatsApp accounts</h1>
             <p class="mt-0.5 text-sm text-slate-600">
-                Always synced from Meta on load.
+                Opens instantly from cache — use <strong>Sync now</strong> to refresh from Meta.
                 @isset($lastSyncedAt)
                     <span class="text-slate-400">Last sync: {{ $lastSyncedAt }}</span>
                 @endisset
@@ -82,7 +244,7 @@
                         </span>
                         <span>
                             <span class="block text-sm font-semibold text-slate-900">Link a WhatsApp Business account</span>
-                            <span class="mt-0.5 block text-xs leading-snug text-slate-500">Use an account to manage your WhatsApp Business app.</span>
+                            <span class="mt-0.5 block text-xs leading-snug text-slate-500">Enter the WhatsApp number, verify the code, then choose the associated business.</span>
                         </span>
                     </button>
                 </div>
@@ -161,32 +323,153 @@
         </form>
     </div>
 
-    {{-- Link existing WABA (Meta-style import) --}}
-    <div x-show="panel === 'link'" x-cloak class="mb-4 rounded-2xl border border-sky-200 bg-sky-50/60 p-5">
-        <div class="flex items-start justify-between gap-2">
-            <div>
-                <h3 class="text-sm font-bold text-slate-900">Link a WhatsApp Business account</h3>
-                <p class="mt-1 text-xs text-slate-600">
-                    Paste the WABA ID from Meta Business Manager → WhatsApp accounts.
-                    Your Meta token must already have access (owned or shared with your business).
-                </p>
+    {{-- Link existing WABA (Meta-style: phone → code → businesses) --}}
+    <div x-show="linkModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+        <div class="absolute inset-0 bg-slate-900/50" @click="closeLinkModal()"></div>
+        <div class="relative flex w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div class="hidden w-44 shrink-0 items-center justify-center bg-gradient-to-b from-[#25D366] to-[#128C7E] p-6 sm:flex">
+                <div class="text-center text-white">
+                    <svg class="mx-auto h-16 w-16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.86 9.86 0 0012.04 2z"/>
+                    </svg>
+                    <p class="mt-3 text-xs font-semibold leading-snug opacity-90">WhatsApp Business</p>
+                </div>
             </div>
-            <button type="button" @click="closePanel()" class="text-xs font-semibold text-slate-500">Close</button>
+            <div class="min-w-0 flex-1 p-5 sm:p-6">
+                <div class="flex items-start justify-between gap-3">
+                    <h3 class="text-lg font-bold text-slate-900">Link WhatsApp Business Account</h3>
+                    <button type="button" @click="closeLinkModal()" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <template x-if="linkError">
+                    <div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" x-text="linkError"></div>
+                </template>
+
+                {{-- Step: phone --}}
+                <div x-show="linkStep === 'phone'" class="mt-4">
+                    <p class="text-sm text-slate-600">Enter the phone number associated with your WhatsApp Business account.</p>
+                    <label class="mt-4 block text-xs font-semibold text-slate-600">Phone number</label>
+                    <div class="mt-1 flex gap-2">
+                        <select x-model="linkCountry" class="w-28 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-sm">
+                            <option value="1">CA / US +1</option>
+                            <option value="44">UK +44</option>
+                            <option value="91">IN +91</option>
+                            <option value="250">RW +250</option>
+                            <option value="254">KE +254</option>
+                            <option value="233">GH +233</option>
+                            <option value="234">NG +234</option>
+                        </select>
+                        <div class="relative min-w-0 flex-1">
+                            <input type="tel" x-model="linkPhone" @keydown.enter.prevent="linkPhone.trim() && linkStart()"
+                                   placeholder="(450) 367-5329"
+                                   class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#0866FF] focus:ring-[#0866FF]">
+                            <span x-show="linkPhone.replace(/\D/g,'').length >= 10" class="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500" aria-hidden="true">
+                                <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                            </span>
+                        </div>
+                    </div>
+                    <p class="mt-3 text-xs text-slate-500">
+                        Connecting business assets lets you access more professional features. We’ll use info across connected assets to enhance your experience on our business products.
+                    </p>
+                    <div class="mt-5 flex flex-wrap items-center justify-between gap-2">
+                        <button type="button" class="text-xs font-semibold text-sky-700 hover:underline" @click="linkShowAdvanced = !linkShowAdvanced">
+                            Advanced: link by WABA ID
+                        </button>
+                        <div class="flex gap-2">
+                            <button type="button" @click="closeLinkModal()" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button>
+                            <button type="button" @click="linkStart()"
+                                    :disabled="linkBusy || linkPhone.replace(/\D/g,'').length < 7"
+                                    :class="(linkBusy || linkPhone.replace(/\D/g,'').length < 7) ? 'bg-[#0866FF]/50 cursor-not-allowed' : 'bg-[#0866FF] hover:bg-[#0759DB]'"
+                                    class="inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white">
+                                <span x-show="linkBusy" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+                                Continue
+                            </button>
+                        </div>
+                    </div>
+                    <div x-show="linkShowAdvanced" x-cloak class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <form method="POST" action="{{ route('admin.meta.whatsapp.link') }}" class="flex flex-col gap-2 sm:flex-row sm:items-end">
+                            @csrf
+                            <div class="min-w-0 flex-1">
+                                <label class="block text-xs font-semibold text-slate-600">WhatsApp Business Account ID</label>
+                                <input type="text" name="waba_id" x-model="linkAdvancedId" required
+                                       class="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-sm"
+                                       placeholder="e.g. 1343806717941992">
+                            </div>
+                            <button type="submit" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Link by ID</button>
+                        </form>
+                    </div>
+                </div>
+
+                {{-- Step: verification code --}}
+                <div x-show="linkStep === 'code'" x-cloak class="mt-4">
+                    <p class="text-sm text-slate-600">
+                        A verification code was sent to your WhatsApp Business App for
+                        <strong x-text="linkDisplayPhone"></strong>.
+                        Enter it here to finish adding your WhatsApp account.
+                    </p>
+                    <label class="mt-4 block text-xs font-semibold text-slate-600">Verification code</label>
+                    <div class="relative mt-1">
+                        <input type="text" inputmode="numeric" maxlength="5" x-model="linkCode"
+                               @input="linkCode = linkCode.replace(/\D/g,'').slice(0,5)"
+                               @keydown.enter.prevent="linkCode.length === 5 && linkVerify()"
+                               class="w-full rounded-xl border border-slate-200 px-4 py-2.5 pr-14 text-sm tracking-widest focus:border-[#0866FF] focus:ring-[#0866FF]"
+                               placeholder="•••••">
+                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400" x-text="linkCode.length + '/5'"></span>
+                    </div>
+                    <p class="mt-2 text-xs text-slate-500">
+                        <template x-if="linkResendIn > 0">
+                            <span>Didn’t receive your code? You can request a new code in <strong x-text="linkResendIn"></strong> seconds.</span>
+                        </template>
+                        <template x-if="linkResendIn <= 0">
+                            <button type="button" class="font-semibold text-[#0866FF] hover:underline" @click="linkResend()" :disabled="linkBusy">Resend code</button>
+                        </template>
+                    </p>
+                    <div class="mt-5 flex justify-end gap-2">
+                        <button type="button" @click="linkStep = 'phone'" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Back</button>
+                        <button type="button" @click="linkVerify()"
+                                :disabled="linkBusy || linkCode.length !== 5"
+                                :class="(linkBusy || linkCode.length !== 5) ? 'bg-[#0866FF]/50 cursor-not-allowed' : 'bg-[#0866FF] hover:bg-[#0759DB]'"
+                                class="inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white">
+                            <span x-show="linkBusy" class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
+                            Continue
+                        </button>
+                    </div>
+                </div>
+
+                {{-- Step: associated businesses --}}
+                <div x-show="linkStep === 'businesses'" x-cloak class="mt-4">
+                    <p class="text-sm text-slate-600" x-text="linkMessage || 'Select the associated business to link to this portfolio.'"></p>
+                    <ul class="mt-4 max-h-64 space-y-2 overflow-y-auto">
+                        <template x-for="m in linkMatches" :key="m.waba_id + '-' + m.phone_number_id">
+                            <li>
+                                <button type="button" @click="linkComplete(m)" :disabled="linkBusy"
+                                        class="flex w-full items-start gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left hover:border-[#0866FF] hover:bg-sky-50 disabled:opacity-60">
+                                    <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#25D366]/15 text-[#075E54]">
+                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.86 9.86 0 0012.04 2z"/></svg>
+                                    </span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="block truncate text-sm font-semibold text-slate-900" x-text="m.business_name || m.waba_name || 'WhatsApp Business Account'"></span>
+                                        <span class="mt-0.5 block truncate text-xs text-slate-500" x-text="'WABA ' + m.waba_id"></span>
+                                        <span class="mt-0.5 block text-xs text-slate-400" x-text="(m.verified_name ? m.verified_name + ' · ' : '') + (m.display_phone_number || '')"></span>
+                                        <span x-show="m.business_verification_status" class="mt-1 inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+                                              x-text="'Business verification: ' + (m.business_verification_status || '')"></span>
+                                    </span>
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+                    <div class="mt-5 flex justify-end gap-2">
+                        <button type="button" @click="linkStep = linkPhoneNumberId ? 'code' : 'phone'" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Back</button>
+                    </div>
+                </div>
+            </div>
         </div>
-        <form method="POST" action="{{ route('admin.meta.whatsapp.link') }}" class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-            @csrf
-            <div class="min-w-0 flex-1">
-                <label class="block text-xs font-semibold text-slate-600">WhatsApp Business Account ID</label>
-                <input type="text" name="waba_id" value="{{ old('waba_id') }}" required
-                    class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-mono text-sm"
-                    placeholder="e.g. 1343806717941992">
-                @error('waba_id')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
-            </div>
-            <button type="submit" class="rounded-xl bg-[#0866FF] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0759DB]">
-                Link account
-            </button>
-        </form>
     </div>
+
+    {{-- Keep panel hook for + Add menu (opens modal) --}}
+    <div x-show="false" x-cloak></div>
 
     @foreach (['success','error','info'] as $msg)
         @if(session($msg))

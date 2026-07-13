@@ -81,6 +81,16 @@ class WhatsAppAccountsController extends Controller
                     return is_array($p) && (string) ($p['waba_id'] ?? '') === $selectedId;
                 }));
             }
+
+            // One quick Graph call for the open WABA when local directory has no numbers yet
+            // (covers Business App accounts like +1 450-367-5329 on 731320686199458)
+            if ($phones === [] && ! Cache::get('meta_wa_rate_limited')) {
+                try {
+                    $phones = $this->whatsapp->syncPhonesForWaba($selectedId, $connection);
+                } catch (\Throwable) {
+                    $phones = [];
+                }
+            }
         }
 
         $search = trim((string) $request->query('q', ''));
@@ -119,6 +129,8 @@ class WhatsAppAccountsController extends Controller
             $selectedId = $synced['selected_id'];
 
             $msg = count($accounts).' WhatsApp account(s) synced from Meta.';
+            $phoneCount = count($this->whatsapp->loadPhoneDirectory($this->whatsapp->connection()));
+            $msg .= ' '.$phoneCount.' phone number(s) saved locally.';
             if ($incomplete && $this->accountsNeedNameRefresh($accounts)) {
                 $msg .= ' Some names are still loading — Meta rate-limited individual lookups; tap Sync now again in a few minutes.';
             } elseif ($incomplete) {
@@ -207,14 +219,12 @@ class WhatsAppAccountsController extends Controller
                     return;
                 }
 
-                $auto = app(MetaAutoSyncService::class);
-                if ($force) {
-                    $auto->syncAlways();
-                } else {
-                    $auto->sync(false);
-                }
-
                 $wa = app(WhatsAppBusinessAccountService::class);
+                $connection = $wa->connection();
+
+                // Phones before names — never wipe; force refreshes every WABA id we know
+                $wa->syncAllPhonesFromMeta($connection, $force);
+
                 $connection = $wa->connection();
                 $wa->resolveBusinessManagerId($connection);
                 $result = $wa->syncToConnection($connection);
@@ -223,23 +233,17 @@ class WhatsAppAccountsController extends Controller
                 if (is_array($prev) && $prev !== []) {
                     $accounts = $wa->mergePreferringRealNames($prev, $accounts);
                 }
-                $accounts = $wa->enrichPlaceholderNames($accounts);
+                $accounts = $wa->mergePreferringRealNames(
+                    (array) ($connection?->linked_waba_directory ?? []),
+                    $accounts
+                );
+                if (! Cache::get('meta_wa_rate_limited')) {
+                    $accounts = $wa->enrichPlaceholderNames($accounts);
+                }
                 if ($accounts !== [] || ! is_array($prev) || $prev === []) {
                     Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
                 }
                 $wa->persistWabaDirectory($connection, $accounts);
-                // Refresh phones into local DB without wiping known numbers
-                $phones = $wa->loadPhoneDirectory($connection);
-                if (! Cache::get('meta_wa_rate_limited')) {
-                    try {
-                        $fresh = $wa->listAllPhoneNumbers();
-                        $phones = $wa->persistPhoneDirectory($connection, $fresh);
-                    } catch (\Throwable) {
-                        $wa->persistPhoneDirectory($connection, $phones);
-                    }
-                } else {
-                    $wa->persistPhoneDirectory($connection, $phones);
-                }
                 Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('WA_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
@@ -251,6 +255,7 @@ class WhatsAppAccountsController extends Controller
 
     /**
      * Full Meta directory sync used by Sync now and auto-open name refresh.
+     * Production rule: phones for every known WABA before name enrichment (rate-limit order).
      *
      * @return array{
      *   connection: mixed,
@@ -263,17 +268,20 @@ class WhatsAppAccountsController extends Controller
     {
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
-        $phoneCacheKey = 'meta_wa_phone_directory_'.$cacheSuffix;
-        // Snapshot phones BEFORE any sync so rate-limited pulls cannot erase them.
-        $phoneSnapshot = Cache::get($phoneCacheKey);
-        $phoneSnapshot = is_array($phoneSnapshot) ? $phoneSnapshot : [];
+        $phoneSnapshot = $this->whatsapp->loadPhoneDirectory($connection);
 
         if ($force) {
-            $this->autoSync->syncAlways();
-        } else {
-            $this->autoSync->sync(false);
+            Cache::forget('meta_auto_sync_last_at');
+            Cache::forget('meta_waba_directory_'.$cacheSuffix);
+            Cache::forget('meta_bm_synced_at_'.$cacheSuffix);
+            Cache::forget('meta_wa_rate_limited');
         }
 
+        // 1) Phones first — covers every linked/DB/Graph WABA (e.g. +1 450-367-5329 on 731320686199458)
+        $phoneSync = $this->whatsapp->syncAllPhonesFromMeta($connection, $force);
+        $mergedPhones = $phoneSync['phones'] !== [] ? $phoneSync['phones'] : $phoneSnapshot;
+
+        // 2) Names second (do not call MetaAutoSync::syncAlways — that would re-hit phone endpoints)
         $connection = $this->whatsapp->connection();
         $cacheSuffix = (string) ($connection?->id ?? 'platform');
         $this->whatsapp->resolveBusinessManagerId($connection);
@@ -284,18 +292,17 @@ class WhatsAppAccountsController extends Controller
         $cacheKey = 'meta_waba_directory_'.$cacheSuffix;
         $prev = Cache::get($cacheKey);
         if (is_array($prev) && $prev !== []) {
-            // Always keep the best known real name per WABA id across partial / rate-limited pulls.
             $accounts = $this->whatsapp->mergePreferringRealNames($prev, $accounts);
         }
-        $accounts = $this->whatsapp->enrichPlaceholderNames($accounts);
+        $accounts = $this->whatsapp->mergePreferringRealNames(
+            (array) ($connection?->linked_waba_directory ?? []),
+            $accounts
+        );
+        if (! Cache::get('meta_wa_rate_limited')) {
+            $accounts = $this->whatsapp->enrichPlaceholderNames($accounts);
+        }
         Cache::put($cacheKey, $accounts, now()->addMinutes(30));
         Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
-
-        // Restore/merge phones — never publish an empty directory over a known good snapshot.
-        $phoneCacheKey = 'meta_wa_phone_directory_'.$cacheSuffix;
-        $currentPhones = Cache::get($phoneCacheKey);
-        $currentPhones = is_array($currentPhones) ? $currentPhones : [];
-        $mergedPhones = $this->whatsapp->mergePhoneDirectories($phoneSnapshot, $currentPhones);
 
         $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
         if ($selectedId !== '') {
@@ -311,49 +318,12 @@ class WhatsAppAccountsController extends Controller
                     unset($row);
                     Cache::put($cacheKey, $accounts, now()->addMinutes(30));
                 }
-                $fetched = $this->whatsapp->listPhoneNumbers($selectedId);
-                if ($fetched !== []) {
-                    $mergedPhones = $this->whatsapp->upsertPhonesForWaba(
-                        $mergedPhones,
-                        $selectedId,
-                        $fetched,
-                        $detail['name'] ?? null
-                    );
+                $forSelected = $this->whatsapp->syncPhonesForWaba($selectedId, $connection);
+                if ($forSelected !== []) {
+                    $mergedPhones = $this->whatsapp->loadPhoneDirectory($connection);
                 }
             } catch (\Throwable) {
                 // keep snapshot
-            }
-        }
-
-        // Best-effort: fill other WABA phone lists without wiping on empty responses
-        if (! Cache::get('meta_wa_rate_limited')) {
-            foreach ($accounts as $account) {
-                $id = (string) ($account['id'] ?? '');
-                if ($id === '' || $id === $selectedId) {
-                    continue;
-                }
-                $hasPhones = collect($mergedPhones)->contains(
-                    fn ($p) => is_array($p) && (string) ($p['waba_id'] ?? '') === $id
-                );
-                if ($hasPhones) {
-                    continue;
-                }
-                try {
-                    $fetched = $this->whatsapp->listPhoneNumbers($id);
-                    if ($fetched !== []) {
-                        $mergedPhones = $this->whatsapp->upsertPhonesForWaba(
-                            $mergedPhones,
-                            $id,
-                            $fetched,
-                            $account['name'] ?? null
-                        );
-                    }
-                } catch (\Throwable) {
-                    break;
-                }
-                if (Cache::get('meta_wa_rate_limited')) {
-                    break;
-                }
             }
         }
 
@@ -363,18 +333,12 @@ class WhatsAppAccountsController extends Controller
             $this->whatsapp->persistPhoneDirectory($connection, $phoneSnapshot);
         }
 
-        // Also persist account names to local DB
         $this->whatsapp->persistWabaDirectory($connection, $accounts);
-
-        $stillPlaceholders = $this->accountsNeedNameRefresh($accounts);
-        if ($incomplete && $stillPlaceholders) {
-            $incomplete = true;
-        }
 
         return [
             'connection' => $connection,
             'accounts' => $accounts,
-            'incomplete' => $incomplete,
+            'incomplete' => $incomplete || $this->accountsNeedNameRefresh($accounts),
             'selected_id' => $selectedId,
         ];
     }

@@ -102,7 +102,8 @@ class MetaAutoSyncService
                 }
             }
 
-            $phoneCount = $this->syncWhatsAppNumbers($connection);
+            // Phones first — name/IG Graph calls can trip Meta rate limits before numbers land.
+            $phoneCount = $this->syncWhatsAppNumbers($connection, $force);
             $igCount = $this->syncInstagramAccounts($connection);
             $this->cacheWabaDirectory($connection);
             $connection = $connection->fresh();
@@ -246,21 +247,17 @@ class MetaAutoSyncService
     /**
      * Pull WABA phone numbers from Meta and keep platform default phone fresh.
      */
-    protected function syncWhatsAppNumbers(PlatformMetaConnection $connection): int
+    protected function syncWhatsAppNumbers(PlatformMetaConnection $connection, bool $force = false): int
     {
-        $phones = [];
-
-        // Back off while Meta is rate-limiting WhatsApp Graph calls
-        if (Cache::get('meta_wa_rate_limited')) {
-            $cached = $this->whatsapp->loadPhoneDirectory($connection);
-
-            return count($cached);
+        // Soft sync backs off; Sync now / force always retries (clears limit inside syncAllPhonesFromMeta).
+        if (Cache::get('meta_wa_rate_limited') && ! $force) {
+            return count($this->whatsapp->loadPhoneDirectory($connection));
         }
 
         try {
-            $phones = $this->whatsapp->listAllPhoneNumbers();
+            $result = $this->whatsapp->syncAllPhonesFromMeta($connection, $force);
+            $phones = $result['phones'];
         } catch (Throwable $e) {
-            // Fall back to single WABA id on connection
             $wabaId = $connection->whatsapp_business_id ?: config('platform.whatsapp.business_id');
             if ($wabaId) {
                 try {
@@ -268,6 +265,7 @@ class MetaAutoSyncService
                         fn (array $p) => $p + ['waba_id' => (string) $wabaId],
                         $this->whatsapp->listPhoneNumbers((string) $wabaId)
                     );
+                    $phones = $this->whatsapp->persistPhoneDirectory($connection, $phones);
                 } catch (Throwable $inner) {
                     Log::warning('META_AUTO_SYNC_PHONES_FAILED', ['error' => $inner->getMessage()]);
 
@@ -279,9 +277,6 @@ class MetaAutoSyncService
                 return count($this->whatsapp->loadPhoneDirectory($connection));
             }
         }
-
-        $merged = $this->whatsapp->persistPhoneDirectory($connection, $phones);
-        $phones = $merged;
 
         if ($phones === []) {
             return 0;

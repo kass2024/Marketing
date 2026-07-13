@@ -650,6 +650,7 @@ class WhatsAppBusinessAccountService
                 'status' => $phone['status'] ?? null,
                 'name_status' => $phone['name_status'] ?? null,
                 'platform_type' => $phone['platform_type'] ?? null,
+                'account_mode' => $phone['account_mode'] ?? null,
                 'verified' => (bool) ($phone['verified'] ?? false),
                 'waba_id' => (string) ($phone['waba_id'] ?? ''),
                 'waba_name' => $phone['waba_name'] ?? null,
@@ -1390,39 +1391,175 @@ class WhatsAppBusinessAccountService
     }
 
     /**
-     * List phone numbers across all WABAs available to the platform token.
+     * All known WABA ids (local DB + linked ids + Graph when available).
      *
-     * @return array<int, array{id: string, display_phone_number: string, verified_name: ?string, code_verification_status: ?string, quality_rating: ?string, status: ?string, waba_id: string, waba_name: ?string}>
+     * @return array<int, string>
      */
-    public function listAllPhoneNumbers(): array
+    public function discoverWabaIds(?PlatformMetaConnection $connection = null): array
     {
-        $numbers = [];
-        $seen = [];
+        $connection ??= $this->connection();
+        $ids = [];
 
-        foreach ($this->listWabas() as $waba) {
-            $wabaId = (string) ($waba['id'] ?? '');
-            if ($wabaId === '') {
-                continue;
-            }
-
-            try {
-                foreach ($this->listPhoneNumbers($wabaId) as $phone) {
-                    $id = (string) ($phone['id'] ?? '');
-                    if ($id === '' || isset($seen[$id])) {
-                        continue;
-                    }
-                    $seen[$id] = true;
-                    $numbers[] = array_merge($phone, [
-                        'waba_id' => $wabaId,
-                        'waba_name' => $waba['name'] ?? null,
-                    ]);
-                }
-            } catch (\Throwable) {
-                continue;
+        foreach ($this->linkedWabaIds($connection) as $id) {
+            if ($id !== '') {
+                $ids[$id] = true;
             }
         }
 
-        return $numbers;
+        foreach ((array) ($connection?->linked_waba_directory ?? []) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($id !== '') {
+                $ids[$id] = true;
+            }
+        }
+
+        $fallback = preg_replace('/\D+/', '', (string) (
+            $connection?->whatsapp_business_id ?: config('platform.whatsapp.business_id') ?: ''
+        )) ?: '';
+        if ($fallback !== '') {
+            $ids[$fallback] = true;
+        }
+
+        try {
+            foreach ($this->listWabas() as $waba) {
+                $id = preg_replace('/\D+/', '', (string) ($waba['id'] ?? '')) ?: '';
+                if ($id !== '') {
+                    $ids[$id] = true;
+                }
+            }
+        } catch (\Throwable) {
+            // local ids are enough
+        }
+
+        return array_values(array_keys($ids));
+    }
+
+    /**
+     * Production phone sync: pull /{waba}/phone_numbers for every known WABA and persist locally.
+     * Never deletes previously saved numbers when Meta returns empty for a WABA.
+     *
+     * @return array{phones: array<int, array<string, mixed>>, fetched_wabas: int, phones_found: int}
+     */
+    public function syncAllPhonesFromMeta(?PlatformMetaConnection $connection = null, bool $forceRefresh = false): array
+    {
+        $connection ??= $this->connection();
+        $previous = $this->loadPhoneDirectory($connection);
+        $namesByWaba = [];
+        foreach ((array) ($connection?->linked_waba_directory ?? []) as $row) {
+            if (! is_array($row) || empty($row['id'])) {
+                continue;
+            }
+            $namesByWaba[(string) $row['id']] = $row['name'] ?? null;
+        }
+
+        if ($forceRefresh) {
+            Cache::forget('meta_wa_rate_limited');
+        }
+
+        $incoming = [];
+        $fetched = 0;
+
+        foreach ($this->discoverWabaIds($connection) as $wabaId) {
+            if (! $forceRefresh) {
+                $already = false;
+                foreach ($previous as $p) {
+                    if (is_array($p) && (string) ($p['waba_id'] ?? '') === $wabaId) {
+                        $already = true;
+                        break;
+                    }
+                }
+                if ($already) {
+                    continue;
+                }
+            }
+
+            if (Cache::get('meta_wa_rate_limited') && ! $forceRefresh) {
+                break;
+            }
+
+            $phones = $this->listPhoneNumbers($wabaId);
+            $fetched++;
+
+            foreach ($phones as $phone) {
+                $incoming[] = array_merge($phone, [
+                    'waba_id' => $wabaId,
+                    'waba_name' => $namesByWaba[$wabaId]
+                        ?? ($phone['verified_name'] ?? null),
+                ]);
+            }
+
+            // Gentle pacing — reduces Meta (#4) rate limits across 7+ WABAs
+            usleep(200000);
+        }
+
+        $merged = $this->persistPhoneDirectory($connection, $incoming);
+
+        Log::info('WA_PHONE_SYNC_DONE', [
+            'connection_id' => $connection?->id,
+            'fetched_wabas' => $fetched,
+            'incoming' => count($incoming),
+            'persisted' => count($merged),
+            'force' => $forceRefresh,
+        ]);
+
+        return [
+            'phones' => $merged,
+            'fetched_wabas' => $fetched,
+            'phones_found' => count($incoming),
+        ];
+    }
+
+    /**
+     * Fetch phone numbers for a single WABA and upsert into the durable directory.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function syncPhonesForWaba(string $wabaId, ?PlatformMetaConnection $connection = null): array
+    {
+        $wabaId = preg_replace('/\D+/', '', $wabaId) ?: '';
+        if ($wabaId === '') {
+            return [];
+        }
+
+        $connection ??= $this->connection();
+        $previous = $this->loadPhoneDirectory($connection);
+        $fetched = $this->listPhoneNumbers($wabaId);
+        if ($fetched === []) {
+            return array_values(array_filter(
+                $previous,
+                fn ($p) => is_array($p) && (string) ($p['waba_id'] ?? '') === $wabaId
+            ));
+        }
+
+        $name = null;
+        foreach ((array) ($connection?->linked_waba_directory ?? []) as $row) {
+            if (is_array($row) && (string) ($row['id'] ?? '') === $wabaId) {
+                $name = $row['name'] ?? null;
+                break;
+            }
+        }
+
+        $merged = $this->upsertPhonesForWaba($previous, $wabaId, $fetched, $name);
+        $this->persistPhoneDirectory($connection, $merged);
+
+        return array_values(array_filter(
+            $merged,
+            fn ($p) => is_array($p) && (string) ($p['waba_id'] ?? '') === $wabaId
+        ));
+    }
+
+    /**
+     * List phone numbers across all known WABAs (local directory + Graph).
+     * Soft callers fill gaps; Sync now uses syncAllPhonesFromMeta(..., true).
+     *
+     * @return array<int, array{id: string, display_phone_number: string, verified_name: ?string, code_verification_status: ?string, quality_rating: ?string, status: ?string, waba_id: string, waba_name: ?string}>
+     */
+    public function listAllPhoneNumbers(bool $forceRefresh = false): array
+    {
+        return $this->syncAllPhonesFromMeta($this->connection(), $forceRefresh)['phones'];
     }
 
     /**
@@ -1513,38 +1650,40 @@ class WhatsAppBusinessAccountService
     public function listPhoneNumbers(string $wabaId): array
     {
         $token = $this->requireToken();
+        $all = [];
+        $url = "{$this->graphUrl}/{$this->graphVersion}/{$wabaId}/phone_numbers";
+        $params = [
+            'access_token' => $token,
+            'fields' => 'id,display_phone_number,verified_name,code_verification_status,quality_rating,status,platform_type,throughput,name_status,is_preverified_number,account_mode',
+            'limit' => 100,
+        ];
 
-        $response = Http::timeout(25)->get(
-            "{$this->graphUrl}/{$this->graphVersion}/{$wabaId}/phone_numbers",
-            [
-                'access_token' => $token,
-                'fields' => 'id,display_phone_number,verified_name,code_verification_status,quality_rating,status,platform_type,throughput,name_status,is_preverified_number,account_mode',
-                'limit' => 100,
-            ]
-        );
+        for ($page = 0; $page < 10; $page++) {
+            $response = Http::timeout(25)->get($url, $params);
 
-        if (! $response->ok()) {
-            $body = strtolower((string) $response->body());
-            if (
-                $response->status() === 403
-                || str_contains($body, 'request limit')
-                || str_contains($body, 'rate limit')
-                || str_contains($body, 'too many')
-            ) {
-                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+            if (! $response->ok()) {
+                $body = strtolower((string) $response->body());
+                if (
+                    $response->status() === 403
+                    || str_contains($body, 'request limit')
+                    || str_contains($body, 'rate limit')
+                    || str_contains($body, 'too many')
+                ) {
+                    Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+                }
+                Log::warning('WABA_LIST_PHONES_FAILED', [
+                    'waba_id' => $wabaId,
+                    'response' => $response->json(),
+                ]);
+
+                // Soft-fail — callers merge with cache instead of wiping numbers
+                break;
             }
-            Log::warning('WABA_LIST_PHONES_FAILED', [
-                'waba_id' => $wabaId,
-                'response' => $response->json(),
-            ]);
 
-            // Soft-fail — callers merge with cache instead of wiping numbers
-            return [];
-        }
-
-        return collect($response->json('data', []))
-            ->filter(fn ($row) => is_array($row) && ! empty($row['id']))
-            ->map(function (array $row) {
+            foreach ($response->json('data', []) as $row) {
+                if (! is_array($row) || empty($row['id'])) {
+                    continue;
+                }
                 $mapped = [
                     'id' => (string) $row['id'],
                     'display_phone_number' => (string) ($row['display_phone_number'] ?? ''),
@@ -1560,11 +1699,19 @@ class WhatsAppBusinessAccountService
                     'account_mode' => $row['account_mode'] ?? null,
                 ];
                 $mapped['verified'] = $this->isPhoneVerified($mapped);
+                $all[] = $mapped;
+            }
 
-                return $mapped;
-            })
-            ->values()
-            ->all();
+            $next = $response->json('paging.next');
+            if (! is_string($next) || $next === '') {
+                break;
+            }
+            // Absolute next URL already includes cursor + token
+            $url = $next;
+            $params = [];
+        }
+
+        return $all;
     }
 
     /**

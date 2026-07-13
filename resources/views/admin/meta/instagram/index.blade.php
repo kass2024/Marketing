@@ -100,6 +100,20 @@
     @if(session('error') || $error)
         <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ session('error') ?: $error }}</div>
     @endif
+    @if(!empty($tokenDiag) && empty($tokenDiag['has_instagram_read']))
+        <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p class="font-semibold">Debug: token cannot read Instagram @username</p>
+            <p class="mt-1">{{ $tokenDiag['hint'] ?? '' }}</p>
+            @if(!empty($tokenDiag['missing_instagram_scopes']))
+                <p class="mt-2 text-xs">Missing scopes: <code class="rounded bg-amber-100 px-1">{{ implode(', ', $tokenDiag['missing_instagram_scopes']) }}</code>
+                    @if(!empty($tokenDiag['token_type']))
+                        · Token type: <code class="rounded bg-amber-100 px-1">{{ $tokenDiag['token_type'] }}</code>
+                    @endif
+                </p>
+            @endif
+            <p class="mt-2 text-xs text-amber-800">Page “Connected assets” can show the IG account while the System User token still lacks Instagram API scopes — that is why Sync returns IDs only.</p>
+        </div>
+    @endif
 
     <div class="mb-4">
         <form method="get" class="flex gap-2">

@@ -364,6 +364,82 @@ class InstagramBusinessAccountService
             || str_contains($msg, 'too many calls');
     }
 
+    /**
+     * Live token diagnosis — Page “Connected assets” alone is not enough; token scopes must include Instagram.
+     *
+     * @return array{
+     *   token_type:?string,
+     *   scopes: array<int,string>,
+     *   missing_instagram_scopes: array<int,string>,
+     *   has_instagram_read: bool,
+     *   hint: string
+     * }
+     */
+    public function diagnoseTokenForInstagram(): array
+    {
+        $needed = [
+            'instagram_basic',
+            'instagram_manage_insights',
+            'instagram_content_publish',
+            'pages_read_user_content',
+        ];
+
+        $empty = [
+            'token_type' => null,
+            'scopes' => [],
+            'missing_instagram_scopes' => $needed,
+            'has_instagram_read' => false,
+            'hint' => 'Could not inspect Meta token scopes.',
+        ];
+
+        try {
+            $token = $this->requireToken();
+        } catch (\Throwable) {
+            return $empty;
+        }
+
+        $response = Http::timeout(25)->get(
+            "{$this->graphUrl}/{$this->graphVersion}/debug_token",
+            [
+                'input_token' => $token,
+                'access_token' => $token,
+            ]
+        );
+
+        if (! $response->ok()) {
+            $empty['hint'] = (string) (data_get($response->json(), 'error.message') ?: 'debug_token failed');
+
+            return $empty;
+        }
+
+        $scopes = array_values(array_filter(array_map(
+            'strval',
+            (array) data_get($response->json(), 'data.scopes', [])
+        )));
+        $missing = array_values(array_filter(
+            $needed,
+            fn ($scope) => ! in_array($scope, $scopes, true)
+        ));
+        $hasIg = collect($scopes)->contains(
+            fn ($s) => str_starts_with((string) $s, 'instagram_')
+        );
+
+        $hint = $hasIg
+            ? 'Token has Instagram scopes. If @username is still missing, assign the Instagram asset to the System User and wait out Meta rate limits.'
+            : 'DEBUG: System User token has NO Instagram scopes. Page “Connected assets” shows moveabroadwithparrot, but Graph cannot return @username without Instagram permissions on the token. '
+                .'Fix: Meta Business Settings → System users → Generate token → enable Instagram permissions '
+                .'(instagram_basic, instagram_manage_insights, instagram_content_publish) → assign Instagram account to that System User → '
+                .'update META_SYSTEM_USER_TOKEN + WHATSAPP_ACCESS_TOKEN → Connection → Sync from .env → Instagram Sync now.';
+
+        return [
+            'token_type' => data_get($response->json(), 'data.type'),
+            'scopes' => $scopes,
+            'missing_instagram_scopes' => $missing,
+            'has_instagram_read' => $hasIg,
+            'hint' => $hint,
+        ];
+    }
+
     protected function knownInstagramIds(?PlatformMetaConnection $connection): array
     {
         $ids = [

@@ -72,6 +72,7 @@ class InstagramAccountsController extends Controller
             'needsSync' => ! $fromCache && $accounts === [],
             'autoSynced' => false,
             'metaBusinessSuiteUrl' => 'https://business.facebook.com/latest/settings/instagram_account_settings',
+            'tokenDiag' => $this->instagram->diagnoseTokenForInstagram(),
         ]);
     }
 
@@ -229,13 +230,17 @@ class InstagramAccountsController extends Controller
                     ? ('Synced '.$names[0].' from Meta.')
                     : (count($result['accounts']).' Instagram account(s) synced from Meta: '.implode(', ', $names).'.');
             } else {
+                $diag = $this->instagram->diagnoseTokenForInstagram();
                 $ids = collect($result['accounts'])->pluck('id')->filter()->values()->all();
-                $label = 'Synced account ID(s) from Meta, but @username was not returned. '
-                    .'In Meta Business Suite: (1) connect Instagram to your Facebook Page, '
-                    .'(2) assign your System User access to that Instagram account (Partial access is not enough for username), '
-                    .'then Connection → Sync from .env or reconnect Meta, wait 2–3 minutes if rate-limited, and Sync now again.';
+                $label = $diag['hint'];
+                if (! empty($diag['missing_instagram_scopes'])) {
+                    $label .= ' Missing scopes: '.implode(', ', $diag['missing_instagram_scopes']).'.';
+                }
                 if ($ids !== []) {
                     $label .= ' IDs: '.implode(', ', $ids).'.';
+                }
+                if (! empty($diag['token_type'])) {
+                    $label .= ' Token type: '.$diag['token_type'].'.';
                 }
             }
 

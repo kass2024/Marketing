@@ -5,6 +5,7 @@ namespace App\Services\Meta;
 use App\Models\PlatformMetaConnection;
 use App\Services\Tenant\TenantConnectionResolver;
 use App\Services\Tenant\TenantMetaPageValidator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -40,21 +41,37 @@ class WhatsAppBusinessAccountService
      */
     public function listWabas(?string $businessId = null): array
     {
+        return $this->listWabasDetailed($businessId)['accounts'];
+    }
+
+    /**
+     * @return array{accounts: array<int, array<string, mixed>>, incomplete: bool, graph_ok: bool, errors: array<int, string>}
+     */
+    public function listWabasDetailed(?string $businessId = null): array
+    {
         $token = $this->requireToken();
         $connection = $this->connection();
         $businessId = $businessId ?: $this->resolveBusinessManagerId($connection);
         $accounts = [];
+        $errors = [];
+        $graphOk = false;
 
         if ($businessId) {
             foreach (['owned_whatsapp_business_accounts', 'client_whatsapp_business_accounts'] as $edge) {
-                foreach ($this->paginateEdge(
+                $page = $this->paginateEdgeDetailed(
                     "{$this->graphUrl}/{$this->graphVersion}/{$businessId}/{$edge}",
                     [
                         'access_token' => $token,
                         'fields' => 'id,name,currency,timezone_id,account_review_status,ownership_type',
                         'limit' => 50,
                     ]
-                ) as $row) {
+                );
+                if ($page['ok']) {
+                    $graphOk = true;
+                } elseif ($page['error']) {
+                    $errors[] = $edge.': '.$page['error'];
+                }
+                foreach ($page['rows'] as $row) {
                     if (! is_array($row) || empty($row['id'])) {
                         continue;
                     }
@@ -68,17 +85,25 @@ class WhatsAppBusinessAccountService
                     ];
                 }
             }
+        } else {
+            $errors[] = 'Business Manager ID missing (set META_BUSINESS_ID).';
         }
 
         // Also try WABAs assigned directly to the token user (system user / app).
-        foreach ($this->paginateEdge(
+        $assigned = $this->paginateEdgeDetailed(
             "{$this->graphUrl}/{$this->graphVersion}/me/assigned_whatsapp_business_accounts",
             [
                 'access_token' => $token,
                 'fields' => 'id,name,currency,timezone_id,account_review_status,ownership_type',
                 'limit' => 50,
             ]
-        ) as $row) {
+        );
+        if ($assigned['ok']) {
+            $graphOk = true;
+        } elseif ($assigned['error']) {
+            $errors[] = 'assigned: '.$assigned['error'];
+        }
+        foreach ($assigned['rows'] as $row) {
             if (! is_array($row) || empty($row['id'])) {
                 continue;
             }
@@ -95,35 +120,207 @@ class WhatsAppBusinessAccountService
             }
         }
 
-        $fallbackId = $connection?->whatsapp_business_id ?: config('platform.whatsapp.business_id');
-        if ($fallbackId && ! isset($accounts[$fallbackId])) {
-            $detail = $this->getWaba((string) $fallbackId);
+        $fromGraphCount = count($accounts);
+
+        $fallbackId = preg_replace('/\D+/', '', (string) (
+            $connection?->whatsapp_business_id ?: config('platform.whatsapp.business_id') ?: ''
+        )) ?: '';
+        if ($fallbackId !== '' && ! isset($accounts[$fallbackId])) {
+            $detail = $graphOk ? $this->getWaba($fallbackId) : null;
             $accounts[$fallbackId] = $detail ?? [
-                'id' => (string) $fallbackId,
+                'id' => $fallbackId,
                 'name' => $connection?->business_name ?? 'WhatsApp Business Account',
                 'ownership_type' => 'platform_default',
             ];
         }
 
-        // Locally imported / linked WABAs (Meta "Link a WhatsApp Business account")
+        // Locally imported / previously synced WABAs (never drop these on Graph blips)
         foreach ($this->linkedWabaIds($connection) as $linkedId) {
             if (isset($accounts[$linkedId])) {
                 continue;
             }
-            $detail = $this->getWaba($linkedId);
+            // Avoid hammering Graph when already rate-limited
+            $detail = ($graphOk && $errors === []) ? $this->getWaba($linkedId) : null;
             if ($detail) {
                 $detail['ownership_type'] = $detail['ownership_type'] ?? 'linked_import';
                 $accounts[$linkedId] = $detail;
             } else {
                 $accounts[$linkedId] = [
                     'id' => $linkedId,
-                    'name' => 'Linked WABA '.$linkedId,
+                    'name' => 'WhatsApp Business Account '.$linkedId,
                     'ownership_type' => 'linked_import',
                 ];
             }
         }
 
-        return array_values($accounts);
+        $incomplete = $errors !== [] || (! $graphOk && $fromGraphCount === 0);
+        // Owned list with multiple WABAs is enough — client/assigned rate-limits must not block persist
+        if ($fromGraphCount >= 2) {
+            $incomplete = false;
+        }
+
+        if ($incomplete) {
+            Log::warning('WA_LIST_WABAS_INCOMPLETE', [
+                'business_id' => $businessId,
+                'count' => count($accounts),
+                'from_graph' => $fromGraphCount,
+                'errors' => $errors,
+            ]);
+            $joined = strtolower(implode(' ', $errors));
+            if (str_contains($joined, 'too many') || str_contains($joined, 'rate') || str_contains($joined, 'limit')) {
+                Cache::put('meta_wa_rate_limited', 1, now()->addMinutes(10));
+            }
+        } elseif ($errors !== []) {
+            Log::info('WA_LIST_WABAS_PARTIAL_OK', [
+                'business_id' => $businessId,
+                'count' => count($accounts),
+                'from_graph' => $fromGraphCount,
+                'errors' => $errors,
+            ]);
+            Cache::forget('meta_wa_rate_limited');
+        } else {
+            Cache::forget('meta_wa_rate_limited');
+        }
+
+        return [
+            'accounts' => array_values($accounts),
+            'incomplete' => $incomplete,
+            'graph_ok' => $graphOk,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * Persist discovered WABA ids (like Instagram syncToConnection).
+     * Never wipe linked_waba_ids when Graph is empty / rate-limited.
+     *
+     * @return array{accounts: array<int, array<string, mixed>>, linked_count: int, incomplete: bool}
+     */
+    public function syncToConnection(?PlatformMetaConnection $connection = null): array
+    {
+        $connection ??= $this->connection();
+        $detailed = $this->listWabasDetailed();
+        $accounts = $detailed['accounts'];
+        $incomplete = $detailed['incomplete'];
+
+        if (! $connection) {
+            return [
+                'accounts' => $accounts,
+                'linked_count' => 0,
+                'incomplete' => $incomplete,
+            ];
+        }
+
+        if ($accounts === [] || ($incomplete && count($accounts) <= 1 && $this->linkedWabaIds($connection) !== [])) {
+            $seeded = $this->seedDirectoryFromConnection($connection);
+            Log::warning('WA_SYNC_PRESERVING_LINKED', [
+                'connection_id' => $connection->id,
+                'linked' => $connection->linked_waba_ids,
+                'graph_count' => count($accounts),
+                'incomplete' => $incomplete,
+            ]);
+
+            return [
+                'accounts' => $seeded !== [] ? $seeded : $accounts,
+                'linked_count' => count($this->linkedWabaIds($connection)),
+                'incomplete' => true,
+            ];
+        }
+
+        // Merge previously linked ids so a partial Graph response never shrinks the directory
+        $linked = $this->linkedWabaIds($connection);
+        foreach ($accounts as $row) {
+            $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($id !== '' && ! in_array($id, $linked, true)) {
+                $linked[] = $id;
+            }
+        }
+
+        // Only rewrite linked list from Graph when the pull looks complete
+        if (! $incomplete) {
+            $linked = [];
+            foreach ($accounts as $row) {
+                $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+                if ($id !== '' && ! in_array($id, $linked, true)) {
+                    $linked[] = $id;
+                }
+            }
+        }
+
+        $default = preg_replace('/\D+/', '', (string) (
+            $connection->whatsapp_business_id
+            ?: config('platform.whatsapp.business_id')
+            ?: ''
+        )) ?: '';
+        if ($default === '' || ! in_array($default, $linked, true)) {
+            $default = $linked[0] ?? $default;
+        }
+
+        $connection->forceFill([
+            'linked_waba_ids' => array_values($linked),
+            'whatsapp_business_id' => $default !== '' ? $default : $connection->whatsapp_business_id,
+        ])->saveQuietly();
+
+        // Ensure every linked id appears in the returned directory
+        $byId = [];
+        foreach ($accounts as $row) {
+            $id = (string) ($row['id'] ?? '');
+            if ($id !== '') {
+                $byId[$id] = $row;
+            }
+        }
+        foreach ($linked as $id) {
+            if (! isset($byId[$id])) {
+                $byId[$id] = [
+                    'id' => $id,
+                    'name' => 'WhatsApp Business Account '.$id,
+                    'ownership_type' => 'linked_import',
+                ];
+            }
+        }
+
+        return [
+            'accounts' => array_values($byId),
+            'linked_count' => count($linked),
+            'incomplete' => $incomplete,
+        ];
+    }
+
+    /**
+     * @return array<int, array{id: string, name: string, ownership_type?: string}>
+     */
+    public function seedDirectoryFromConnection(?PlatformMetaConnection $connection = null): array
+    {
+        $connection ??= $this->connection();
+        $items = [];
+        $seen = [];
+
+        foreach ($this->linkedWabaIds($connection) as $id) {
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = [
+                'id' => $id,
+                'name' => 'WhatsApp Business Account '.$id,
+                'ownership_type' => 'linked_import',
+            ];
+        }
+
+        $default = preg_replace('/\D+/', '', (string) (
+            $connection?->whatsapp_business_id
+            ?: config('platform.whatsapp.business_id')
+            ?: ''
+        )) ?: '';
+        if ($default !== '' && ! isset($seen[$default])) {
+            $items[] = [
+                'id' => $default,
+                'name' => $connection?->business_name ?? 'Platform WhatsApp account',
+                'ownership_type' => 'platform_default',
+            ];
+        }
+
+        return $items;
     }
 
     /**
@@ -762,9 +959,20 @@ class WhatsAppBusinessAccountService
      */
     protected function paginateEdge(string $url, array $params, int $maxPages = 8): array
     {
+        return $this->paginateEdgeDetailed($url, $params, $maxPages)['rows'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $params
+     * @return array{rows: array<int, mixed>, ok: bool, error: ?string}
+     */
+    protected function paginateEdgeDetailed(string $url, array $params, int $maxPages = 8): array
+    {
         $all = [];
         $next = null;
         $page = 0;
+        $ok = false;
+        $error = null;
 
         do {
             $page++;
@@ -773,9 +981,11 @@ class WhatsAppBusinessAccountService
                 : Http::timeout(30)->get($url, $params);
 
             if (! $response->ok()) {
+                $error = (string) (data_get($response->json(), 'error.message') ?: ('HTTP '.$response->status()));
                 break;
             }
 
+            $ok = true;
             foreach ($response->json('data', []) as $row) {
                 $all[] = $row;
             }
@@ -783,7 +993,11 @@ class WhatsAppBusinessAccountService
             $next = $response->json('paging.next');
         } while ($next && $page < $maxPages);
 
-        return $all;
+        return [
+            'rows' => $all,
+            'ok' => $ok,
+            'error' => $error,
+        ];
     }
 
     /**

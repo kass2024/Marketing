@@ -194,12 +194,35 @@ class MetaAutoSyncService
     protected function cacheWabaDirectory(PlatformMetaConnection $connection): void
     {
         try {
-            $accounts = $this->whatsapp->listWabas();
-            Cache::put(
-                'meta_waba_directory_'.($connection->id ?? 'platform'),
-                $accounts,
-                now()->addMinutes(30)
-            );
+            $result = $this->whatsapp->syncToConnection($connection);
+            $accounts = $result['accounts'] ?? [];
+            $key = 'meta_waba_directory_'.($connection->id ?? 'platform');
+            $prev = Cache::get($key);
+
+            // Rate-limit / Graph errors must not shrink a previously good directory to 1 env WABA
+            if (
+                is_array($prev)
+                && count($prev) > count($accounts)
+                && ! empty($result['incomplete'])
+            ) {
+                Log::warning('META_AUTO_SYNC_WABA_CACHE_PRESERVED', [
+                    'prev' => count($prev),
+                    'new' => count($accounts),
+                ]);
+                Cache::put(
+                    'meta_bm_synced_at_'.($connection->id ?? 'platform'),
+                    now()->toDateTimeString(),
+                    now()->addMinutes(30)
+                );
+
+                return;
+            }
+
+            if ($accounts === [] && is_array($prev) && $prev !== []) {
+                return;
+            }
+
+            Cache::put($key, $accounts, now()->addMinutes(30));
             Cache::put(
                 'meta_bm_synced_at_'.($connection->id ?? 'platform'),
                 now()->toDateTimeString(),
@@ -216,6 +239,13 @@ class MetaAutoSyncService
     protected function syncWhatsAppNumbers(PlatformMetaConnection $connection): int
     {
         $phones = [];
+
+        // Back off while Meta is rate-limiting WhatsApp Graph calls
+        if (Cache::get('meta_wa_rate_limited')) {
+            $cached = Cache::get('meta_wa_phone_directory_'.($connection->id ?? 'platform'));
+
+            return is_array($cached) ? count($cached) : 0;
+        }
 
         try {
             $phones = $this->whatsapp->listAllPhoneNumbers();
@@ -244,9 +274,21 @@ class MetaAutoSyncService
             return 0;
         }
 
+        $phoneKey = 'meta_wa_phone_directory_'.($connection->id ?? 'platform');
+        $prevPhones = Cache::get($phoneKey);
+        // Don't replace a full multi-WABA phone list with a rate-limited partial pull
+        if (is_array($prevPhones) && count($prevPhones) > count($phones) && count($phones) <= 2) {
+            Log::warning('META_AUTO_SYNC_PHONES_PRESERVED', [
+                'prev' => count($prevPhones),
+                'new' => count($phones),
+            ]);
+
+            return count($prevPhones);
+        }
+
         // Cache full phone list for Ad Studio dropdown (survives brief Graph blips)
         Cache::put(
-            'meta_wa_phone_directory_'.($connection->id ?? 'platform'),
+            $phoneKey,
             $phones,
             now()->addMinutes(30)
         );

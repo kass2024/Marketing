@@ -58,8 +58,21 @@ class WhatsAppAccountsController extends Controller
                         $wa = app(WhatsAppBusinessAccountService::class);
                         $connection = $wa->connection();
                         $wa->resolveBusinessManagerId($connection);
-                        $accounts = $wa->listWabas();
-                        Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                        $result = $wa->syncToConnection($connection);
+                        $accounts = $result['accounts'] ?? [];
+                        $prev = Cache::get($wabaCacheKey);
+                        if (
+                            is_array($prev)
+                            && count($prev) > count($accounts)
+                            && ! empty($result['incomplete'])
+                        ) {
+                            Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
+
+                            return;
+                        }
+                        if ($accounts !== [] || ! is_array($prev) || $prev === []) {
+                            Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                        }
                         Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
                     } catch (\Throwable $e) {
                         \Illuminate\Support\Facades\Log::warning('WA_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
@@ -121,8 +134,21 @@ class WhatsAppAccountsController extends Controller
             $this->autoSync->syncAlways();
             $connection = $this->whatsapp->connection();
             $this->whatsapp->resolveBusinessManagerId($connection);
-            $accounts = $this->whatsapp->listWabas();
-            Cache::put('meta_waba_directory_'.$cacheSuffix, $accounts, now()->addMinutes(30));
+            $result = $this->whatsapp->syncToConnection($connection);
+            $accounts = $result['accounts'] ?? [];
+            $incomplete = ! empty($result['incomplete']);
+
+            $cacheKey = 'meta_waba_directory_'.$cacheSuffix;
+            $prev = Cache::get($cacheKey);
+            if (
+                is_array($prev)
+                && count($prev) > count($accounts)
+                && $incomplete
+            ) {
+                $accounts = $prev;
+            } else {
+                Cache::put($cacheKey, $accounts, now()->addMinutes(30));
+            }
             Cache::put('meta_bm_synced_at_'.$cacheSuffix, now()->toDateTimeString(), now()->addMinutes(30));
 
             $selectedId = $waba !== '' ? $waba : (string) ($connection?->whatsapp_business_id ?? ($accounts[0]['id'] ?? ''));
@@ -138,9 +164,9 @@ class WhatsAppAccountsController extends Controller
                         ]);
                     }
                     // Also keep other WABA phones from previous cache when possible
-                    $prev = Cache::get('meta_wa_phone_directory_'.$cacheSuffix);
-                    if (is_array($prev)) {
-                        foreach ($prev as $p) {
+                    $prevPhones = Cache::get('meta_wa_phone_directory_'.$cacheSuffix);
+                    if (is_array($prevPhones)) {
+                        foreach ($prevPhones as $p) {
                             if (is_array($p) && (string) ($p['waba_id'] ?? '') !== $selectedId) {
                                 $allPhones[] = $p;
                             }
@@ -152,12 +178,17 @@ class WhatsAppAccountsController extends Controller
                 }
             }
 
+            $msg = count($accounts).' WhatsApp account(s) synced from Meta.';
+            if ($incomplete) {
+                $msg .= ' (Meta rate-limited — kept previously linked accounts; try again in a few minutes for fresh names.)';
+            }
+
             return redirect()
                 ->route('admin.meta.whatsapp.index', array_filter([
                     'waba' => $selectedId ?: null,
                     'tab' => 'phones',
                 ]))
-                ->with('success', count($accounts).' WhatsApp account(s) synced from Meta.');
+                ->with('success', $msg);
         } catch (ValidationException $e) {
             return redirect()
                 ->route('admin.meta.whatsapp.index')
@@ -174,31 +205,7 @@ class WhatsAppAccountsController extends Controller
      */
     protected function seedWabasFromConnection($connection): array
     {
-        $items = [];
-        $seen = [];
-
-        foreach ($this->whatsapp->linkedWabaIds($connection) as $id) {
-            if ($id === '' || isset($seen[$id])) {
-                continue;
-            }
-            $seen[$id] = true;
-            $items[] = [
-                'id' => $id,
-                'name' => 'WhatsApp Business Account '.$id,
-                'ownership_type' => 'linked_import',
-            ];
-        }
-
-        $default = (string) ($connection?->whatsapp_business_id ?? '');
-        if ($default !== '' && ! isset($seen[$default])) {
-            $items[] = [
-                'id' => $default,
-                'name' => $connection?->business_name ?? 'Platform WhatsApp account',
-                'ownership_type' => 'platform_default',
-            ];
-        }
-
-        return $items;
+        return $this->whatsapp->seedDirectoryFromConnection($connection);
     }
 
     public function linkWaba(Request $request): RedirectResponse

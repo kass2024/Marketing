@@ -37,7 +37,26 @@ class WhatsAppAccountsController extends Controller
             $accounts = $cached;
             $fromCache = true;
         } else {
-            $accounts = $this->seedWabasFromConnection($connection);
+            // Durable local directory first (DB), then id seeds
+            $dbAccounts = (array) ($connection?->linked_waba_directory ?? []);
+            if ($dbAccounts !== []) {
+                $accounts = $this->whatsapp->mergePreferringRealNames(
+                    $this->seedWabasFromConnection($connection),
+                    $dbAccounts
+                );
+                Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
+                $fromCache = true;
+            } else {
+                $accounts = $this->seedWabasFromConnection($connection);
+            }
+        }
+
+        // Warm phone cache from local DB when Redis/file cache is empty
+        if (! is_array(Cache::get($phoneCacheKey)) || Cache::get($phoneCacheKey) === []) {
+            $dbPhones = $this->whatsapp->loadPhoneDirectory($connection);
+            if ($dbPhones !== []) {
+                Cache::put($phoneCacheKey, $dbPhones, now()->addMinutes(30));
+            }
         }
 
         $needsNames = $this->accountsNeedNameRefresh($accounts);
@@ -208,6 +227,19 @@ class WhatsAppAccountsController extends Controller
                 if ($accounts !== [] || ! is_array($prev) || $prev === []) {
                     Cache::put($wabaCacheKey, $accounts, now()->addMinutes(30));
                 }
+                $wa->persistWabaDirectory($connection, $accounts);
+                // Refresh phones into local DB without wiping known numbers
+                $phones = $wa->loadPhoneDirectory($connection);
+                if (! Cache::get('meta_wa_rate_limited')) {
+                    try {
+                        $fresh = $wa->listAllPhoneNumbers();
+                        $phones = $wa->persistPhoneDirectory($connection, $fresh);
+                    } catch (\Throwable) {
+                        $wa->persistPhoneDirectory($connection, $phones);
+                    }
+                } else {
+                    $wa->persistPhoneDirectory($connection, $phones);
+                }
                 Cache::put($syncedAtKey, now()->toDateTimeString(), now()->addMinutes(30));
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('WA_BACKGROUND_SYNC_FAILED', ['error' => $e->getMessage()]);
@@ -326,10 +358,13 @@ class WhatsAppAccountsController extends Controller
         }
 
         if ($mergedPhones !== []) {
-            Cache::put($phoneCacheKey, $mergedPhones, now()->addMinutes(30));
+            $this->whatsapp->persistPhoneDirectory($connection, $mergedPhones);
         } elseif ($phoneSnapshot !== []) {
-            Cache::put($phoneCacheKey, $phoneSnapshot, now()->addMinutes(30));
+            $this->whatsapp->persistPhoneDirectory($connection, $phoneSnapshot);
         }
+
+        // Also persist account names to local DB
+        $this->whatsapp->persistWabaDirectory($connection, $accounts);
 
         $stillPlaceholders = $this->accountsNeedNameRefresh($accounts);
         if ($incomplete && $stillPlaceholders) {

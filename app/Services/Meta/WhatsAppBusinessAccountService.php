@@ -235,11 +235,19 @@ class WhatsAppBusinessAccountService
                 'incomplete' => $incomplete,
             ]);
 
-            // Never throw away a real Graph name for a full placeholder seed list.
-            $accounts = $this->mergePreferringRealNames($seeded, $accounts);
+            // Never throw away a real Graph/DB name for a full placeholder seed list.
+            $accounts = $this->mergePreferringRealNames(
+                $seeded,
+                $this->mergePreferringRealNames(
+                    (array) ($connection->linked_waba_directory ?? []),
+                    $accounts
+                )
+            );
+            $accounts = $this->enrichPlaceholderNames($accounts);
+            $this->persistWabaDirectory($connection, $accounts);
 
             return [
-                'accounts' => $this->enrichPlaceholderNames($accounts),
+                'accounts' => $accounts,
                 'linked_count' => count($this->linkedWabaIds($connection)),
                 'incomplete' => true,
             ];
@@ -274,11 +282,6 @@ class WhatsAppBusinessAccountService
             $default = $linked[0] ?? $default;
         }
 
-        $connection->forceFill([
-            'linked_waba_ids' => array_values($linked),
-            'whatsapp_business_id' => $default !== '' ? $default : $connection->whatsapp_business_id,
-        ])->saveQuietly();
-
         // Ensure every linked id appears in the returned directory
         $byId = [];
         foreach ($accounts as $row) {
@@ -298,8 +301,21 @@ class WhatsAppBusinessAccountService
             }
         }
 
+        $accounts = $this->mergePreferringRealNames(
+            (array) ($connection->linked_waba_directory ?? []),
+            array_values($byId)
+        );
+        $accounts = $this->enrichPlaceholderNames($accounts);
+
+        $connection->forceFill([
+            'linked_waba_ids' => array_values($linked),
+            'whatsapp_business_id' => $default !== '' ? $default : $connection->whatsapp_business_id,
+        ])->saveQuietly();
+
+        $this->persistWabaDirectory($connection, $accounts);
+
         return [
-            'accounts' => $this->enrichPlaceholderNames(array_values($byId)),
+            'accounts' => $accounts,
             'linked_count' => count($linked),
             'incomplete' => $incomplete,
         ];
@@ -475,6 +491,23 @@ class WhatsAppBusinessAccountService
         $items = [];
         $seen = [];
 
+        // Prefer locally persisted directory (survives cache wipes / Meta rate limits)
+        foreach ((array) ($connection?->linked_waba_directory ?? []) as $row) {
+            if (! is_array($row) || empty($row['id'])) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) $row['id']) ?: '';
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $items[] = [
+                'id' => $id,
+                'name' => $this->bestWabaDisplayName($row, $id),
+                'ownership_type' => $row['ownership_type'] ?? 'synced',
+            ];
+        }
+
         foreach ($this->linkedWabaIds($connection) as $id) {
             if ($id === '' || isset($seen[$id])) {
                 continue;
@@ -501,6 +534,137 @@ class WhatsAppBusinessAccountService
         }
 
         return $this->applyPhoneCacheNames($items);
+    }
+
+    /**
+     * Persist WABA names locally — never overwrite a real name with a placeholder.
+     *
+     * @param  array<int, array<string, mixed>>  $accounts
+     * @return array<int, array{id: string, name: string, ownership_type?: string}>
+     */
+    public function persistWabaDirectory(?PlatformMetaConnection $connection, array $accounts): array
+    {
+        $connection ??= $this->connection();
+        if (! $connection) {
+            return $accounts;
+        }
+
+        $merged = $this->mergePreferringRealNames(
+            (array) ($connection->linked_waba_directory ?? []),
+            $accounts
+        );
+
+        $slim = [];
+        foreach ($merged as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = preg_replace('/\D+/', '', (string) ($row['id'] ?? '')) ?: '';
+            if ($id === '') {
+                continue;
+            }
+            $slim[] = [
+                'id' => $id,
+                'name' => $this->bestWabaDisplayName($row, $id),
+                'ownership_type' => $row['ownership_type'] ?? 'synced',
+            ];
+        }
+
+        $updates = [
+            'linked_waba_ids' => array_values(array_unique(array_column($slim, 'id'))),
+        ];
+        if (\Illuminate\Support\Facades\Schema::hasColumn($connection->getTable(), 'linked_waba_directory')) {
+            $updates['linked_waba_directory'] = array_values($slim);
+        }
+        $connection->forceFill($updates)->saveQuietly();
+
+        $cacheKey = 'meta_waba_directory_'.($connection->id ?? 'platform');
+        Cache::put($cacheKey, array_values($slim), now()->addMinutes(30));
+
+        return array_values($slim);
+    }
+
+    /**
+     * Load phone directory: cache → local DB → [].
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function loadPhoneDirectory(?PlatformMetaConnection $connection = null): array
+    {
+        $connection ??= $this->connection();
+        $key = 'meta_wa_phone_directory_'.($connection?->id ?? 'platform');
+        $cached = Cache::get($key);
+        if (is_array($cached) && $cached !== []) {
+            return $cached;
+        }
+
+        $stored = (array) ($connection?->whatsapp_phone_directory ?? []);
+        if ($stored !== []) {
+            Cache::put($key, $stored, now()->addMinutes(30));
+        }
+
+        return $stored;
+    }
+
+    /**
+     * Persist phones locally. Never drops numbers when $incoming is empty/partial.
+     *
+     * @param  array<int, array<string, mixed>>  $incoming
+     * @return array<int, array<string, mixed>>
+     */
+    public function persistPhoneDirectory(?PlatformMetaConnection $connection, array $incoming): array
+    {
+        $connection ??= $this->connection();
+        if (! $connection) {
+            return $incoming;
+        }
+
+        $previous = (array) ($connection->whatsapp_phone_directory ?? []);
+        $cacheKey = 'meta_wa_phone_directory_'.($connection->id ?? 'platform');
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && $cached !== []) {
+            $previous = $this->mergePhoneDirectories($previous, $cached);
+        }
+
+        if ($incoming === []) {
+            $merged = $previous;
+        } else {
+            $merged = $this->mergePhoneDirectories($previous, $incoming);
+            // If Meta returns far fewer phones, keep the richer local set (rate-limit safety)
+            if (count($previous) > count($incoming) && count($incoming) <= 2 && count($previous) > 2) {
+                $merged = $this->mergePhoneDirectories($previous, $incoming);
+            }
+        }
+
+        $slim = [];
+        foreach ($merged as $phone) {
+            if (! is_array($phone) || empty($phone['id'])) {
+                continue;
+            }
+            $slim[] = [
+                'id' => (string) $phone['id'],
+                'display_phone_number' => (string) ($phone['display_phone_number'] ?? ''),
+                'verified_name' => $phone['verified_name'] ?? null,
+                'code_verification_status' => $phone['code_verification_status'] ?? null,
+                'quality_rating' => $phone['quality_rating'] ?? null,
+                'status' => $phone['status'] ?? null,
+                'name_status' => $phone['name_status'] ?? null,
+                'platform_type' => $phone['platform_type'] ?? null,
+                'verified' => (bool) ($phone['verified'] ?? false),
+                'waba_id' => (string) ($phone['waba_id'] ?? ''),
+                'waba_name' => $phone['waba_name'] ?? null,
+            ];
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn($connection->getTable(), 'whatsapp_phone_directory')) {
+            $connection->forceFill([
+                'whatsapp_phone_directory' => array_values($slim),
+            ])->saveQuietly();
+        }
+
+        Cache::put($cacheKey, array_values($slim), now()->addMinutes(30));
+
+        return array_values($slim);
     }
 
     /**

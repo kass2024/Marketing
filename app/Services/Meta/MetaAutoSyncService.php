@@ -202,6 +202,13 @@ class MetaAutoSyncService
                 $accounts = $this->whatsapp->mergePreferringRealNames($prev, $accounts);
             }
 
+            // Also merge with durable DB directory
+            $accounts = $this->whatsapp->mergePreferringRealNames(
+                (array) ($connection->linked_waba_directory ?? []),
+                $accounts
+            );
+            $this->whatsapp->persistWabaDirectory($connection, $accounts);
+
             // Rate-limit / Graph errors must not shrink a previously good directory to 1 env WABA
             if (
                 is_array($prev)
@@ -245,9 +252,9 @@ class MetaAutoSyncService
 
         // Back off while Meta is rate-limiting WhatsApp Graph calls
         if (Cache::get('meta_wa_rate_limited')) {
-            $cached = Cache::get('meta_wa_phone_directory_'.($connection->id ?? 'platform'));
+            $cached = $this->whatsapp->loadPhoneDirectory($connection);
 
-            return is_array($cached) ? count($cached) : 0;
+            return count($cached);
         }
 
         try {
@@ -264,40 +271,21 @@ class MetaAutoSyncService
                 } catch (Throwable $inner) {
                     Log::warning('META_AUTO_SYNC_PHONES_FAILED', ['error' => $inner->getMessage()]);
 
-                    return 0;
+                    return count($this->whatsapp->loadPhoneDirectory($connection));
                 }
             } else {
                 Log::warning('META_AUTO_SYNC_PHONES_FAILED', ['error' => $e->getMessage()]);
 
-                return 0;
+                return count($this->whatsapp->loadPhoneDirectory($connection));
             }
         }
 
-        if ($phones === []) {
-            return is_array($prevPhones = Cache::get('meta_wa_phone_directory_'.($connection->id ?? 'platform')))
-                ? count($prevPhones)
-                : 0;
-        }
-
-        $phoneKey = 'meta_wa_phone_directory_'.($connection->id ?? 'platform');
-        $prevPhones = Cache::get($phoneKey);
-        $merged = $this->whatsapp->mergePhoneDirectories(
-            is_array($prevPhones) ? $prevPhones : [],
-            $phones
-        );
-
-        // Don't shrink a full multi-WABA phone list with a rate-limited partial pull
-        if (is_array($prevPhones) && count($prevPhones) > count($merged) && count($phones) <= 2) {
-            Log::warning('META_AUTO_SYNC_PHONES_PRESERVED', [
-                'prev' => count($prevPhones),
-                'new' => count($phones),
-                'merged' => count($merged),
-            ]);
-            $merged = $prevPhones;
-        }
-
-        Cache::put($phoneKey, $merged, now()->addMinutes(30));
+        $merged = $this->whatsapp->persistPhoneDirectory($connection, $phones);
         $phones = $merged;
+
+        if ($phones === []) {
+            return 0;
+        }
 
         // Persist discovered Business Manager id when missing/wrong
         try {

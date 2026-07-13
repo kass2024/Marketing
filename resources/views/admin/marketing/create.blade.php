@@ -799,29 +799,60 @@
                         <p class="mt-1 text-center text-[9px] text-slate-400" x-text="placementHint"></p>
 
                         <div class="mx-auto mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
-                             :class="previewPlacement === 'story_9x16' ? 'max-w-[160px]' : 'max-w-[240px]'">
-                            <div class="flex items-center gap-1.5 border-b border-slate-100 p-2" x-show="previewPlacement !== 'story_9x16'">
-                                <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">P</div>
-                                <div class="min-w-0">
-                                    <p class="break-words text-[10px] font-bold leading-tight" x-text="pageName"></p>
-                                    <p class="text-[8px] text-slate-400">Sponsored</p>
+                             :class="previewPlacement === 'story_9x16' ? 'max-w-[180px]' : 'max-w-[240px]'">
+                            {{-- Feed / square: page + primary text above media --}}
+                            <template x-if="previewPlacement !== 'story_9x16'">
+                                <div>
+                                    <div class="flex items-center gap-1.5 border-b border-slate-100 p-2">
+                                        <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[9px] font-bold text-white">P</div>
+                                        <div class="min-w-0">
+                                            <p class="break-words text-[10px] font-bold leading-tight" x-text="pageName"></p>
+                                            <p class="text-[8px] text-slate-400">Sponsored</p>
+                                        </div>
+                                    </div>
+                                    <p class="whitespace-pre-wrap break-words px-2 py-1.5 text-[10px] leading-snug text-slate-700"
+                                       x-text="form.primary_text || 'Upload a creative…'"></p>
                                 </div>
-                            </div>
-                            <p class="whitespace-pre-wrap break-words px-2 py-1.5 text-[10px] leading-snug text-slate-700"
-                               x-show="previewPlacement !== 'story_9x16'"
-                               x-text="form.primary_text || 'Upload a creative…'"></p>
+                            </template>
 
-                            {{-- Frame uses Meta aspect; image uses object-contain so real upload ratio is visible --}}
+                            {{-- Media frame --}}
                             <div class="relative w-full bg-slate-100" :style="'aspect-ratio:' + placementAspectRatio">
                                 <img :src="previewImage" x-show="previewImage"
                                      class="absolute inset-0 h-full w-full object-contain" alt="Ad creative">
                                 <div x-show="!previewImage" class="absolute inset-0 flex items-center justify-center text-[9px] text-slate-400">No media</div>
+
+                                {{-- Stories: keep all ad text visible as overlays (WhatsApp CTA on creative) --}}
+                                <template x-if="previewPlacement === 'story_9x16'">
+                                    <div class="pointer-events-none absolute inset-0 flex flex-col justify-between p-2">
+                                        <div class="flex items-center gap-1.5">
+                                            <div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[8px] font-bold text-white shadow">P</div>
+                                            <div class="min-w-0 rounded-md bg-black/45 px-1.5 py-0.5">
+                                                <p class="truncate text-[9px] font-bold text-white" x-text="pageName"></p>
+                                                <p class="text-[7px] text-white/80">Sponsored</p>
+                                            </div>
+                                        </div>
+                                        <div class="rounded-lg bg-gradient-to-t from-black/80 via-black/55 to-transparent px-2 pb-2 pt-8">
+                                            <p class="max-h-16 overflow-y-auto whitespace-pre-wrap break-words text-[9px] leading-snug text-white"
+                                               x-text="form.primary_text || 'Upload a creative…'"></p>
+                                            <p class="mt-1.5 break-words text-[10px] font-bold leading-snug text-white"
+                                               x-text="form.headline || 'Headline'"></p>
+                                            <p class="mt-0.5 break-words text-[8px] leading-snug text-white/85"
+                                               x-text="form.description || ''"></p>
+                                            <div class="mt-2 pointer-events-auto w-full rounded-md bg-[#25D366] py-1.5 text-center text-[9px] font-bold text-white shadow">
+                                                Send WhatsApp message
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+
                                 <div x-show="mediaValidation.width && mediaValidation.height"
-                                     class="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-[8px] font-semibold text-white"
+                                     class="absolute bottom-1 right-1 z-10 rounded bg-black/60 px-1.5 py-0.5 text-[8px] font-semibold text-white"
+                                     :class="previewPlacement === 'story_9x16' ? 'bottom-auto top-1 right-1' : ''"
                                      x-text="(mediaValidation.width || '') + '×' + (mediaValidation.height || '')"></div>
                             </div>
 
-                            <div class="border-t border-slate-100 p-2">
+                            {{-- Feed / square footer --}}
+                            <div class="border-t border-slate-100 p-2" x-show="previewPlacement !== 'story_9x16'">
                                 <p class="break-words text-[10px] font-bold leading-snug text-slate-900" x-text="form.headline || 'Headline'"></p>
                                 <p class="mt-0.5 break-words text-[8px] leading-snug text-slate-500" x-text="form.description || ''"></p>
                                 <button type="button" class="mt-1.5 w-full rounded-md bg-[#25D366] py-1.5 text-[9px] font-bold text-white">Send WhatsApp message</button>

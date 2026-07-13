@@ -118,11 +118,11 @@ class AdImageProcessor
     }
 
     /**
-     * Downscale for faster Gemini vision (keeps aspect, JPEG).
+     * Downscale for Gemini vision (keeps aspect, JPEG).
      *
      * @return array{base64: string, mime: string}
      */
-    public function downscaleForVision(string $imageBinary, int $maxSide = 768): array
+    public function downscaleForVision(string $imageBinary, int $maxSide = 1536, int $quality = 85): array
     {
         if (! function_exists('imagecreatefromstring')) {
             return [
@@ -152,8 +152,9 @@ class AdImageProcessor
             $src = $dst;
         }
 
+        $quality = max(50, min(95, $quality));
         ob_start();
-        imagejpeg($src, null, 72);
+        imagejpeg($src, null, $quality);
         $out = ob_get_clean();
         imagedestroy($src);
 

@@ -584,8 +584,17 @@
                         <input type="hidden" name="call_to_action" value="WHATSAPP_MESSAGE">
 
                         {{-- Upload first --}}
-                        <div class="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4"
-                             :class="aiAnalyzing ? 'opacity-70' : ''">
+                        <div class="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 relative"
+                             :class="aiAnalyzing ? 'opacity-90' : ''">
+                            <div x-show="aiAnalyzing" x-cloak
+                                 class="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-xl bg-white/85 backdrop-blur-[2px]">
+                                <svg class="h-8 w-8 animate-spin text-emerald-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                </svg>
+                                <p class="mt-3 text-sm font-semibold text-slate-800">Extracting ad copy…</p>
+                                <p class="mt-1 text-xs text-slate-500" x-text="aiExtractStepLabel"></p>
+                            </div>
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                     <p class="text-sm font-semibold text-slate-800">1. Upload creative <span class="text-red-500">*</span></p>
@@ -593,22 +602,32 @@
                                 </div>
                                 <div class="flex flex-wrap gap-1">
                                     <template x-for="(fmt, key) in selectableFormats" :key="key">
-                                        <button type="button" @click="setImageFormat(key)"
-                                            class="rounded-lg border px-2 py-1 text-[10px] font-semibold"
+                                        <button type="button" @click="setImageFormat(key)" :disabled="aiAnalyzing"
+                                            class="rounded-lg border px-2 py-1 text-[10px] font-semibold disabled:opacity-50"
                                             :class="form.image_format === key ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200 text-slate-600'">
                                             <span x-text="fmt.short || fmt.label"></span>
                                         </button>
                                     </template>
                                 </div>
                             </div>
-                            <label class="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-6 text-center hover:border-blue-400">
+                            <label class="mt-3 flex cursor-pointer flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-6 text-center hover:border-blue-400"
+                                   :class="aiAnalyzing ? 'pointer-events-none' : ''">
                                 <input type="file" accept="image/*" x-ref="fileInput" @change="onFileUpload($event)"
-                                    class="sr-only">
-                                <span class="text-sm font-semibold text-slate-800" x-text="aiAnalyzing ? 'Gemini is analyzing…' : (previewImage ? 'Replace creative' : 'Drop image or click to upload')"></span>
+                                    class="sr-only" :disabled="aiAnalyzing">
+                                <span class="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
+                                    <svg x-show="aiAnalyzing" class="h-4 w-4 animate-spin text-emerald-600" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                    </svg>
+                                    <span x-text="aiAnalyzing ? 'Gemini is analyzing…' : (previewImage ? 'Replace creative' : 'Drop image or click to upload')"></span>
+                                </span>
                                 <span class="mt-1 text-xs text-slate-500">We resize to Meta sizes · Gemini auto-fills ad copy</span>
                             </label>
                             <div x-show="mediaValidation.errors.length" class="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
                                 <template x-for="e in mediaValidation.errors" :key="e"><p x-text="e"></p></template>
+                            </div>
+                            <div x-show="mediaValidation.warnings.length" class="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                                <template x-for="w in mediaValidation.warnings" :key="w"><p x-text="w"></p></template>
                             </div>
                             <p x-show="aiAnalyzeError" class="mt-2 text-xs text-red-600" x-text="aiAnalyzeError"></p>
                             <div x-show="previewImage" class="mt-3 flex items-center gap-3 rounded-lg border border-slate-100 bg-white p-2">
@@ -909,6 +928,55 @@
             <p class="mt-4 text-center text-xs text-slate-400" x-show="!publishError">Please keep this tab open — Meta API calls can take a minute.</p>
         </div>
     </div>
+
+    {{-- AI extract progress overlay --}}
+    <div x-show="aiAnalyzing" x-cloak
+         class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-sm"
+         style="display: none;"
+         role="status" aria-live="polite" aria-busy="true">
+        <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div class="flex items-start gap-3">
+                <span class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700" aria-hidden="true">
+                    <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h3 class="text-lg font-bold text-slate-900">Extracting ad copy</h3>
+                            <p class="mt-1 text-sm text-slate-500" x-text="aiExtractStepLabel"></p>
+                        </div>
+                        <span class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800"
+                              x-text="aiExtractPercent + '%'"></span>
+                    </div>
+
+                    <div class="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full bg-emerald-500 transition-all duration-500 ease-out"
+                             :style="'width: ' + aiExtractPercent + '%'"></div>
+                    </div>
+
+                    <ul class="mt-5 space-y-2">
+                        <template x-for="(step, i) in aiExtractSteps" :key="step">
+                            <li class="flex items-center gap-2.5 text-sm"
+                                :class="i < aiExtractStepIndex
+                                    ? 'text-emerald-700'
+                                    : (i === aiExtractStepIndex ? 'font-semibold text-emerald-900' : 'text-slate-400')">
+                                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                                      :class="i < aiExtractStepIndex
+                                          ? 'bg-emerald-500 text-white'
+                                          : (i === aiExtractStepIndex ? 'bg-emerald-600 text-white animate-pulse' : 'bg-slate-100 text-slate-400')"
+                                      x-text="i < aiExtractStepIndex ? '✓' : (i + 1)"></span>
+                                <span x-text="step"></span>
+                            </li>
+                        </template>
+                    </ul>
+                    <p class="mt-4 text-center text-xs text-slate-400">Reading your flyer text to write WhatsApp ad copy…</p>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 @push('scripts')
@@ -942,6 +1010,15 @@ function adStudio(config) {
         aiError: '',
         aiAnalyzing: false,
         aiAnalyzeError: '',
+        aiExtractStepIndex: 0,
+        aiExtractPercent: 0,
+        aiExtractTimer: null,
+        aiExtractSteps: [
+            'Uploading creative',
+            'Reading flyer text (OCR)',
+            'Writing WhatsApp ad copy',
+            'Filling campaign fields',
+        ],
         creativeReady: false,
         whatsappNumbers: config.whatsappNumbers || [],
         pages: config.pages || [],
@@ -1027,6 +1104,10 @@ function adStudio(config) {
 
         get publishStepLabel() {
             return this.publishSteps[this.publishStepIndex] || 'Working…';
+        },
+
+        get aiExtractStepLabel() {
+            return this.aiExtractSteps[this.aiExtractStepIndex] || 'Analyzing creative…';
         },
 
         init() {
@@ -1557,7 +1638,7 @@ function adStudio(config) {
             this.mediaValidation = {
                 valid: true,
                 errors: [],
-                warnings: [],
+                warnings: Array.isArray(data.warnings) ? data.warnings : [],
                 width: data.width || null,
                 height: data.height || null,
             };
@@ -1606,13 +1687,40 @@ function adStudio(config) {
             }
         },
 
+        startAiExtractProgress() {
+            this.aiAnalyzing = true;
+            this.aiAnalyzeError = '';
+            this.aiExtractStepIndex = 0;
+            this.aiExtractPercent = 6;
+            if (this.aiExtractTimer) clearInterval(this.aiExtractTimer);
+            this.aiExtractTimer = setInterval(() => {
+                if (this.aiExtractStepIndex < this.aiExtractSteps.length - 1) {
+                    this.aiExtractStepIndex += 1;
+                }
+                this.aiExtractPercent = Math.min(90, this.aiExtractPercent + Math.max(5, Math.round((90 - this.aiExtractPercent) * 0.22)));
+            }, 1600);
+        },
+
+        stopAiExtractProgress(success = false) {
+            if (this.aiExtractTimer) {
+                clearInterval(this.aiExtractTimer);
+                this.aiExtractTimer = null;
+            }
+            if (success) {
+                this.aiExtractStepIndex = this.aiExtractSteps.length - 1;
+                this.aiExtractPercent = 100;
+                setTimeout(() => { this.aiAnalyzing = false; }, 400);
+            } else {
+                this.aiAnalyzing = false;
+            }
+        },
+
         async onFileUpload(e) {
             const f = e.target.files[0];
             if (!f) return;
             this.form.stock_image_id = '';
             this.mediaTab = 'upload';
-            this.aiAnalyzing = true;
-            this.aiAnalyzeError = '';
+            this.startAiExtractProgress();
             this.mediaValidation = { valid: false, errors: [], warnings: [], width: null, height: null };
             // Instant local preview while Meta resize + Gemini run
             try {
@@ -1630,6 +1738,7 @@ function adStudio(config) {
                 });
                 const data = await res.json();
                 if (!data.success) {
+                    this.stopAiExtractProgress(false);
                     this.aiAnalyzeError = data.message || 'Could not analyze creative.';
                     this.mediaValidation = { valid: false, errors: [this.aiAnalyzeError], warnings: [], width: null, height: null };
                     this.previewImage = null;
@@ -1639,11 +1748,11 @@ function adStudio(config) {
                 }
                 this.applyAiCreative(data);
                 if (data.image_format) this.previewPlacement = data.image_format === 'portrait_191' ? 'landscape_191' : (['feed_4x5','square_1x1','story_9x16'].includes(data.image_format) ? data.image_format : 'feed_4x5');
+                this.stopAiExtractProgress(true);
             } catch (err) {
+                this.stopAiExtractProgress(false);
                 this.aiAnalyzeError = 'Upload or Gemini analysis failed. Check GOOGLE_AI_API_KEY and try again.';
                 this.creativeReady = false;
-            } finally {
-                this.aiAnalyzing = false;
             }
         },
 

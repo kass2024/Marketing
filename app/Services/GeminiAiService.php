@@ -55,24 +55,26 @@ class GeminiAiService
         ?string $system = null,
         ?int $maxTokens = null
     ): string {
-        $parts = [];
-        if ($system) {
-            $parts[] = ['text' => $system];
-        }
-        $parts[] = ['text' => $prompt];
-        $parts[] = [
-            'inlineData' => [
-                'mimeType' => $mimeType,
-                'data' => $base64Data,
+        $parts = [
+            // Image first — improves OCR fidelity on text-heavy flyers
+            [
+                'inlineData' => [
+                    'mimeType' => $mimeType,
+                    'data' => $base64Data,
+                ],
             ],
+            ['text' => $prompt],
         ];
+        if ($system) {
+            array_unshift($parts, ['text' => $system]);
+        }
 
         $payload = [
             'contents' => [
                 ['role' => 'user', 'parts' => $parts],
             ],
             'generationConfig' => [
-                'temperature' => 0.35,
+                'temperature' => 0.2,
                 'maxOutputTokens' => $maxTokens ?? (int) config('gemini.max_output_tokens'),
                 'responseMimeType' => 'application/json',
             ],

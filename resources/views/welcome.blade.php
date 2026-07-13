@@ -195,17 +195,17 @@
                 <p class="mb-3 text-xs font-semibold uppercase tracking-wide text-xander-navy">Get started</p>
                 <h2 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Create your business workspace</h2>
                 <p class="mt-4 text-slate-600 leading-relaxed">
-                    Register with your business details and choose the Facebook Page you manage.
-                    All ads run through the platform Meta ad account; each business only sees its own page and campaigns.
+                    Register your business, choose your Facebook Page, and set the WhatsApp number
+                    where ad leads should arrive. Publishing is powered by the main Parrot Canada Meta account.
                 </p>
                 <ul class="mt-6 space-y-2 text-sm text-slate-600">
-                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Shared platform ad account for all businesses</li>
-                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Your own Facebook Page selected at signup</li>
-                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Super admin can oversee all accounts</li>
+                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Search your Facebook Page by name — never exposed in a public list</li>
+                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Your business WhatsApp as click-to-chat destination</li>
+                    <li class="flex items-start gap-2"><span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-xander-gold"></span>Platform main account controls API access</li>
                 </ul>
             </div>
 
-            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8" x-data="registerForm()" x-init="loadPages()">
+            <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
                 @if($errors->any())
                     <div class="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                         <ul class="space-y-1">
@@ -249,22 +249,26 @@
                             class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
                     </div>
 
+                    <x-facebook-page-search
+                        :search-url="route('register.pages.search')"
+                        :initial-id="old('meta_page_id')"
+                        :initial-name="old('meta_page_name')"
+                        input-id="meta_page_search"
+                        label="Your Facebook Page"
+                        placeholder="Start typing your Facebook Page name…"
+                    />
+
                     <div>
-                        <label class="mb-1 block text-sm font-medium text-slate-700" for="meta_page_id">Facebook Page</label>
-                        <select id="meta_page_id" name="meta_page_id" required x-model="selectedPageId" @change="syncPageName()"
+                        <label class="mb-1 block text-sm font-medium text-slate-700" for="whatsapp_phone_number">Business WhatsApp number</label>
+                        <input id="whatsapp_phone_number" name="whatsapp_phone_number" type="text" required
+                            value="{{ old('whatsapp_phone_number') }}"
+                            placeholder="e.g. 14385551234 (country code, no +)"
                             class="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm focus:border-xander-navy focus:ring focus:ring-xander-navy/20">
-                            <option value="">Select a Facebook Page…</option>
-                            <template x-for="page in pages" :key="page.id">
-                                <option :value="page.id" x-text="page.name + ' (' + page.id + ')'" :selected="page.id == '{{ old('meta_page_id') }}'"></option>
-                            </template>
-                        </select>
-                        <input type="hidden" name="meta_page_name" :value="selectedPageName">
-                        <p class="mt-1 text-xs text-slate-500" x-show="loadingPages">Loading pages from Meta…</p>
-                        <p class="mt-1 text-xs text-amber-700" x-show="!loadingPages && pages.length === 0">No pages available. Contact support or try again later.</p>
+                        <p class="mt-1 text-xs text-slate-500">Click-to-WhatsApp ads will send leads to this number. Meta will SMS a verification code after you register — the number is added to Business Manager under your business name.</p>
                     </div>
 
                     <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                        After registration, sign in with the standard client password provided by Parrot Canada support.
+                        No separate Meta login needed — your WhatsApp number is verified and synced via the platform account under your registered business name.
                     </div>
 
                     <button type="submit"
@@ -317,33 +321,6 @@
         </nav>
     </div>
 </footer>
-
-<script>
-function registerForm() {
-    return {
-        pages: [],
-        loadingPages: true,
-        selectedPageId: @json(old('meta_page_id', '')),
-        selectedPageName: @json(old('meta_page_name', '')),
-        async loadPages() {
-            try {
-                const response = await fetch(@json(route('register.pages')));
-                const data = await response.json();
-                this.pages = data.pages || [];
-                this.syncPageName();
-            } catch (e) {
-                this.pages = [];
-            } finally {
-                this.loadingPages = false;
-            }
-        },
-        syncPageName() {
-            const page = this.pages.find(p => String(p.id) === String(this.selectedPageId));
-            this.selectedPageName = page ? page.name : '';
-        }
-    };
-}
-</script>
 
 </body>
 </html>

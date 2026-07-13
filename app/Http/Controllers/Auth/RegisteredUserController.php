@@ -5,7 +5,8 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\User;
-use App\Services\MetaAdsService;
+use App\Services\Tenant\TenantMetaPageValidator;
+use App\Services\Tenant\TenantWhatsAppSyncService;
 use App\Support\TenantScope;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
@@ -23,8 +24,11 @@ class RegisteredUserController extends Controller
         return view('auth.register');
     }
 
-    public function store(Request $request): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        TenantMetaPageValidator $pages,
+        TenantWhatsAppSyncService $whatsappSync
+    ): RedirectResponse {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'company_name' => ['required', 'string', 'max:255'],
@@ -37,26 +41,25 @@ class RegisteredUserController extends Controller
             ],
             'phone' => ['nullable', 'string', 'max:255'],
             'meta_page_id' => ['required', 'string', 'max:64'],
-            'meta_page_name' => ['nullable', 'string', 'max:255'],
+            'meta_page_name' => ['required', 'string', 'max:255'],
+            'whatsapp_phone_number' => ['required', 'string', 'max:32'],
         ]);
 
         $validated['email'] = strtolower(trim($validated['email']));
 
-        $platformAdAccountId = TenantScope::platformAdAccountMetaId();
-
-        if (! $platformAdAccountId) {
+        if (! TenantScope::platformAdAccountMetaId()) {
             return back()->withErrors([
                 'registration_error' => 'Registration is temporarily unavailable. Platform Meta ad account is not configured.',
             ])->withInput();
         }
 
         try {
-            $pageName = $this->resolvePageName(
+            $pages->assertPageIsAllowed($validated['meta_page_id']);
+            $pageName = $pages->resolvePageName(
                 $validated['meta_page_id'],
                 $validated['meta_page_name'] ?? null
             );
-
-            $this->assertPageIsAllowed($validated['meta_page_id']);
+            $whatsapp = $pages->assertWhatsAppNumber($validated['whatsapp_phone_number']);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors())->withInput();
         }
@@ -70,9 +73,10 @@ class RegisteredUserController extends Controller
                 'password' => User::defaultClientPassword(),
                 'role' => User::ROLE_CLIENT,
                 'status' => User::STATUS_ACTIVE,
+                'email_verified_at' => now(),
             ]);
 
-            Client::create([
+            $client = Client::create([
                 'user_id' => $user->id,
                 'company_name' => $validated['company_name'],
                 'business_email' => $user->email,
@@ -81,11 +85,9 @@ class RegisteredUserController extends Controller
                 'subscription_status' => Client::STATUS_ACTIVE,
                 'meta_page_id' => $validated['meta_page_id'],
                 'meta_page_name' => $pageName,
-                'meta_ad_account_id' => $platformAdAccountId,
-                'meta_ad_account_name' => (string) config('services.meta.ad_account_name', 'Platform Ad Account'),
+                'whatsapp_phone_number' => $whatsapp,
+                'whatsapp_verification_status' => 'pending',
             ]);
-
-            TenantScope::ensurePlatformAdAccount($pageName);
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -105,67 +107,29 @@ class RegisteredUserController extends Controller
             'user_id' => $user->id,
             'email' => $user->email,
             'page_id' => $validated['meta_page_id'],
-            'ad_account_id' => $platformAdAccountId,
+            'whatsapp' => $whatsapp,
         ]);
 
         event(new Registered($user));
 
         Auth::login($user);
 
+        try {
+            $waResult = $whatsappSync->provisionAndRequestCode($client);
+        } catch (ValidationException $e) {
+            return redirect()
+                ->route('register.whatsapp.verify')
+                ->withErrors($e->errors());
+        }
+
+        if ($waResult['status'] === 'verified') {
+            return redirect()
+                ->route('admin.campaigns.index')
+                ->with('success', "Welcome! Your WhatsApp number is verified as \"{$client->fresh()->whatsapp_verified_name}\". Ads will run on {$pageName}.");
+        }
+
         return redirect()
-            ->route('admin.campaigns.index')
-            ->with('success', 'Welcome! Your ads workspace is linked to Facebook Page: '.$pageName.'.');
-    }
-
-    protected function resolvePageName(string $pageId, ?string $submittedName): string
-    {
-        if ($submittedName) {
-            return $submittedName;
-        }
-
-        try {
-            foreach (app(MetaAdsService::class)->getPages() as $page) {
-                if ((string) ($page['id'] ?? '') === (string) $pageId) {
-                    return (string) ($page['name'] ?? 'Facebook Page');
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('REGISTER_PAGE_NAME_LOOKUP_FAILED', [
-                'page_id' => $pageId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        if ((string) config('services.meta.page_id') === (string) $pageId) {
-            return (string) config('services.meta.page_name', 'Facebook Page');
-        }
-
-        return 'Facebook Page';
-    }
-
-    protected function assertPageIsAllowed(string $pageId): void
-    {
-        try {
-            $pages = app(MetaAdsService::class)->getPages();
-            $allowedIds = collect($pages)->pluck('id')->map(fn ($id) => (string) $id);
-
-            if ($allowedIds->contains((string) $pageId)) {
-                return;
-            }
-        } catch (\Throwable $e) {
-            Log::warning('REGISTER_PAGE_VALIDATION_SKIPPED', [
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        $fallbackId = config('services.meta.page_id');
-
-        if ($fallbackId && (string) $fallbackId === (string) $pageId) {
-            return;
-        }
-
-        throw ValidationException::withMessages([
-            'meta_page_id' => 'The selected Facebook page is not available. Refresh the page list and try again.',
-        ]);
+            ->route('register.whatsapp.verify')
+            ->with('success', $waResult['message']);
     }
 }

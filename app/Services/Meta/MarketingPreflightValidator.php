@@ -42,9 +42,9 @@ class MarketingPreflightValidator
             $errors[] = $this->issue('missing_page', 'Facebook Page is required.', 'Select a Page in step 2.');
         }
 
-        $phone = $wizardData['whatsapp_phone_number'] ?? $connection?->whatsapp_phone_number;
-        if (empty($phone)) {
-            $errors[] = $this->issue('missing_whatsapp_number', 'WhatsApp business phone number is required.', 'Connect WhatsApp in Meta Connection or enter the number in step 8.');
+        $phone = trim((string) ($wizardData['whatsapp_chat_url'] ?? $wizardData['whatsapp_phone_number'] ?? $connection?->whatsapp_phone_number ?? ''));
+        if ($phone === '') {
+            $errors[] = $this->issue('missing_whatsapp_number', 'WhatsApp chat link or phone is required.', 'Enter a wa.me link or phone number in step 8.');
         }
 
         $budget = (int) ($wizardData['daily_budget'] ?? 0);
@@ -53,16 +53,29 @@ class MarketingPreflightValidator
         }
 
         $countries = $wizardData['countries'] ?? [];
-        if ($countries === [] && empty($wizardData['targeting']['geo_locations'])) {
-            $errors[] = $this->issue('missing_audience', 'At least one target country is required.', 'Select locations in step 4.');
+        if (is_string($countries)) {
+            $countries = array_filter(array_map('trim', explode(',', $countries)));
+        }
+        $hasGeo = $countries !== []
+            || ! empty($wizardData['cities'])
+            || ! empty($wizardData['regions'])
+            || ! empty($wizardData['targeting']['geo_locations']);
+        if (! $hasGeo) {
+            $errors[] = $this->issue('missing_audience', 'At least one target country, region, or city is required.', 'Select locations in the Ad set step.');
         }
 
         if (empty($wizardData['primary_text']) && empty($wizardData['body'])) {
             $errors[] = $this->issue('missing_ad_text', 'Primary ad text is required.', 'Write ad copy in step 7.');
         }
 
-        if (empty($wizardData['image_path']) && empty($wizardData['image_hash']) && empty($wizardData['existing_creative_id'])) {
-            $errors[] = $this->issue('missing_media', 'Ad image or video is required.', 'Upload media in step 6.');
+        if (
+            empty($wizardData['image_path'])
+            && empty($wizardData['image_hash'])
+            && empty($wizardData['existing_creative_id'])
+            && empty($wizardData['stock_image_id'])
+            && empty($wizardData['ai_image_path'])
+        ) {
+            $errors[] = $this->issue('missing_media', 'Ad image or video is required.', 'Upload media, pick a standard template, or generate with AI.');
         }
 
         $placements = $wizardData['placements'] ?? ClickToWhatsAppCreativeBuilder::defaultPlacements();
@@ -127,8 +140,11 @@ class MarketingPreflightValidator
                 continue;
             }
 
-            if ($creative->creative_format === 'click_to_whatsapp' && empty($creative->whatsapp_phone_number)) {
-                $errors[] = $this->issue('whatsapp_number_not_connected', 'Creative is missing WhatsApp phone number.', 'Set WhatsApp number in step 8.');
+            if ($creative->creative_format === 'click_to_whatsapp'
+                && empty($creative->whatsapp_phone_number)
+                && empty($creative->whatsapp_chat_url)
+                && empty($creative->whatsapp_fallback_url)) {
+                $errors[] = $this->issue('whatsapp_number_not_connected', 'Creative is missing WhatsApp chat destination.', 'Set a wa.me link or phone in the creative builder.');
             }
 
             if (! $creative->meta_id) {

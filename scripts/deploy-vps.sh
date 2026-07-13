@@ -31,7 +31,7 @@ fi
 echo "==> Database check"
 php artisan db:recover-check
 
-echo "==> Safe deploy (migrations + cache; no ad sync)"
+echo "==> Safe deploy (auto-migrations + cache; no ad sync)"
 php artisan deploy:safe
 
 echo "==> Ensure public storage link"

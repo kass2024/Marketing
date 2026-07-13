@@ -21,7 +21,18 @@ class MetaAdsService
         $version = config('services.meta.graph_version', 'v19.0');
 
         $this->baseUrl = "https://graph.facebook.com/{$version}";
-        $this->accessToken = config('services.meta.token') ?: null;
+        $this->accessToken = config('services.meta.token')
+            ?: config('platform.meta.system_user_token')
+            ?: null;
+
+        if (! $this->accessToken) {
+            try {
+                $connection = \App\Models\PlatformMetaConnection::query()->platformDefault()->active()->first();
+                $this->accessToken = $connection?->plainAccessToken();
+            } catch (\Throwable) {
+                // Boot without DB (e.g. config:cache) is fine.
+            }
+        }
 
         $accountId = config('services.meta.ad_account_id');
         $this->defaultAccount = $accountId
@@ -885,21 +896,27 @@ protected function buildTargeting(array $targeting): array
     }
 
     /**
-     * Build geo_locations from country codes and optional city entries.
-     * Countries with selected cities are targeted at city level only.
+     * Build geo_locations from country codes and optional city/region entries.
+     * Countries with selected cities or regions are targeted at that level only.
+     *
+     * @param  array<int, string>  $selectedCountries
+     * @param  array<int, array<string, mixed>>  $selectedCities
+     * @param  array<int, array<string, mixed>>  $selectedRegions
+     * @return array<string, mixed>
      */
-    public function buildGeoLocations(array $selectedCountries, array $selectedCities = []): array
+    public function buildGeoLocations(array $selectedCountries, array $selectedCities = [], array $selectedRegions = []): array
     {
         $countries = array_values(array_unique(array_map(
             fn ($code) => strtoupper(trim((string) $code)),
             $selectedCountries
         )));
 
-        if ($countries === []) {
-            throw new Exception('At least one country is required.');
+        if ($countries === [] && $selectedCities === [] && $selectedRegions === []) {
+            throw new Exception('At least one country, region, or city is required.');
         }
 
         $citiesByCountry = [];
+        $regionsByCountry = [];
 
         foreach ($selectedCities as $city) {
             if (! is_array($city)) {
@@ -907,7 +924,7 @@ protected function buildTargeting(array $targeting): array
             }
 
             $key = trim((string) ($city['key'] ?? ''));
-            $country = strtoupper(trim((string) ($city['country'] ?? '')));
+            $country = strtoupper(trim((string) ($city['country'] ?? $city['country_code'] ?? '')));
 
             if ($key === '' || $country === '') {
                 continue;
@@ -931,18 +948,56 @@ protected function buildTargeting(array $targeting): array
             $citiesByCountry[$country][] = $entry;
         }
 
-        $geo = [
-            'countries' => [],
-            'cities' => [],
-        ];
-
-        foreach ($countries as $country) {
-            if (! empty($citiesByCountry[$country])) {
-                $geo['cities'] = array_merge($geo['cities'], $citiesByCountry[$country]);
+        foreach ($selectedRegions as $region) {
+            if (! is_array($region)) {
                 continue;
             }
 
-            $geo['countries'][] = $country;
+            $key = trim((string) ($region['key'] ?? ''));
+            $country = strtoupper(trim((string) ($region['country'] ?? $region['country_code'] ?? '')));
+
+            if ($key === '' || $country === '') {
+                continue;
+            }
+
+            $entry = ['key' => $key];
+            if (! empty($region['name'])) {
+                $entry['name'] = (string) $region['name'];
+            }
+            $entry['country'] = $country;
+            $regionsByCountry[$country][] = $entry;
+        }
+
+        // Include countries implied by city/region picks
+        foreach (array_keys($citiesByCountry + $regionsByCountry) as $country) {
+            if (! in_array($country, $countries, true)) {
+                $countries[] = $country;
+            }
+        }
+
+        if ($countries === []) {
+            throw new Exception('At least one country is required.');
+        }
+
+        $geo = [
+            'countries' => [],
+            'cities' => [],
+            'regions' => [],
+        ];
+
+        foreach ($countries as $country) {
+            $hasCities = ! empty($citiesByCountry[$country]);
+            $hasRegions = ! empty($regionsByCountry[$country]);
+
+            if ($hasCities) {
+                $geo['cities'] = array_merge($geo['cities'], $citiesByCountry[$country]);
+            }
+            if ($hasRegions) {
+                $geo['regions'] = array_merge($geo['regions'], $regionsByCountry[$country]);
+            }
+            if (! $hasCities && ! $hasRegions) {
+                $geo['countries'][] = $country;
+            }
         }
 
         if ($geo['countries'] === []) {
@@ -953,8 +1008,12 @@ protected function buildTargeting(array $targeting): array
             unset($geo['cities']);
         }
 
-        if (! isset($geo['countries']) && ! isset($geo['cities'])) {
-            throw new Exception('At least one valid country or city is required.');
+        if ($geo['regions'] === []) {
+            unset($geo['regions']);
+        }
+
+        if (! isset($geo['countries']) && ! isset($geo['cities']) && ! isset($geo['regions'])) {
+            throw new Exception('At least one valid country, region, or city is required.');
         }
 
         return $geo;
@@ -989,6 +1048,26 @@ protected function buildTargeting(array $targeting): array
 
             if ($geoLocations['cities'] === []) {
                 unset($geoLocations['cities']);
+            }
+        }
+
+        if (! empty($geoLocations['regions']) && is_array($geoLocations['regions'])) {
+            $geoLocations['regions'] = array_values(array_map(function ($region) {
+                $key = is_array($region)
+                    ? trim((string) ($region['key'] ?? ''))
+                    : trim((string) $region);
+
+                if ($key === '') {
+                    return null;
+                }
+
+                return ['key' => $key];
+            }, $geoLocations['regions']));
+
+            $geoLocations['regions'] = array_values(array_filter($geoLocations['regions']));
+
+            if ($geoLocations['regions'] === []) {
+                unset($geoLocations['regions']);
             }
         }
 
@@ -1231,6 +1310,66 @@ protected function buildTargeting(array $targeting): array
                 'supports_city' => (bool) ($item['supports_city'] ?? true),
             ];
         })->filter(fn ($item) => $item['key'] !== '' && $item['name'] !== '')->values()->all();
+    }
+
+    /**
+     * Auto-suggest cities for selected countries via Meta Targeting Search + seed names.
+     *
+     * @param  array<int, string>  $countryCodes
+     * @return array<int, array<string, mixed>>
+     */
+    public function suggestCitiesForCountries(array $countryCodes, string $locationType = 'city'): array
+    {
+        $codes = array_values(array_unique(array_filter(array_map(
+            fn ($c) => strtoupper(trim((string) $c)),
+            $countryCodes
+        ))));
+
+        if ($codes === []) {
+            return [];
+        }
+
+        $seeds = config('meta.major_cities', []);
+        $countryNames = config('meta.countries', []);
+        $seen = [];
+        $results = [];
+
+        foreach ($codes as $code) {
+            $queries = $seeds[$code] ?? [];
+            if ($queries === []) {
+                $name = (string) ($countryNames[$code] ?? '');
+                if ($name !== '') {
+                    $queries = [explode(' ', $name)[0], $name];
+                }
+                // Letter probes so Meta returns cities even without a curated list
+                $queries = array_merge($queries, ['ka', 'ki', 'mu', 'na', 'to', 'la', 'sa', 'ma']);
+            }
+
+            $queries = array_values(array_unique(array_filter(array_map(
+                fn ($q) => trim((string) $q),
+                $queries
+            ), fn ($q) => strlen($q) >= 2)));
+
+            foreach (array_slice($queries, 0, 12) as $query) {
+                foreach ($this->searchGeoLocations($query, $locationType, $code) as $hit) {
+                    $key = (string) ($hit['key'] ?? '');
+                    if ($key === '' || isset($seen[$key])) {
+                        continue;
+                    }
+                    $hitCountry = strtoupper((string) ($hit['country_code'] ?? ''));
+                    if ($hitCountry !== '' && $hitCountry !== $code) {
+                        continue;
+                    }
+                    $seen[$key] = true;
+                    $hit['country_code'] = $hitCountry !== '' ? $hitCountry : $code;
+                    $results[] = $hit;
+                }
+            }
+        }
+
+        usort($results, fn ($a, $b) => strcasecmp((string) $a['name'], (string) $b['name']));
+
+        return array_slice($results, 0, 60);
     }
 
     protected function resolveDestinationType(string $optimizationGoal): ?string
@@ -1775,7 +1914,28 @@ public function getCampaigns(string $accountId): array
     $accountId = $this->formatAccount($accountId);
 
     return $this->get("{$accountId}/campaigns", [
-        'fields' => 'id,name,status,objective'
+        'fields' => 'id,name,status,effective_status,objective,configured_status',
+        'limit' => 200,
+        'filtering' => json_encode([
+            [
+                'field' => 'effective_status',
+                'operator' => 'IN',
+                'value' => [
+                    'ACTIVE',
+                    'PAUSED',
+                    'DELETED',
+                    'PENDING_REVIEW',
+                    'DISAPPROVED',
+                    'PREAPPROVED',
+                    'PENDING_BILLING_INFO',
+                    'CAMPAIGN_PAUSED',
+                    'ARCHIVED',
+                    'ADSET_PAUSED',
+                    'IN_PROCESS',
+                    'WITH_ISSUES',
+                ],
+            ],
+        ]),
     ]);
 }
 
@@ -1985,7 +2145,7 @@ public function getCreative(string $creativeId): array
 public function getCampaign(string $campaignId): array
 {
     return $this->get($campaignId, [
-        'fields' => 'id,name,status,objective'
+        'fields' => 'id,name,status,effective_status,objective,configured_status',
     ]);
 }
 /**

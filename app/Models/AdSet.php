@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 class AdSet extends Model
 {
@@ -45,10 +46,12 @@ class AdSet extends Model
 
         /* Meta identifiers */
         'meta_id',
+        'meta_adset_id',
 
         /* Basic Info */
         'name',
         'status',
+        'meta_effective_status',
 
         /* Budget */
         'daily_budget',
@@ -74,6 +77,16 @@ class AdSet extends Model
         'clicks',
         'spend'
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (AdSet $adSet) {
+            // Keep legacy column in sync when present
+            if (array_key_exists('meta_id', $adSet->getAttributes()) && Schema::hasColumn('ad_sets', 'meta_adset_id')) {
+                $adSet->attributes['meta_adset_id'] = $adSet->attributes['meta_id'];
+            }
+        });
+    }
 
 
     /*
@@ -112,6 +125,11 @@ class AdSet extends Model
     public function ads(): HasMany
     {
         return $this->hasMany(Ad::class);
+    }
+
+    public function creatives(): HasMany
+    {
+        return $this->hasMany(Creative::class);
     }
 
 

@@ -30,6 +30,8 @@ class Message extends Model
     protected $casts = [
         'meta'       => 'array',
         'confidence' => 'float',
+        'is_read'    => 'boolean',
+        'read_at'    => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -243,6 +243,33 @@ return [
 1022 => 'Indonesian',
 1023 => 'Malay'
 
-]
+],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Major cities (seed names for Meta Targeting Search)
+    | Used to auto-suggest cities when geo_mode = countries_and_cities
+    |--------------------------------------------------------------------------
+    */
+    'major_cities' => [
+        'RW' => ['Kigali', 'Huye', 'Musanze', 'Rubavu', 'Muhanga', 'Nyagatare', 'Rusizi', 'Rwamagana', 'Gicumbi', 'Nyamasheke'],
+        'UG' => ['Kampala', 'Entebbe', 'Gulu', 'Mbarara', 'Jinja', 'Mbale', 'Fort Portal', 'Lira'],
+        'KE' => ['Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Eldoret', 'Thika', 'Malindi'],
+        'TZ' => ['Dar es Salaam', 'Arusha', 'Mwanza', 'Dodoma', 'Zanzibar', 'Mbeya'],
+        'BI' => ['Bujumbura', 'Gitega', 'Ngozi', 'Rumonge'],
+        'CD' => ['Kinshasa', 'Lubumbashi', 'Goma', 'Bukavu', 'Kisangani'],
+        'ET' => ['Addis Ababa', 'Dire Dawa', 'Mekelle', 'Bahir Dar', 'Hawassa'],
+        'GH' => ['Accra', 'Kumasi', 'Tamale', 'Tema', 'Cape Coast'],
+        'NG' => ['Lagos', 'Abuja', 'Port Harcourt', 'Ibadan', 'Kano'],
+        'ZA' => ['Johannesburg', 'Cape Town', 'Durban', 'Pretoria', 'Port Elizabeth'],
+        'CA' => ['Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Ottawa', 'Edmonton', 'Winnipeg', 'Quebec City', 'Hamilton', 'Kitchener', 'London', 'Victoria'],
+        'US' => ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Miami', 'Dallas', 'Atlanta', 'Seattle', 'Boston', 'San Francisco'],
+        'GB' => ['London', 'Manchester', 'Birmingham', 'Leeds', 'Glasgow', 'Liverpool', 'Edinburgh'],
+        'FR' => ['Paris', 'Lyon', 'Marseille', 'Toulouse', 'Lille', 'Nice'],
+        'DE' => ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Cologne', 'Stuttgart'],
+        'AE' => ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman'],
+        'IN' => ['Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Pune'],
+        'AU' => ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide'],
+    ],
 
 ];

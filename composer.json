@@ -41,14 +41,21 @@
             "@php artisan package:discover --ansi"
         ],
         "post-update-cmd": [
-            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force",
+            "@php artisan migrate:auto --no-fail --ansi"
+        ],
+        "post-install-cmd": [
+            "@php artisan migrate:auto --no-fail --ansi"
         ],
         "post-root-package-install": [
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi"
-        ]
+        ],
+        "migrate": "@php artisan migrate:auto",
+        "migrate:force": "@php artisan migrate:auto --force",
+        "deploy:safe": "@php artisan deploy:safe"
     },
     "extra": {
         "laravel": {

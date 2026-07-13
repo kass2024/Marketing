@@ -21,11 +21,11 @@
                 Ads
             </a>
             <a
-                href="{{ route('admin.creatives.create') }}"
+                href="{{ route('admin.creatives.builder') }}"
                 class="inline-flex items-center justify-center gap-2 rounded-xl bg-xander-navy px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary"
             >
                 <span class="text-lg leading-none">+</span>
-                Create creative
+                Creative builder
             </a>
         </div>
     </div>
@@ -112,6 +112,24 @@
                             </td>
                             <td class="max-w-[14rem] px-4 py-3 align-top lg:max-w-[18rem] lg:px-5">
                                 <div class="truncate font-medium text-slate-900" title="{{ $creative->name }}">{{ $creative->name }}</div>
+                                @if($creative->campaign || $creative->adset)
+                                    <div class="mt-0.5 truncate text-xs text-slate-500">
+                                        {{ $creative->campaign?->name ?? '—' }} → {{ $creative->adset?->name ?? '—' }}
+                                    </div>
+                                @endif
+                                @if($creative->template_key || $creative->ab_variant)
+                                    <div class="mt-1 flex flex-wrap gap-1">
+                                        @if($creative->template_key)
+                                            <span class="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">{{ str_replace('_', ' ', $creative->template_key) }}</span>
+                                        @endif
+                                        @if($creative->ab_variant)
+                                            <span class="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">Variant {{ $creative->ab_variant }}</span>
+                                        @endif
+                                        @if($creative->is_reusable)
+                                            <span class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">Reusable</span>
+                                        @endif
+                                    </div>
+                                @endif
                                 @if(!empty($creative->meta_id))
                                     <div class="mt-0.5 truncate text-xs text-slate-400">Meta {{ $creative->meta_id }}</div>
                                     @if(empty($creative->review_status) && $creative->effective_status !== 'ACTIVE')
@@ -166,6 +184,7 @@
                             </td>
                             <td class="sticky right-0 z-10 min-w-[10.5rem] border-l border-slate-200 bg-white px-3 py-3 align-top shadow-[-12px_0_24px_-12px_rgba(15,23,42,0.1)] backdrop-blur-[2px] transition-colors group-hover:bg-slate-50/95 lg:min-w-[11rem] lg:px-4">
                                 <div class="flex flex-col items-stretch gap-1.5">
+                                    <a href="{{ route('admin.creatives.builder', ['reuse' => $creative->id]) }}" class="rounded-lg bg-xander-navy/5 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-navy ring-1 ring-xander-navy/15 transition hover:bg-xander-navy/10">Reuse</a>
                                     <a href="{{ route('admin.creatives.preview', $creative->id) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-navy ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Preview</a>
                                     <a href="{{ route('admin.creatives.edit', $creative->id) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-secondary ring-1 ring-slate-200/80 transition hover:bg-white">Edit</a>
                                     @if($creative->effective_status !== 'ACTIVE')

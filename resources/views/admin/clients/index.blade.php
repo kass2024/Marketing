@@ -39,7 +39,7 @@
                         <th class="px-6 py-4">Business</th>
                         <th class="px-6 py-4">Owner</th>
                         <th class="px-6 py-4">Facebook Page</th>
-                        <th class="px-6 py-4">Ad Account</th>
+                        <th class="px-6 py-4">WhatsApp (ads)</th>
                         <th class="px-6 py-4">Plan</th>
                         <th class="px-6 py-4">Campaigns</th>
                         <th class="px-6 py-4">Joined</th>
@@ -62,12 +62,16 @@
                                     <div class="font-medium text-slate-800">{{ $client->meta_page_name }}</div>
                                     <div class="text-xs text-slate-500">ID {{ $client->meta_page_id }}</div>
                                 @else
-                                    <span class="text-slate-400">Not linked</span>
+                                    <span class="text-slate-400">Not set</span>
                                 @endif
                             </td>
                             <td class="px-6 py-4">
-                                <div class="font-medium text-slate-800">Platform main account</div>
-                                <div class="text-xs text-slate-500">{{ $client->meta_ad_account_id ?? config('services.meta.ad_account_id') }}</div>
+                                @if($client->whatsapp_phone_number)
+                                    <div class="font-medium text-slate-800">+{{ $client->whatsapp_phone_number }}</div>
+                                    <div class="text-xs text-slate-500">Ad destination</div>
+                                @else
+                                    <span class="text-slate-400">Not set</span>
+                                @endif
                             </td>
                             <td class="px-6 py-4 capitalize text-slate-700">{{ $client->subscription_plan }}</td>
                             <td class="px-6 py-4 text-slate-700">{{ $client->campaigns_count ?? $client->campaigns()->count() }}</td>

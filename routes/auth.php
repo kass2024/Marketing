@@ -8,6 +8,7 @@ use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\Auth\RegisterWhatsAppVerificationController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
@@ -36,6 +37,14 @@ Route::middleware('guest')->group(function () {
 });
 
 Route::middleware('auth')->group(function () {
+    Route::get('register/whatsapp-verify', [RegisterWhatsAppVerificationController::class, 'show'])
+        ->name('register.whatsapp.verify');
+
+    Route::post('register/whatsapp-verify', [RegisterWhatsAppVerificationController::class, 'verify']);
+
+    Route::post('register/whatsapp-resend', [RegisterWhatsAppVerificationController::class, 'resend'])
+        ->name('register.whatsapp.resend');
+
     Route::get('verify-email', EmailVerificationPromptController::class)
                 ->name('verification.notice');
 

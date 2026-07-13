@@ -33,10 +33,14 @@ class CreativeCopyGenerator
             $copy['primary_text'] = "Goal: {$goal}. ".$copy['primary_text'];
         }
 
-        $phone = (string) ($input['whatsapp_phone_number'] ?? '');
+        $phone = (string) ($input['whatsapp_chat_url'] ?? $input['whatsapp_phone_number'] ?? '');
         $waLink = null;
         if ($phone !== '') {
-            $waLink = $this->whatsAppBuilder->buildWhatsAppLink($phone, $copy['whatsapp_prefill_message']);
+            try {
+                $waLink = $this->whatsAppBuilder->resolveWhatsAppLink($phone, $copy['whatsapp_prefill_message']);
+            } catch (\Throwable) {
+                $waLink = null;
+            }
         }
 
         return array_merge($copy, ['wa_me_link' => $waLink]);

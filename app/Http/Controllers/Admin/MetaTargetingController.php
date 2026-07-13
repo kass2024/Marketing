@@ -140,4 +140,43 @@ class MetaTargetingController extends Controller
             ]);
         }
     }
+
+    /**
+     * Auto-load city/region suggestions for selected countries.
+     */
+    public function suggestGeoLocations(Request $request)
+    {
+        $countries = $request->get('countries', []);
+        if (is_string($countries)) {
+            $countries = array_filter(array_map('trim', explode(',', $countries)));
+        }
+        if (! is_array($countries)) {
+            $countries = [];
+        }
+
+        $type = trim((string) $request->get('type', 'city'));
+        if (! in_array($type, ['city', 'region'], true)) {
+            $type = 'city';
+        }
+
+        try {
+            $results = $this->meta->suggestCitiesForCountries($countries, $type);
+
+            return response()->json([
+                'success' => true,
+                'data' => $results,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Meta geo suggest error', [
+                'countries' => $countries,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'data' => [],
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
 }

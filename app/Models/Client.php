@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\TenantScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,6 +50,13 @@ class Client extends Model
         'meta_page_name',
         'meta_ad_account_id',
         'meta_ad_account_name',
+        'whatsapp_phone_number',
+        'whatsapp_phone_number_id',
+        'whatsapp_verified_name',
+        'whatsapp_verification_status',
+        'whatsapp_verified_at',
+        'whatsapp_meta_synced_at',
+        'is_platform',
     ];
 
     /*
@@ -60,6 +68,9 @@ class Client extends Model
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'is_platform' => 'boolean',
+        'whatsapp_verified_at' => 'datetime',
+        'whatsapp_meta_synced_at' => 'datetime',
     ];
 
     /*
@@ -82,6 +93,20 @@ class Client extends Model
     public function metaConnection(): HasOne
     {
         return $this->hasOne(MetaConnection::class);
+    }
+
+    /**
+     * Per-tenant Meta/WhatsApp connection (not the platform default from .env).
+     */
+    public function platformMetaConnection(): HasOne
+    {
+        return $this->hasOne(PlatformMetaConnection::class)
+            ->where('is_platform_default', false);
+    }
+
+    public function platformMetaConnections(): HasMany
+    {
+        return $this->hasMany(PlatformMetaConnection::class);
     }
 
     /**
@@ -236,7 +261,44 @@ class Client extends Model
 
     public function hasMetaConnected(): bool
     {
-        return $this->metaConnection()->exists();
+        if ($this->is_platform) {
+            return app(\App\Services\Tenant\TenantConnectionResolver::class)->platformDefault() !== null;
+        }
+
+        if (TenantScope::tenantsSharePlatformMeta()) {
+            return app(\App\Services\Tenant\TenantConnectionResolver::class)->platformDefault() !== null;
+        }
+
+        return filled($this->meta_page_id) && $this->isWhatsAppVerified();
+    }
+
+    public function hasPublishingProfile(): bool
+    {
+        if ($this->is_platform || TenantScope::tenantsSharePlatformMeta()) {
+            return true;
+        }
+
+        return filled($this->meta_page_id) && $this->isWhatsAppVerified();
+    }
+
+    public function isWhatsAppVerified(): bool
+    {
+        if (TenantScope::tenantsSharePlatformMeta() || $this->is_platform) {
+            return true;
+        }
+
+        return $this->whatsapp_verification_status === 'verified'
+            && filled($this->whatsapp_phone_number);
+    }
+
+    public function needsWhatsAppVerification(): bool
+    {
+        if ($this->is_platform || TenantScope::tenantsSharePlatformMeta()) {
+            return false;
+        }
+
+        return filled($this->whatsapp_phone_number)
+            && ! $this->isWhatsAppVerified();
     }
 
 }

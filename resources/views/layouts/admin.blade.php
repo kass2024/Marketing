@@ -88,9 +88,14 @@
             </div>
             <div class="flex shrink-0 items-center gap-3 sm:gap-6">
                 @if($isClient && $user->client?->meta_page_name)
-                    <span class="hidden max-w-[220px] truncate rounded-lg bg-xander-navy/5 px-3 py-1.5 text-xs font-medium text-xander-navy lg:inline">
+                    <span class="hidden max-w-[280px] truncate rounded-lg bg-xander-navy/5 px-3 py-1.5 text-xs font-medium text-xander-navy lg:inline">
                         Page: {{ $user->client->meta_page_name }}
+                        @if($user->client->whatsapp_phone_number)
+                            · WA +{{ $user->client->whatsapp_phone_number }}
+                        @endif
                     </span>
+                @elseif($isClient && ! $user->client?->hasPublishingProfile())
+                    <a href="{{ route('client.profile.edit') }}" class="hidden text-xs font-semibold text-amber-700 hover:underline lg:inline">Set Page &amp; WhatsApp →</a>
                 @endif
                 <span class="hidden max-w-[160px] truncate text-sm font-semibold text-xander-navy sm:inline">{{ $user->name }}</span>
                 <form method="POST" action="{{ route('logout') }}" class="m-0">

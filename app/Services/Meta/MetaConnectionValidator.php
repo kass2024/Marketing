@@ -3,6 +3,8 @@
 namespace App\Services\Meta;
 
 use App\Models\PlatformMetaConnection;
+use App\Services\Tenant\TenantConnectionResolver;
+use App\Support\TenantScope;
 use Exception;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -24,15 +26,19 @@ class MetaConnectionValidator
     public function validate(?PlatformMetaConnection $connection = null): array
     {
         $errors = [];
-        $connection = $connection ?? PlatformMetaConnection::query()->latest()->first();
+        $connection = $connection ?? app(TenantConnectionResolver::class)->forCurrentUser();
 
         if (! $connection) {
+            $isClient = TenantScope::isScoped();
+
             return [
                 'valid' => false,
                 'errors' => [[
                     'code' => 'no_connection',
                     'message' => 'No Meta platform connection found.',
-                    'fix' => 'Go to Admin → Meta Connection and connect your Business Manager account.',
+                    'fix' => $isClient
+                        ? 'The platform Meta account is not configured yet. Contact your administrator.'
+                        : 'Go to Admin → Tenant monitor and sync the main account from .env, or Connect Meta.',
                 ]],
                 'connection' => null,
             ];
@@ -43,7 +49,7 @@ class MetaConnectionValidator
             $errors[] = [
                 'code' => 'invalid_token',
                 'message' => 'Access token is missing or cannot be decrypted.',
-                'fix' => 'Reconnect Meta in Admin → Meta Connection.',
+                'fix' => 'Reconnect Meta in Admin → Business Manager, or sync from .env.',
             ];
         }
 
@@ -56,37 +62,34 @@ class MetaConnectionValidator
         }
 
         $required = [
-            'business_id' => ['code' => 'missing_business', 'label' => 'Business ID'],
             'ad_account_id' => ['code' => 'missing_ad_account', 'label' => 'Ad Account ID'],
             'page_id' => ['code' => 'missing_page', 'label' => 'Facebook Page ID'],
             'whatsapp_business_id' => ['code' => 'missing_waba', 'label' => 'WhatsApp Business Account ID'],
             'whatsapp_phone_number_id' => ['code' => 'missing_phone_number_id', 'label' => 'WhatsApp Phone Number ID'],
         ];
 
+        // business_id is nice-to-have for BM UI; ads publish only needs ad account + page + WABA phone
+        if (empty($connection->business_id) && empty($connection->whatsapp_business_id)) {
+            $errors[] = [
+                'code' => 'missing_business',
+                'message' => 'Business ID is not configured.',
+                'fix' => 'Reconnect Meta or set WHATSAPP_BUSINESS_ID in .env and sync.',
+            ];
+        }
+
         foreach ($required as $field => $meta) {
             if (empty($connection->{$field})) {
                 $errors[] = [
                     'code' => $meta['code'],
                     'message' => "{$meta['label']} is not configured.",
-                    'fix' => 'Reconnect Meta or complete onboarding to link Page, Instagram, and WhatsApp.',
+                    'fix' => 'Reconnect Meta or complete Business Manager setup to link Page, ad account, and WhatsApp.',
                 ];
             }
         }
 
-        $requiredPermissions = config('services.meta.required_permissions', []);
-        $granted = $connection->granted_permissions ?? [];
+        $this->assertPermissions($connection, $token, $errors);
 
-        foreach ($requiredPermissions as $permission) {
-            if (! in_array($permission, $granted, true)) {
-                $errors[] = [
-                    'code' => 'permission_missing',
-                    'message' => "Missing permission: {$permission}",
-                    'fix' => 'Reconnect Meta and grant all requested permissions in the OAuth dialog.',
-                ];
-            }
-        }
-
-        if ($token && empty($errors)) {
+        if ($token && ! collect($errors)->contains('code', 'invalid_token') && ! collect($errors)->contains('code', 'token_expired')) {
             try {
                 $response = Http::timeout(20)->get("{$this->graphUrl}/{$this->graphVersion}/me", [
                     'access_token' => $token,
@@ -98,7 +101,7 @@ class MetaConnectionValidator
                     $errors[] = [
                         'code' => 'token_invalid',
                         'message' => $message,
-                        'fix' => 'Reconnect Meta. If the issue persists, check app mode and user roles in Business Manager.',
+                        'fix' => 'Reconnect Meta. If the issue persists, check app mode and system user roles in Business Manager.',
                     ];
                 }
             } catch (Exception $e) {
@@ -128,5 +131,76 @@ class MetaConnectionValidator
         }
 
         return $result['connection'];
+    }
+
+    /**
+     * @param  array<int, array{code: string, message: string, fix: string}>  $errors
+     */
+    protected function assertPermissions(PlatformMetaConnection $connection, ?string $token, array &$errors): void
+    {
+        $requiredPermissions = config('services.meta.required_permissions', []);
+        if ($requiredPermissions === []) {
+            return;
+        }
+
+        $granted = array_values(array_filter($connection->granted_permissions ?? []));
+
+        // System-user / .env-synced connections often have no OAuth grant list stored.
+        // Trust the token when platform_controls_api is enabled and grants are empty —
+        // the live /me check still proves the token works.
+        if ($granted === [] && config('platform.platform_controls_api', true)) {
+            return;
+        }
+
+        // Prefer live Graph permissions when we have a token and stored grants look incomplete.
+        if ($token && (count(array_intersect($requiredPermissions, $granted)) < count($requiredPermissions))) {
+            $live = $this->fetchGrantedPermissions($token);
+            if ($live !== null) {
+                $granted = $live;
+                if ($connection->exists && $connection->granted_permissions !== $live) {
+                    $connection->forceFill(['granted_permissions' => $live])->saveQuietly();
+                }
+            }
+        }
+
+        if ($granted === [] && config('platform.platform_controls_api', true)) {
+            return;
+        }
+
+        foreach ($requiredPermissions as $permission) {
+            if (! in_array($permission, $granted, true)) {
+                $errors[] = [
+                    'code' => 'permission_missing',
+                    'message' => "Missing permission: {$permission}",
+                    'fix' => 'Reconnect Meta and grant all requested permissions, or assign them to your system user in Business Manager.',
+                ];
+            }
+        }
+    }
+
+    /**
+     * @return array<int, string>|null
+     */
+    protected function fetchGrantedPermissions(string $token): ?array
+    {
+        try {
+            $response = Http::timeout(20)->get("{$this->graphUrl}/{$this->graphVersion}/me/permissions", [
+                'access_token' => $token,
+            ]);
+
+            if (! $response->ok()) {
+                return null;
+            }
+
+            return collect($response->json('data', []))
+                ->where('status', 'granted')
+                ->pluck('permission')
+                ->values()
+                ->all();
+        } catch (Exception $e) {
+            Log::warning('META_PERMISSIONS_FETCH_FAILED', ['error' => $e->getMessage()]);
+
+            return null;
+        }
     }
 }

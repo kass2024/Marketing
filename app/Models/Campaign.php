@@ -33,6 +33,65 @@ class Campaign extends Model
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_ARCHIVED  = 'archived';
 
+    /**
+     * Map Meta / mixed-case status strings to local campaign enum.
+     */
+    public static function normalizeStatus(?string $status): string
+    {
+        $s = strtoupper(trim((string) $status));
+
+        return match ($s) {
+            'ACTIVE', 'WITH_ISSUES', 'IN_PROCESS', 'PREAPPROVED' => self::STATUS_ACTIVE,
+            'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'PENDING_BILLING_INFO' => self::STATUS_PAUSED,
+            'COMPLETED' => self::STATUS_COMPLETED,
+            'ARCHIVED', 'DELETED' => self::STATUS_ARCHIVED,
+            'PENDING_REVIEW', 'PENDING', 'DISAPPROVED' => self::STATUS_PAUSED,
+            'DRAFT', '' => self::STATUS_DRAFT,
+            default => in_array(strtolower((string) $status), [
+                self::STATUS_DRAFT,
+                self::STATUS_ACTIVE,
+                self::STATUS_PAUSED,
+                self::STATUS_COMPLETED,
+                self::STATUS_ARCHIVED,
+            ], true) ? strtolower((string) $status) : self::STATUS_DRAFT,
+        };
+    }
+
+    public function deliveryLabel(): string
+    {
+        $effective = strtoupper(trim((string) ($this->meta_effective_status ?? '')));
+
+        if ($effective !== '') {
+            return match ($effective) {
+                'ACTIVE', 'WITH_ISSUES', 'IN_PROCESS', 'PREAPPROVED' => 'Active',
+                'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'PENDING_BILLING_INFO' => 'Paused',
+                'PENDING_REVIEW', 'PENDING' => 'In review',
+                'DISAPPROVED' => 'Disapproved',
+                'COMPLETED' => 'Completed',
+                'ARCHIVED', 'DELETED' => 'Archived',
+                default => ucwords(strtolower(str_replace('_', ' ', $effective))),
+            };
+        }
+
+        return match ($this->normalizedStatus()) {
+            self::STATUS_ACTIVE => 'Active',
+            self::STATUS_PAUSED => 'Paused',
+            self::STATUS_COMPLETED => 'Completed',
+            self::STATUS_ARCHIVED => 'Archived',
+            default => 'Draft',
+        };
+    }
+
+    public function normalizedStatus(): string
+    {
+        return self::normalizeStatus($this->status);
+    }
+
+    public function isDelivering(): bool
+    {
+        return $this->normalizedStatus() === self::STATUS_ACTIVE;
+    }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -120,6 +179,11 @@ class Campaign extends Model
     public function adsets(): HasMany
     {
         return $this->hasMany(AdSet::class);
+    }
+
+    public function creatives(): HasMany
+    {
+        return $this->hasMany(Creative::class);
     }
 
 
@@ -235,7 +299,7 @@ class Campaign extends Model
 
     public function isDraft(): bool
     {
-        return $this->status === self::STATUS_DRAFT;
+        return $this->normalizedStatus() === self::STATUS_DRAFT;
     }
 
 
@@ -248,14 +312,16 @@ class Campaign extends Model
     public function activate(): void
     {
         $this->update([
-            'status' => self::STATUS_ACTIVE
+            'status' => self::STATUS_ACTIVE,
+            'meta_effective_status' => 'ACTIVE',
         ]);
     }
 
     public function pause(): void
     {
         $this->update([
-            'status' => self::STATUS_PAUSED
+            'status' => self::STATUS_PAUSED,
+            'meta_effective_status' => 'PAUSED',
         ]);
     }
 

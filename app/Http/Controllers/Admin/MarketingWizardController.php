@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Campaign;
 use App\Models\MetaApiLog;
 use App\Models\PlatformMetaConnection;
+use App\Services\Tenant\TenantConnectionResolver;
 use App\Services\Meta\ClickToWhatsAppCreativeBuilder;
 use App\Services\Meta\MarketingPreflightValidator;
 use App\Services\Meta\MarketingPublishService;
@@ -30,7 +31,7 @@ class MarketingWizardController extends Controller
 
     public function index(Request $request): View
     {
-        $connection = PlatformMetaConnection::query()->latest()->first();
+        $connection = app(TenantConnectionResolver::class)->forCurrentUser();
         $connectionStatus = $this->connectionValidator->validate($connection);
         $pages = [];
 
@@ -87,7 +88,7 @@ class MarketingWizardController extends Controller
     public function preflight(Request $request): JsonResponse
     {
         $draft = $request->session()->get('marketing_wizard', []);
-        $connection = PlatformMetaConnection::query()->latest()->first();
+        $connection = app(TenantConnectionResolver::class)->forCurrentUser();
         $validation = $this->preflight->validateWizard($draft, $connection);
         $checklist = $this->preflight->checklist($draft, $connection);
 
@@ -96,9 +97,9 @@ class MarketingWizardController extends Controller
             'errors' => $validation['errors'],
             'warnings' => $validation['warnings'],
             'checklist' => $checklist,
-            'whatsapp_preview_url' => ! empty($draft['whatsapp_phone_number'])
-                ? $this->creativeBuilder->buildWhatsAppLink(
-                    (string) $draft['whatsapp_phone_number'],
+            'whatsapp_preview_url' => ! empty($draft['whatsapp_chat_url'] ?? $draft['whatsapp_phone_number'] ?? '')
+                ? $this->creativeBuilder->resolveWhatsAppLink(
+                    (string) ($draft['whatsapp_chat_url'] ?? $draft['whatsapp_phone_number'] ?? ''),
                     (string) ($draft['whatsapp_prefill_message'] ?? '')
                 )
                 : null,

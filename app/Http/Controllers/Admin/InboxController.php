@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Support\TenantScope;
 use App\Services\HumanHandoffTimeoutService;
 use App\Services\WhatsAppAudioConverter;
 use Illuminate\Http\Request;
@@ -33,7 +34,7 @@ class InboxController extends Controller
             'conversation' => $conversationId,
         ]);
 
-        $query = Conversation::query();
+        $query = TenantScope::conversations(Conversation::query());
 
         if ($filter === 'unread') {
             $query->whereHas('messages', function ($q) {

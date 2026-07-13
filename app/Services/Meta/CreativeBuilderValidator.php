@@ -3,11 +3,16 @@
 namespace App\Services\Meta;
 
 use App\Models\PlatformMetaConnection;
+use App\Services\Tenant\TenantConnectionResolver;
 use Illuminate\Http\UploadedFile;
 
 class CreativeBuilderValidator
 {
     public const WHATSAPP_CTAS = ['WHATSAPP_MESSAGE', 'SEND_MESSAGE'];
+
+    public function __construct(
+        protected ClickToWhatsAppCreativeBuilder $whatsAppBuilder
+    ) {}
 
     public const MAX_PRIMARY_TEXT = 2200;
     public const MAX_HEADLINE = 255;
@@ -33,10 +38,8 @@ class CreativeBuilderValidator
             $errors[] = $this->err('headline', 'Headline is required.', 'Write or auto-generate a headline.');
         }
 
-        $phone = (string) ($data['whatsapp_phone_number'] ?? PlatformMetaConnection::query()->latest()->value('whatsapp_phone_number') ?? '');
-        if ($phone === '') {
-            $errors[] = $this->err('whatsapp_phone_number', 'WhatsApp phone number is not connected.', 'Connect WhatsApp in Meta Connection or enter your business number.');
-        }
+        $whatsappErrors = $this->validateWhatsAppDestination($data);
+        $errors = array_merge($errors, $whatsappErrors);
 
         $cta = strtoupper((string) ($data['call_to_action'] ?? 'WHATSAPP_MESSAGE'));
         if (! in_array($cta, self::WHATSAPP_CTAS, true)) {
@@ -102,6 +105,54 @@ class CreativeBuilderValidator
         }
 
         return $errors;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<int, array{field: string, message: string, fix: string}>
+     */
+    protected function validateWhatsAppDestination(array $data): array
+    {
+        $chatUrl = trim((string) ($data['whatsapp_chat_url'] ?? ''));
+        $phone = trim((string) ($data['whatsapp_phone_number'] ?? ''));
+
+        if ($chatUrl === '' && $phone === '') {
+            $fallback = app(TenantConnectionResolver::class)->whatsappPhoneNumber();
+            if ($fallback) {
+                return [];
+            }
+
+            return [$this->err(
+                'whatsapp_chat_url',
+                'WhatsApp chat destination is required.',
+                'Paste any wa.me link (e.g. https://wa.me/14389009784?text=Hello) or enter a phone number.'
+            )];
+        }
+
+        $target = $chatUrl !== '' ? $chatUrl : $phone;
+
+        if (preg_match('#^https?://#i', $target)) {
+            if (! $this->whatsAppBuilder->isValidWhatsAppUrl($target)) {
+                return [$this->err(
+                    'whatsapp_chat_url',
+                    'Not a valid WhatsApp link.',
+                    'Use https://wa.me/<number> or https://api.whatsapp.com/send?phone=...'
+                )];
+            }
+
+            return [];
+        }
+
+        $digits = preg_replace('/\D+/', '', $target) ?? '';
+        if (strlen($digits) < 8) {
+            return [$this->err(
+                'whatsapp_phone_number',
+                'Phone number looks too short.',
+                'Enter full international number or paste a complete wa.me link.'
+            )];
+        }
+
+        return [];
     }
 
     /**

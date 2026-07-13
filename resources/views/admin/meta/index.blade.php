@@ -6,21 +6,26 @@
 
 <div class="mx-auto max-w-5xl">
 
+    <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <p class="text-xs font-medium text-slate-500">Business Manager</p>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Master Meta connection</h1>
+            <p class="mt-0.5 text-sm text-slate-600">Platform token, ad account, Page, and WhatsApp Business Account used for publishing.</p>
+        </div>
+        <a href="{{ route('admin.meta.whatsapp.index') }}"
+           class="inline-flex items-center justify-center rounded-xl bg-[#075E54] px-4 py-2.5 text-sm font-semibold text-white">
+            WhatsApp accounts
+        </a>
+    </div>
+
     <div class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm ring-1 ring-slate-900/5">
 
         <div class="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-8 py-8 sm:px-10">
-
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-
                 <div>
-                    <h2 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                        Master Meta Business Connection
-                    </h2>
-                    <p class="mt-2 text-slate-500">
-                        Platform-wide Meta integration for ads and Business assets
-                    </p>
+                    <h2 class="text-xl font-bold tracking-tight text-slate-900">Connection status</h2>
+                    <p class="mt-1 text-slate-500 text-sm">Used by Ad Studio publish and Cloud API messaging</p>
                 </div>
-
                 @if(!empty($platformMeta))
                     <span class="inline-flex shrink-0 items-center rounded-full bg-emerald-100 px-4 py-1.5 text-sm font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-600/20">
                         Connected
@@ -49,62 +54,80 @@
 
             @if(!empty($platformMeta))
 
-                <dl class="grid gap-6 sm:grid-cols-1">
-
+                <dl class="grid gap-4 sm:grid-cols-2">
                     <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Business name</dt>
-                        <dd class="mt-1 text-lg font-semibold text-slate-900">
-                            {{ $platformMeta->business_name ?? 'N/A' }}
-                        </dd>
+                        <dd class="mt-1 text-lg font-semibold text-slate-900">{{ $platformMeta->business_name ?? 'N/A' }}</dd>
                     </div>
-
                     <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Business ID</dt>
-                        <dd class="mt-1 font-mono text-slate-800">
-                            {{ $platformMeta->business_id ?? 'N/A' }}
-                        </dd>
+                        <dd class="mt-1 font-mono text-slate-800">{{ $platformMeta->business_id ?? 'N/A' }}</dd>
                     </div>
-
+                    <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Ad account</dt>
+                        <dd class="mt-1 font-mono text-sm text-slate-800">{{ $platformMeta->ad_account_id ?? 'N/A' }}</dd>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Facebook Page</dt>
+                        <dd class="mt-1 text-sm text-slate-800">{{ $platformMeta->page_name ?? $platformMeta->page_id ?? 'N/A' }}</dd>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">WhatsApp Business Account</dt>
+                        <dd class="mt-1 font-mono text-sm text-slate-800">{{ $platformMeta->whatsapp_business_id ?? 'N/A' }}</dd>
+                    </div>
+                    <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Default WhatsApp number</dt>
+                        <dd class="mt-1 text-sm text-slate-800">{{ $platformMeta->whatsapp_phone_number ?? 'N/A' }}</dd>
+                    </div>
                     @if(!empty($platformMeta->token_expires_at))
-                        <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4">
+                        <div class="rounded-xl border border-slate-100 bg-slate-50/50 px-5 py-4 sm:col-span-2">
                             <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">Token expires</dt>
-                            <dd class="mt-1 text-slate-800">
-                                {{ \Carbon\Carbon::parse($platformMeta->token_expires_at)->format('d M Y H:i') }}
-                            </dd>
+                            <dd class="mt-1 text-slate-800">{{ \Carbon\Carbon::parse($platformMeta->token_expires_at)->format('d M Y H:i') }}</dd>
                         </div>
                     @endif
-
                 </dl>
 
-                <div class="mt-10 flex flex-wrap gap-3">
-                    <form method="POST"
-                          action="{{ route('admin.meta.disconnect') }}"
+                <div class="mt-8 flex flex-wrap gap-3">
+                    <a href="{{ route('admin.meta.whatsapp.index') }}"
+                       class="inline-flex items-center justify-center rounded-xl bg-[#075E54] px-5 py-2.5 text-sm font-semibold text-white">
+                        Manage WhatsApp numbers
+                    </a>
+                    <a href="{{ route('admin.meta.connect') }}"
+                       class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700">
+                        Reconnect Meta
+                    </a>
+                    <a href="{{ route('admin.tenants.index') }}"
+                       class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700">
+                        Sync from .env
+                    </a>
+                    <form method="POST" action="{{ route('admin.meta.disconnect') }}"
                           onsubmit="return confirm('Disconnect Meta? Platform tokens will be removed.')">
                         @csrf
                         <button type="submit"
-                            class="inline-flex items-center justify-center rounded-xl bg-red-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700">
-                            Disconnect business
+                            class="inline-flex items-center justify-center rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white">
+                            Disconnect
                         </button>
                     </form>
                 </div>
 
             @else
 
-                <p class="text-slate-600 mb-8 max-w-lg">
-                    Connect your Meta Business to sync ad accounts, campaigns, and creatives with this dashboard.
+                <p class="mb-8 max-w-lg text-slate-600">
+                    Connect your Meta Business (OAuth) or sync the system-user token from Tenant monitor → Sync from .env.
                 </p>
 
-                <a href="{{ route('admin.meta.connect') }}"
-                   class="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:from-blue-700 hover:to-indigo-700">
-                    Connect Meta Business
-                </a>
-
+                <div class="flex flex-wrap gap-3">
+                    <a href="{{ route('admin.meta.connect') }}"
+                       class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-8 py-3 text-sm font-semibold text-white">
+                        Connect Meta Business
+                    </a>
+                    <a href="{{ route('admin.tenants.index') }}"
+                       class="inline-flex items-center justify-center rounded-xl border border-slate-200 px-6 py-3 text-sm font-semibold text-slate-700">
+                        Sync from .env
+                    </a>
+                </div>
             @endif
-
         </div>
-
     </div>
-
 </div>
-
 @endsection

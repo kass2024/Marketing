@@ -38,14 +38,10 @@ class MetaOAuthService
         $query = http_build_query([
             'client_id'     => $this->appId,
             'redirect_uri'  => $redirectUri,
-            'scope'         => implode(',', [
-                'ads_management',
-                'ads_read',
-                'business_management',
-                'pages_show_list',
-                'pages_read_engagement',
-                'pages_manage_ads'
-            ]),
+            'scope'         => implode(',', array_values(array_unique(array_merge(
+                config('services.meta.required_permissions', []),
+                ['ads_read']
+            )))),
             'response_type' => 'code'
         ]);
 

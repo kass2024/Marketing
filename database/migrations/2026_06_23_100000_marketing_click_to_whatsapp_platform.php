@@ -150,7 +150,7 @@ return new class extends Migration
                 $table->string('whatsapp_fallback_url')->nullable()->after('whatsapp_prefill_message');
             }
             if (! Schema::hasColumn('creatives', 'page_id')) {
-                $table->string('page_id')->nullable()->after('adset_id');
+                $table->string('page_id')->nullable()->after('whatsapp_fallback_url');
             }
             if (! Schema::hasColumn('creatives', 'instagram_user_id')) {
                 $table->string('instagram_user_id')->nullable()->after('page_id');

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use App\Services\MetaAdsService;
 use App\Support\TenantScope;
 use Throwable;
@@ -66,11 +67,13 @@ class Creative extends Model
 
         // Meta reference
         'meta_id',
+        'meta_creative_id',
 
         // creative data
         'name',
         'headline',
         'body',
+        'status',
 
         // media
         'image_url',
@@ -89,6 +92,7 @@ class Creative extends Model
         'whatsapp_phone_number',
         'whatsapp_prefill_message',
         'whatsapp_fallback_url',
+        'whatsapp_chat_url',
 
         // raw Meta payload
         'json_payload',
@@ -106,7 +110,21 @@ class Creative extends Model
         'spend',
 
         // sync
-        'last_synced_at'
+        'last_synced_at',
+
+        // dynamic builder
+        'service_name',
+        'campaign_goal',
+        'target_audience',
+        'pain_point',
+        'main_benefit',
+        'offer_discount',
+        'template_key',
+        'ab_variant',
+        'creative_group_id',
+        'placements',
+        'builder_inputs',
+        'is_reusable',
     ];
 
 
@@ -124,6 +142,15 @@ class Creative extends Model
 
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (Creative $creative) {
+            if (array_key_exists('meta_id', $creative->getAttributes()) && Schema::hasColumn('creatives', 'meta_creative_id')) {
+                $creative->attributes['meta_creative_id'] = $creative->attributes['meta_id'];
+            }
+        });
+    }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -134,6 +161,10 @@ class Creative extends Model
     protected $casts = [
 
         'json_payload' => 'array',
+
+        'placements' => 'array',
+        'builder_inputs' => 'array',
+        'is_reusable' => 'boolean',
 
         'impressions' => 'integer',
 

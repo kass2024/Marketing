@@ -21,8 +21,8 @@ class ClickToWhatsAppCreativeBuilder
         }
 
         $ctaType = $this->resolveCtaType();
-        $whatsappLink = $this->buildWhatsAppLink(
-            (string) ($input['whatsapp_phone_number'] ?? ''),
+        $whatsappLink = $this->resolveWhatsAppLink(
+            (string) ($input['whatsapp_chat_url'] ?? $input['whatsapp_phone_number'] ?? ''),
             (string) ($input['whatsapp_prefill_message'] ?? '')
         );
 
@@ -69,6 +69,64 @@ class ClickToWhatsAppCreativeBuilder
         }
 
         return $url;
+    }
+
+    /**
+     * Accept a full WhatsApp URL (wa.me, api.whatsapp.com) or phone digits + optional prefill.
+     */
+    public function resolveWhatsAppLink(string $linkOrPhone, string $prefillMessage = ''): string
+    {
+        $linkOrPhone = trim($linkOrPhone);
+
+        if ($linkOrPhone === '') {
+            throw new \InvalidArgumentException('WhatsApp chat link or phone number is required.');
+        }
+
+        if (preg_match('#^https?://#i', $linkOrPhone)) {
+            if (! $this->isValidWhatsAppUrl($linkOrPhone)) {
+                throw new \InvalidArgumentException(
+                    'Invalid WhatsApp URL. Use https://wa.me/... or https://api.whatsapp.com/send?...'
+                );
+            }
+
+            if ($prefillMessage !== '' && ! preg_match('/[?&]text=/i', $linkOrPhone)) {
+                $separator = str_contains($linkOrPhone, '?') ? '&' : '?';
+
+                return $linkOrPhone.$separator.'text='.rawurlencode($prefillMessage);
+            }
+
+            return $linkOrPhone;
+        }
+
+        return $this->buildWhatsAppLink($linkOrPhone, $prefillMessage);
+    }
+
+    public function isValidWhatsAppUrl(string $url): bool
+    {
+        return (bool) preg_match(
+            '#^https?://(wa\.me|api\.whatsapp\.com|chat\.whatsapp\.com)/#i',
+            $url
+        );
+    }
+
+    /**
+     * Extract display phone digits from a WhatsApp URL when possible.
+     */
+    public function phoneFromLink(string $linkOrPhone): ?string
+    {
+        $linkOrPhone = trim($linkOrPhone);
+
+        if (preg_match('#^https?://wa\.me/(\d+)#i', $linkOrPhone, $m)) {
+            return $m[1];
+        }
+
+        if (preg_match('#phone=(\d+)#i', $linkOrPhone, $m)) {
+            return $m[1];
+        }
+
+        $digits = preg_replace('/\D+/', '', $linkOrPhone) ?? '';
+
+        return $digits !== '' ? $digits : null;
     }
 
     public function buildCreativePayload(string $name, array $input): array

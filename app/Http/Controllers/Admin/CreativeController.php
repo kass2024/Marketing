@@ -38,7 +38,7 @@ class CreativeController extends Controller
     public function index()
     {
         $creatives = TenantScope::creatives(
-            Creative::with(['campaign','adset'])
+            Creative::with(['campaign', 'adset'])
         )
             ->latest()
             ->paginate(20);
@@ -67,19 +67,9 @@ class CreativeController extends Controller
     |--------------------------------------------------------------------------
     */
 
-    public function create()
+    public function create(Request $request)
     {
-        $campaigns = TenantScope::campaigns(Campaign::query())->latest()->get();
-
-        $adsets = TenantScope::adSets(AdSet::query())->latest()->get();
-
-        $pages = TenantScope::filterPages($this->meta->getPages());
-
-        return view('admin.creatives.create', compact(
-            'campaigns',
-            'adsets',
-            'pages'
-        ));
+        return redirect()->route('admin.creatives.builder', $request->only('reuse'));
     }
 
     /*
@@ -208,8 +198,10 @@ class CreativeController extends Controller
             $instagramUserId = $this->meta->resolveInstagramUserId($data['page_id'], $accountMetaId);
 
             if ($isWhatsApp) {
-                $whatsappPhone = $data['whatsapp_phone_number']
-                    ?? \App\Models\PlatformMetaConnection::query()->latest()->value('whatsapp_phone_number');
+                $waDest = trim((string) ($data['whatsapp_chat_url'] ?? $data['whatsapp_phone_number'] ?? ''));
+                if ($waDest === '') {
+                    $waDest = (string) (app(\App\Services\Tenant\TenantConnectionResolver::class)->whatsappPhoneNumber() ?? '');
+                }
 
                 $creativeInput = [
                     'page_id' => $data['page_id'],
@@ -218,14 +210,15 @@ class CreativeController extends Controller
                     'primary_text' => $data['body'] ?? '',
                     'description' => $data['description'] ?? '',
                     'image_hash' => $imageHash,
-                    'whatsapp_phone_number' => $whatsappPhone,
+                    'whatsapp_chat_url' => $waDest,
+                    'whatsapp_phone_number' => $this->whatsAppBuilder->phoneFromLink($waDest) ?? $waDest,
                     'whatsapp_prefill_message' => $data['whatsapp_prefill_message'] ?? '',
                 ];
 
                 $payload = $this->whatsAppBuilder->buildCreativePayload($data['name'], $creativeInput);
                 $data['call_to_action'] = $payload['object_story_spec']['link_data']['call_to_action']['type'] ?? 'WHATSAPP_MESSAGE';
-                $data['destination_url'] = $this->whatsAppBuilder->buildWhatsAppLink(
-                    (string) $whatsappPhone,
+                $data['destination_url'] = $this->whatsAppBuilder->resolveWhatsAppLink(
+                    $waDest,
                     (string) ($data['whatsapp_prefill_message'] ?? '')
                 );
             } else {
@@ -357,6 +350,7 @@ class CreativeController extends Controller
                 'instagram_user_id' => $instagramUserId,
 
                 'whatsapp_phone_number' => $isWhatsApp ? ($data['whatsapp_phone_number'] ?? null) : null,
+                'whatsapp_chat_url' => $isWhatsApp ? ($data['whatsapp_chat_url'] ?? (str_starts_with((string) ($data['destination_url'] ?? ''), 'http') ? $data['destination_url'] : null)) : null,
 
                 'whatsapp_prefill_message' => $isWhatsApp ? ($data['whatsapp_prefill_message'] ?? null) : null,
 

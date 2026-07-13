@@ -151,13 +151,30 @@ return [
     'key'   => env('OPENAI_API_KEY'),
     'model' => env('OPENAI_MODEL', 'gpt-4.1-mini'),
     'embedding_model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
+    'image_model' => env('OPENAI_IMAGE_MODEL', 'dall-e-3'),
 ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Google Gemini (Ad Studio + optional chatbot)
+    |--------------------------------------------------------------------------
+    | Primary key: GOOGLE_AI_API_KEY (AIzaSy… from https://aistudio.google.com/apikey)
+    | Do NOT use GEMINI_API_KEY unless it is also an AIzaSy key.
+    */
+    'gemini' => [
+        'api_key' => env('GOOGLE_AI_API_KEY', env('GEMINI_API_KEY')),
+        'model' => env('GOOGLE_AI_MODEL', env('GEMINI_MODEL', 'gemini-2.5-flash')),
+        'image_model' => env('GEMINI_IMAGE_MODEL', 'gemini-2.0-flash-preview-image-generation'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Ads Defaults
     |--------------------------------------------------------------------------
     */
     'ads' => [
+
+        'ai_provider' => env('AD_AI_PROVIDER', 'gemini'),
 
         'default_currency' => env('ADS_DEFAULT_CURRENCY', 'USD'),
         'default_timezone' => env('ADS_DEFAULT_TIMEZONE', 'UTC'),

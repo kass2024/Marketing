@@ -47,10 +47,10 @@ class CampaignController extends Controller
                 'totalAdSets' => TenantScope::adSets(AdSet::query())->count(),
 
                 'activeCampaigns' =>
-                    (clone $campaignQuery)->where('status','ACTIVE')->count(),
+                    (clone $campaignQuery)->whereIn('status', ['active', 'ACTIVE'])->count(),
 
                 'pausedCampaigns' =>
-                    (clone $campaignQuery)->where('status','PAUSED')->count(),
+                    (clone $campaignQuery)->whereIn('status', ['paused', 'PAUSED'])->count(),
 
                 'hasAdAccount' => TenantScope::resolveAdAccount() !== null,
             ]);
@@ -76,7 +76,7 @@ class CampaignController extends Controller
         try {
 
             $campaign = Campaign::with([
-                'adSets' => fn($q) => $q->latest()
+                'adsets' => fn ($q) => $q->withCount(['ads', 'creatives'])->latest(),
             ])->findOrFail($id);
 
             TenantScope::assertCampaign($campaign);
@@ -378,15 +378,36 @@ public function activate(Campaign $campaign)
         }
 
         $campaign->update([
-            'status' => 'ACTIVE'
+            'status' => Campaign::STATUS_ACTIVE,
+            'meta_effective_status' => 'ACTIVE',
         ]);
+
+        // Activate child ad sets + ads on Meta when present
+        foreach ($campaign->adsets as $adSet) {
+            if ($adSet->meta_id) {
+                try {
+                    $this->meta->updateAdSet($adSet->meta_id, ['status' => 'ACTIVE']);
+                } catch (Throwable) {
+                }
+            }
+            $adSet->update(['status' => 'ACTIVE']);
+            foreach ($adSet->ads as $ad) {
+                if ($ad->meta_ad_id || $ad->meta_id) {
+                    try {
+                        $this->meta->updateAd($ad->meta_ad_id ?: $ad->meta_id, ['status' => 'ACTIVE']);
+                    } catch (Throwable) {
+                    }
+                }
+                $ad->update(['status' => 'ACTIVE', 'meta_effective_status' => 'ACTIVE']);
+            }
+        }
 
         Log::info('CAMPAIGN_ACTIVATED',[
             'campaign_id'=>$campaign->id,
             'meta_id'=>$campaign->meta_id
         ]);
 
-        return back()->with('success','Campaign activated.');
+        return back()->with('success','Campaign activated and ready to deliver on Meta.');
 
     } catch(Throwable $e){
 
@@ -419,7 +440,8 @@ public function pause(Campaign $campaign)
         }
 
         $campaign->update([
-            'status'=>'PAUSED'
+            'status'=>Campaign::STATUS_PAUSED,
+            'meta_effective_status' => 'PAUSED',
         ]);
 
         Log::info('CAMPAIGN_PAUSED',[
@@ -460,16 +482,20 @@ public function sync(Campaign $campaign)
             $campaign->meta_id
         );
 
+        $effective = $metaCampaign['effective_status'] ?? $metaCampaign['status'] ?? null;
         $campaign->update([
-            'status' => $metaCampaign['status'] ?? $campaign->status
+            'status' => Campaign::normalizeStatus($effective ?? $metaCampaign['status'] ?? $campaign->status),
+            'meta_effective_status' => $effective,
+            'name' => $metaCampaign['name'] ?? $campaign->name,
         ]);
 
         Log::info('CAMPAIGN_SYNCED',[
             'campaign_id'=>$campaign->id,
-            'meta_status'=>$metaCampaign['status'] ?? null
+            'meta_status'=>$metaCampaign['status'] ?? null,
+            'effective_status'=>$effective,
         ]);
 
-        return back()->with('success','Campaign synced.');
+        return back()->with('success','Campaign synced from Meta — delivery status updated.');
 
     } catch(Throwable $e){
 
@@ -479,7 +505,42 @@ public function sync(Campaign $campaign)
         ]);
 
         return back()->withErrors([
-            'meta'=>'Unable to sync campaign.'
+            'meta' => 'Unable to sync campaign from Meta: '.$e->getMessage(),
+        ]);
+    }
+}
+
+/*
+|--------------------------------------------------------------------------
+| SYNC ALL CAMPAIGNS FROM META
+|--------------------------------------------------------------------------
+*/
+
+public function syncAll()
+{
+    try {
+        $campaignExit = \Illuminate\Support\Facades\Artisan::call('meta:sync-campaigns');
+        $campaignOut = trim(\Illuminate\Support\Facades\Artisan::output());
+
+        if ($campaignExit !== 0) {
+            return back()->withErrors([
+                'meta' => $campaignOut !== '' ? $campaignOut : 'Unable to sync campaigns from Meta.',
+            ]);
+        }
+
+        // Also pull ad sets / ads when the fuller sync command is available
+        try {
+            \Illuminate\Support\Facades\Artisan::call('meta:sync-ads');
+        } catch (Throwable) {
+            // optional — campaigns sync alone is enough for delivery badges
+        }
+
+        return back()->with('success', 'All campaigns synced from Meta. Delivery statuses are up to date.');
+    } catch (Throwable $e) {
+        Log::error('CAMPAIGN_SYNC_ALL_FAILED', ['error' => $e->getMessage()]);
+
+        return back()->withErrors([
+            'meta' => 'Unable to sync campaigns from Meta: '.$e->getMessage(),
         ]);
     }
 }

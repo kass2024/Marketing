@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Message;
 use App\Models\MetaWebhookEvent;
 use App\Models\PlatformMetaConnection;
+use App\Services\Tenant\TenantConnectionResolver;
 use App\Services\Chatbot\ChatbotProcessor;
 use App\Services\Chatbot\MessageDispatcher;
 use App\Services\Chatbot\SpeechService;
@@ -363,10 +364,7 @@ class MetaWebhookController extends Controller
             return;
         }
 
-        $platform = PlatformMetaConnection::where(
-            'whatsapp_phone_number_id',
-            $phoneNumberId
-        )->first();
+        $platform = app(TenantConnectionResolver::class)->resolveByPhoneNumberId($phoneNumberId);
 
         if (! $platform) {
             Log::warning('Platform not found', ['phone_number_id' => $phoneNumberId]);
@@ -591,17 +589,7 @@ class MetaWebhookController extends Controller
     */
     protected function resolveClientId(PlatformMetaConnection $platform): ?int
     {
-        $userId = $platform->connected_by;
-
-        $clientId = Client::where('user_id', $userId)->value('id');
-
-        if (! $clientId) {
-            Log::error('Client not found for platform', [
-                'platform_id' => $platform->id,
-            ]);
-        }
-
-        return $clientId;
+        return app(TenantConnectionResolver::class)->resolveClientId($platform);
     }
 
     /*

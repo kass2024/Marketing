@@ -66,27 +66,53 @@ class AdminClientController extends Controller
             'name'     => 'required|string|max:255',
             'email'    => 'required|email|unique:users,email',
             'plan'     => 'required|in:free,pro,enterprise',
+            'meta_page_id' => 'required|string|max:64',
+            'meta_page_name' => 'nullable|string|max:255',
+            'whatsapp_phone_number' => 'required|string|max:32',
         ]);
 
-        DB::transaction(function () use ($request) {
+        $pages = app(\App\Services\Tenant\TenantMetaPageValidator::class);
+        $pages->assertPageIsAllowed($request->meta_page_id);
+        $pageName = $pages->resolvePageName($request->meta_page_id, $request->meta_page_name);
+        $whatsapp = $pages->assertWhatsAppNumber($request->whatsapp_phone_number);
+
+        $client = null;
+
+        DB::transaction(function () use ($request, $pageName, $whatsapp, &$client) {
 
             $user = User::create([
                 'name'     => $request->name,
                 'email'    => $request->email,
                 'password' => User::defaultClientPassword(),
                 'role'     => 'client',
+                'status'   => 'active',
+                'email_verified_at' => now(),
             ]);
 
-            Client::create([
-                'user_id'           => $user->id,
-                'name'              => $request->name,
-                'subscription_plan' => $request->plan,
+            $client = Client::create([
+                'user_id'             => $user->id,
+                'company_name'        => $request->name,
+                'business_email'      => $request->email,
+                'subscription_plan'   => $request->plan,
+                'subscription_status' => Client::STATUS_ACTIVE,
+                'meta_page_id'        => $request->meta_page_id,
+                'meta_page_name'      => $pageName,
+                'whatsapp_phone_number' => $whatsapp,
+                'whatsapp_verification_status' => 'pending',
             ]);
         });
 
+        try {
+            app(\App\Services\Tenant\TenantWhatsAppSyncService::class)->provisionAndRequestCode($client);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return redirect()
+                ->route('admin.clients.index')
+                ->with('warning', 'Client created but WhatsApp Meta sync failed: '.collect($e->errors())->flatten()->first());
+        }
+
         return redirect()
             ->route('admin.clients.index')
-            ->with('success', 'Client created successfully.');
+            ->with('success', 'Client created. WhatsApp number added to Meta — tenant must verify via SMS.');
     }
 
     /*
@@ -122,13 +148,33 @@ class AdminClientController extends Controller
             'name'  => 'required|string|max:255',
             'plan'  => 'required|in:free,pro,enterprise',
             'email' => 'required|email|unique:users,email,' . $client->user->id,
+            'meta_page_id' => 'required|string|max:64',
+            'meta_page_name' => 'nullable|string|max:255',
+            'whatsapp_phone_number' => 'required|string|max:32',
+            'whatsapp_phone_number_id' => 'nullable|string|max:64',
         ]);
 
-        DB::transaction(function () use ($request, $client) {
+        $pages = app(\App\Services\Tenant\TenantMetaPageValidator::class);
+        $pages->assertPageIsAllowed($request->meta_page_id);
+        $pageName = $pages->resolvePageName($request->meta_page_id, $request->meta_page_name);
+        $whatsapp = $pages->assertWhatsAppNumber($request->whatsapp_phone_number);
+        $numberChanged = $whatsapp !== $client->whatsapp_phone_number;
+
+        DB::transaction(function () use ($request, $client, $pageName, $whatsapp, $numberChanged) {
 
             $client->update([
-                'name'              => $request->name,
-                'subscription_plan' => $request->plan,
+                'company_name'        => $request->name,
+                'subscription_plan'   => $request->plan,
+                'meta_page_id'        => $request->meta_page_id,
+                'meta_page_name'      => $pageName,
+                'whatsapp_phone_number' => $whatsapp,
+                'whatsapp_phone_number_id' => $numberChanged ? null : $request->whatsapp_phone_number_id,
+                ...( $numberChanged ? [
+                    'whatsapp_verified_name' => null,
+                    'whatsapp_verification_status' => 'pending',
+                    'whatsapp_verified_at' => null,
+                    'whatsapp_meta_synced_at' => null,
+                ] : []),
             ]);
 
             $client->user->update([
@@ -136,6 +182,16 @@ class AdminClientController extends Controller
                 'email' => $request->email,
             ]);
         });
+
+        if ($numberChanged) {
+            try {
+                app(\App\Services\Tenant\TenantWhatsAppSyncService::class)->provisionAndRequestCode($client->fresh());
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                return redirect()
+                    ->route('admin.clients.index')
+                    ->with('warning', 'Client updated but WhatsApp Meta sync failed: '.collect($e->errors())->flatten()->first());
+            }
+        }
 
         return redirect()
             ->route('admin.clients.index')

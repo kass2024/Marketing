@@ -11,6 +11,12 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
 
+        $schedule->command('meta:auto-sync --force')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->name('meta-auto-sync')
+            ->appendOutputTo(storage_path('logs/meta-auto-sync.log'));
+
         /*
         |--------------------------------------------------------------------------
         | 🔥 META ADS SYNC (CORE ENGINE)
@@ -118,6 +124,19 @@ class Kernel extends ConsoleKernel
             ]);
 
         })->hourly()->name('system-heartbeat');
+
+        /*
+        |--------------------------------------------------------------------------
+        | 🗄️ AUTO MIGRATIONS (production VPS)
+        |--------------------------------------------------------------------------
+        | Catches pending migrations if deploy script was skipped.
+        */
+
+        $schedule->command('migrate:auto --force --no-fail')
+            ->dailyAt('03:15')
+            ->withoutOverlapping()
+            ->name('auto-migrate')
+            ->appendOutputTo(storage_path('logs/migrate-auto.log'));
     }
 
     protected function commands(): void

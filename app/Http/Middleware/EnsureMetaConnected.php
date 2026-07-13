@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\TenantScope;
 use Closure;
 use Illuminate\Http\Request;
 
@@ -11,18 +12,38 @@ class EnsureMetaConnected
     {
         $user = auth()->user();
 
-        if (!$user || !$user->client) {
+        if (! $user || ! $user->client) {
             return redirect()
                 ->route('client.dashboard')
-                ->with('error','Client account not found.');
+                ->with('error', 'Client account not found.');
         }
 
-        $client = $user->client;
+        if (TenantScope::tenantsSharePlatformMeta()) {
+            if (! app(\App\Services\Tenant\TenantConnectionResolver::class)->platformDefault()) {
+                return redirect()
+                    ->route('admin.dashboard')
+                    ->with('error', 'Platform Meta account is not configured yet.');
+            }
 
-        if (!$client->metaConnection) {
+            return $next($request);
+        }
+
+        if (! $user->client->hasPublishingProfile()) {
+            if ($user->client->needsWhatsAppVerification()) {
+                return redirect()
+                    ->route('register.whatsapp.verify')
+                    ->with('error', 'Verify your business WhatsApp number with Meta before creating ads.');
+            }
+
             return redirect()
-                ->route('client.meta.index')
-                ->with('error','Please connect your Meta account first.');
+                ->route('client.profile.edit')
+                ->with('error', 'Set your Facebook Page and business WhatsApp number before creating ads.');
+        }
+
+        if (! app(\App\Services\Tenant\TenantConnectionResolver::class)->platformDefault()) {
+            return redirect()
+                ->route('admin.dashboard')
+                ->with('error', 'Platform Meta API is not configured. Contact support.');
         }
 
         return $next($request);

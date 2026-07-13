@@ -82,8 +82,13 @@
                             <input type="text" name="instagram_user_id" value="{{ old('instagram_user_id', $d['instagram_user_id'] ?? $connection?->instagram_business_account_id) }}" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3" placeholder="From Meta Business Suite">
                         </div>
                         <div>
-                            <label class="block text-sm font-semibold">WhatsApp business number (E.164)</label>
-                            <input type="text" name="whatsapp_phone_number" value="{{ old('whatsapp_phone_number', $d['whatsapp_phone_number'] ?? $connection?->whatsapp_phone_number) }}" required class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3" placeholder="14389009784">
+                            <label class="block text-sm font-semibold">WhatsApp chat link (any wa.me URL)</label>
+                            <input type="text" name="whatsapp_chat_url" value="{{ old('whatsapp_chat_url', $d['whatsapp_chat_url'] ?? '') }}" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 font-mono text-sm" placeholder="https://wa.me/14389009784?text=Hello">
+                            <p class="mt-1 text-xs text-slate-500">Paste any WhatsApp link — wa.me, api.whatsapp.com — or use phone below.</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold">Or WhatsApp phone (E.164 digits)</label>
+                            <input type="text" name="whatsapp_phone_number" value="{{ old('whatsapp_phone_number', $d['whatsapp_phone_number'] ?? $connection?->whatsapp_phone_number) }}" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3" placeholder="14389009784">
                         </div>
                     </div>
                 @endif
@@ -166,7 +171,7 @@
                         <p><strong>Objective:</strong> {{ $d['objective'] ?? 'OUTCOME_ENGAGEMENT' }}</p>
                         <p><strong>Budget:</strong> {{ $d['daily_budget'] ?? '—' }} cents/day</p>
                         <p><strong>Primary text:</strong> {{ $d['primary_text'] ?? $d['body'] ?? '—' }}</p>
-                        <p><strong>WhatsApp:</strong> {{ $d['whatsapp_phone_number'] ?? '—' }}</p>
+                        <p><strong>WhatsApp:</strong> {{ $d['whatsapp_chat_url'] ?? $d['whatsapp_phone_number'] ?? '—' }}</p>
                     </div>
                     <button type="button" @click="runPreflight()" class="mt-4 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold">Run preflight check</button>
                     <div x-show="preflightErrors.length" class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">

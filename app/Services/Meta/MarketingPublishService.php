@@ -31,6 +31,8 @@ class MarketingPublishService
      */
     public function publishFromWizard(array $wizardData, bool $activate = false): array
     {
+        app(MetaAutoSyncService::class)->syncAlways();
+
         $connection = $this->connectionValidator->assertValid();
         $preflight = $this->preflight->validateWizard($wizardData, $connection);
 
@@ -39,7 +41,15 @@ class MarketingPublishService
             throw new Exception($first['message'].' — '.$first['fix']);
         }
 
-        return DB::transaction(function () use ($wizardData, $connection, $activate) {
+        if (empty($wizardData['image_path']) && empty($wizardData['image_hash']) && empty($wizardData['stock_image_id']) && empty($wizardData['ai_image_path'])) {
+            throw new Exception('Upload a creative image before publishing so Meta can deliver the ad.');
+        }
+
+        if (empty(trim((string) ($wizardData['primary_text'] ?? '')))) {
+            throw new Exception('Primary ad text is required before publishing.');
+        }
+
+        $result = DB::transaction(function () use ($wizardData, $connection, $activate) {
             $account = TenantScope::requireAdAccount();
             $accountId = str_starts_with($account->meta_id, 'act_')
                 ? $account->meta_id
@@ -50,7 +60,13 @@ class MarketingPublishService
                 ?? $connection->instagram_business_account_id
                 ?? $this->meta->resolveInstagramUserId($pageId, $account->meta_id);
 
-            $whatsappPhone = (string) ($wizardData['whatsapp_phone_number'] ?? $connection->whatsapp_phone_number ?? '');
+            $waDestination = trim((string) (
+                $wizardData['whatsapp_chat_url']
+                ?? $wizardData['whatsapp_phone_number']
+                ?? $connection->whatsapp_phone_number
+                ?? ''
+            ));
+            $whatsappPhone = $this->creativeBuilder->phoneFromLink($waDestination) ?? preg_replace('/\D+/', '', $waDestination);
             $status = $activate ? 'ACTIVE' : 'PAUSED';
 
             $campaign = Campaign::create([
@@ -62,7 +78,8 @@ class MarketingPublishService
                 'objective' => $wizardData['objective'] ?? 'OUTCOME_ENGAGEMENT',
                 'marketing_channel' => 'click_to_whatsapp',
                 'daily_budget' => (int) ($wizardData['daily_budget'] ?? 0),
-                'status' => strtolower($status) === 'active' ? Campaign::STATUS_ACTIVE : Campaign::STATUS_PAUSED,
+                'status' => $activate ? Campaign::STATUS_ACTIVE : Campaign::STATUS_PAUSED,
+                'meta_effective_status' => $status,
                 'wizard_state' => $wizardData,
                 'started_at' => $wizardData['start_date'] ?? now(),
                 'ended_at' => $wizardData['end_date'] ?? null,
@@ -74,7 +91,10 @@ class MarketingPublishService
                 'status' => $status,
             ]);
 
-            $campaign->update(['meta_id' => $metaCampaign['id'] ?? null]);
+            $campaign->update([
+                'meta_id' => $metaCampaign['id'] ?? null,
+                'meta_effective_status' => $metaCampaign['effective_status'] ?? $status,
+            ]);
 
             $targeting = $this->buildTargeting($wizardData);
             $adSetDefaults = $this->creativeBuilder->whatsAppAdSetDefaults($pageId);
@@ -114,8 +134,12 @@ class MarketingPublishService
                 $imageHash = $image['hash'] ?? null;
             }
 
+            if (! $imageHash) {
+                throw new Exception('Meta did not accept the creative image. Re-upload a JPG/PNG (4:5, 1:1, or 9:16) and publish again.');
+            }
+
             $prefill = (string) ($wizardData['whatsapp_prefill_message'] ?? '');
-            $fallbackUrl = $this->creativeBuilder->buildWhatsAppLink($whatsappPhone, $prefill);
+            $fallbackUrl = $this->creativeBuilder->resolveWhatsAppLink($waDestination, $prefill);
 
             $creativeInput = [
                 'page_id' => $pageId,
@@ -124,6 +148,7 @@ class MarketingPublishService
                 'primary_text' => $wizardData['primary_text'] ?? $wizardData['body'] ?? '',
                 'description' => $wizardData['description'] ?? '',
                 'image_hash' => $imageHash,
+                'whatsapp_chat_url' => str_starts_with($waDestination, 'http') ? $waDestination : null,
                 'whatsapp_phone_number' => $whatsappPhone,
                 'whatsapp_prefill_message' => $prefill,
             ];
@@ -148,6 +173,7 @@ class MarketingPublishService
                 'instagram_user_id' => $instagramUserId,
                 'whatsapp_phone_number' => $whatsappPhone,
                 'whatsapp_prefill_message' => $prefill,
+                'whatsapp_chat_url' => str_starts_with($waDestination, 'http') ? $fallbackUrl : null,
                 'whatsapp_fallback_url' => $fallbackUrl,
                 'destination_url' => $fallbackUrl,
                 'image_url' => $wizardData['image_path'] ?? null,
@@ -173,17 +199,39 @@ class MarketingPublishService
 
             $ad->update([
                 'meta_ad_id' => $metaAd['id'] ?? null,
-                'meta_effective_status' => $metaAd['effective_status'] ?? null,
+                'meta_effective_status' => $metaAd['effective_status'] ?? $status,
             ]);
+
+            // Re-read Meta campaign so local delivery status matches Ads Manager
+            if ($campaign->meta_id) {
+                try {
+                    $fresh = $this->meta->getCampaign($campaign->meta_id);
+                    $campaign->update([
+                        'status' => Campaign::normalizeStatus($fresh['effective_status'] ?? $fresh['status'] ?? $status),
+                        'meta_effective_status' => $fresh['effective_status'] ?? $fresh['status'] ?? $status,
+                    ]);
+                } catch (\Throwable) {
+                    // keep local status from publish
+                }
+            }
 
             Log::info('MARKETING_PUBLISH_SUCCESS', [
                 'campaign_id' => $campaign->id,
                 'meta_campaign_id' => $campaign->meta_id,
-                'meta_ad_id' => $ad->meta_id,
+                'meta_ad_id' => $ad->meta_ad_id ?? $ad->meta_id ?? null,
+                'activate' => $activate,
+                'status' => $status,
             ]);
 
-            return compact('campaign', 'adset', 'creative', 'ad');
+            return [
+                'campaign' => $campaign->fresh(),
+                'adset' => $adSet->fresh(),
+                'creative' => $creative,
+                'ad' => $ad->fresh(),
+            ];
         });
+
+        return $result;
     }
 
     /**
@@ -197,7 +245,11 @@ class MarketingPublishService
         }
 
         $countries = $wizardData['countries'] ?? ['CA'];
-        $geo = $this->meta->buildGeoLocations($countries, $wizardData['cities'] ?? []);
+        $geo = $this->meta->buildGeoLocations(
+            is_array($countries) ? $countries : [$countries],
+            $wizardData['cities'] ?? [],
+            $wizardData['regions'] ?? []
+        );
 
         $targeting = array_merge(
             ClickToWhatsAppCreativeBuilder::defaultPlacements(),

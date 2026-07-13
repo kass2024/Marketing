@@ -21,6 +21,12 @@
                 Campaigns
             </a>
             <a
+                href="{{ route('admin.creatives.builder') }}"
+                class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-xander-navy/25 hover:bg-slate-50 hover:text-xander-navy"
+            >
+                Creative builder
+            </a>
+            <a
                 href="{{ route('admin.adsets.create') }}"
                 class="inline-flex items-center justify-center gap-2 rounded-xl bg-xander-navy px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary"
             >

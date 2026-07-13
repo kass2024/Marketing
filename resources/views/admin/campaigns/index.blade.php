@@ -10,16 +10,30 @@
         <div class="min-w-0">
             <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Campaigns</h1>
             <p class="mt-1 text-sm text-slate-600">
-                Create campaigns first, then build ad sets, creatives and ads.
+                Synced with Meta Ads Manager. Use <strong>Publish &amp; deliver</strong> in Ad Studio, or Activate here to go live.
             </p>
         </div>
-        <a
-            href="{{ route('admin.campaigns.create') }}"
-            class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-xander-navy px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary"
-        >
-            <span class="text-lg leading-none">+</span>
-            New campaign
-        </a>
+        <div class="flex flex-wrap gap-2">
+            <form method="POST" action="{{ route('admin.campaigns.sync-all') }}" class="m-0">
+                @csrf
+                <button type="submit" class="inline-flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50">
+                    Sync all from Meta
+                </button>
+            </form>
+            <a
+                href="{{ route('admin.marketing.create') }}"
+                class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+                Ad Studio
+            </a>
+            <a
+                href="{{ route('admin.campaigns.create') }}"
+                class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-xander-navy px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-xander-secondary"
+            >
+                <span class="text-lg leading-none">+</span>
+                New campaign
+            </a>
+        </div>
     </div>
 
     <div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
@@ -88,12 +102,20 @@
                                 </a>
                             </td>
                             <td class="whitespace-nowrap px-4 py-3 align-top lg:px-5">
-                                @if($campaign->status == 'ACTIVE')
-                                    <span class="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15">Active</span>
-                                @elseif($campaign->status == 'PAUSED')
-                                    <span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-600/15">Paused</span>
+                                @php $delivery = $campaign->normalizedStatus(); @endphp
+                                @if($delivery === 'active')
+                                    <span class="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15">Active · Ready</span>
+                                @elseif($delivery === 'paused')
+                                    <span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-600/15">Paused on Meta</span>
+                                @elseif($delivery === 'completed')
+                                    <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Completed</span>
+                                @elseif($delivery === 'archived')
+                                    <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-400/20">Archived</span>
                                 @else
-                                    <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">{{ $campaign->status ?? 'Draft' }}</span>
+                                    <span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Draft</span>
+                                @endif
+                                @if($campaign->meta_effective_status)
+                                    <p class="mt-1 text-[10px] text-slate-400">Meta: {{ $campaign->meta_effective_status }}</p>
                                 @endif
                             </td>
                             <td class="whitespace-nowrap px-4 py-3 align-top text-slate-500 lg:px-5">
@@ -105,14 +127,14 @@
                                     <a href="{{ route('admin.campaigns.adsets.create', $campaign->id) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-secondary ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">New ad set</a>
                                     <a href="{{ route('admin.creatives.index', ['campaign' => $campaign->id]) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-50">Creatives</a>
                                     <a href="{{ route('admin.ads.index', ['campaign' => $campaign->id]) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-violet-800 ring-1 ring-violet-600/15 transition hover:bg-violet-50">Ads</a>
-                                    @if($campaign->status !== 'ACTIVE')
+                                    @if($campaign->normalizedStatus() !== 'active')
                                         <form method="POST" action="{{ route('admin.campaigns.activate', $campaign->id) }}" class="m-0">
                                             @csrf
                                             @method('PATCH')
-                                            <button type="submit" class="w-full rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">Activate</button>
+                                            <button type="submit" class="w-full rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">Activate · Deliver</button>
                                         </form>
                                     @endif
-                                    @if($campaign->status === 'ACTIVE')
+                                    @if($campaign->normalizedStatus() === 'active')
                                         <form method="POST" action="{{ route('admin.campaigns.pause', $campaign->id) }}" class="m-0">
                                             @csrf
                                             @method('PATCH')
@@ -121,7 +143,7 @@
                                     @endif
                                     <form method="POST" action="{{ route('admin.campaigns.sync', $campaign->id) }}" class="m-0">
                                         @csrf
-                                        <button type="submit" class="w-full rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/80 transition hover:bg-white">Sync</button>
+                                        <button type="submit" class="w-full rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/80 transition hover:bg-white">Sync from Meta</button>
                                     </form>
                                     <a href="{{ route('admin.campaigns.edit', $campaign) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-slate-800 ring-1 ring-slate-200/80 transition hover:bg-white">Edit</a>
                                     <form action="{{ route('admin.campaigns.destroy', $campaign) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this campaign?');">

@@ -78,8 +78,10 @@ class SyncMetaAds extends Command
                     ['meta_id' => $c['id']],
                     [
                         'ad_account_id' => $account->id,
+                        'client_id' => $account->client_id ?? 1,
                         'name' => $c['name'],
-                        'status' => $c['status'],
+                        'status' => Campaign::normalizeStatus($c['effective_status'] ?? $c['status'] ?? null),
+                        'meta_effective_status' => $c['effective_status'] ?? $c['status'] ?? null,
                         'objective' => $c['objective'] ?? null
                     ]
                 );

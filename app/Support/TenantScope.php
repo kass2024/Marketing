@@ -37,8 +37,32 @@ class TenantScope
         return self::currentClient() !== null;
     }
 
+    public static function tenantsSharePlatformMeta(): bool
+    {
+        return (bool) config('platform.tenants_share_platform_meta', false);
+    }
+
+    public static function platformControlsApi(): bool
+    {
+        return (bool) config('platform.platform_controls_api', true);
+    }
+
+    public static function platformPageId(): ?string
+    {
+        return config('platform.meta.page_id') ?: config('services.meta.page_id');
+    }
+
+    public static function platformPageName(): ?string
+    {
+        return config('platform.meta.page_name') ?: config('services.meta.page_name');
+    }
+
     public static function pageId(): ?string
     {
+        if (self::tenantsSharePlatformMeta()) {
+            return self::platformPageId();
+        }
+
         return self::currentClient()?->meta_page_id;
     }
 
@@ -61,7 +85,7 @@ class TenantScope
      */
     public static function platformAdAccountMetaId(): ?string
     {
-        return self::formatMetaAccountId(config('services.meta.ad_account_id'));
+        return self::formatMetaAccountId(config('platform.meta.ad_account_id'));
     }
 
     /**
@@ -69,6 +93,10 @@ class TenantScope
      */
     public static function adAccountMetaId(): ?string
     {
+        if (self::platformControlsApi() || self::tenantsSharePlatformMeta()) {
+            return self::platformAdAccountMetaId();
+        }
+
         $client = self::currentClient();
 
         if ($client?->meta_ad_account_id) {
@@ -76,6 +104,26 @@ class TenantScope
         }
 
         return self::platformAdAccountMetaId();
+    }
+
+    public static function whatsappPhoneNumber(): ?string
+    {
+        if (self::tenantsSharePlatformMeta()) {
+            return config('platform.whatsapp.phone_number');
+        }
+
+        return self::currentClient()?->whatsapp_phone_number;
+    }
+
+    public static function tenantHasPublishingProfile(): bool
+    {
+        $client = self::currentClient();
+
+        if (! $client || $client->is_platform) {
+            return true;
+        }
+
+        return filled($client->meta_page_id) && $client->isWhatsAppVerified();
     }
 
     public static function resolveAdAccount(): ?AdAccount
@@ -100,7 +148,7 @@ class TenantScope
         return $account;
     }
 
-    public static function ensurePlatformAdAccount(?string $displayName = null): ?AdAccount
+    public static function ensurePlatformAdAccount(?string $displayName = null, ?int $clientId = null): ?AdAccount
     {
         $metaId = self::platformAdAccountMetaId();
 
@@ -108,8 +156,14 @@ class TenantScope
             return null;
         }
 
+        $clientId = $clientId ?? Client::query()->where('is_platform', true)->value('id');
+
+        if (! $clientId) {
+            return null;
+        }
+
         return AdAccount::firstOrCreate(
-            ['meta_id' => $metaId],
+            ['client_id' => $clientId, 'meta_id' => $metaId],
             [
                 'ad_account_id' => ltrim($metaId, 'act_'),
                 'name' => $displayName ?: (string) config('app.name', 'Platform Ad Account'),
@@ -129,7 +183,7 @@ class TenantScope
 
         $query->where('client_id', $client->id);
 
-        if ($client->meta_page_id) {
+        if (! self::tenantsSharePlatformMeta() && $client->meta_page_id) {
             $query->where('meta_page_id', $client->meta_page_id);
         }
 
@@ -169,6 +223,39 @@ class TenantScope
         return $query->whereHas('adSet.campaign', fn (Builder $q) => self::campaigns($q));
     }
 
+    public static function conversations(Builder $query): Builder
+    {
+        $client = self::currentClient();
+
+        if (! $client) {
+            return $query;
+        }
+
+        return $query->where('client_id', $client->id);
+    }
+
+    public static function chatbots(Builder $query): Builder
+    {
+        $client = self::currentClient();
+
+        if (! $client) {
+            return $query;
+        }
+
+        return $query->where('client_id', $client->id);
+    }
+
+    public static function templates(Builder $query): Builder
+    {
+        $client = self::currentClient();
+
+        if (! $client) {
+            return $query;
+        }
+
+        return $query->where('client_id', $client->id);
+    }
+
     public static function assertCampaign(Campaign $campaign): void
     {
         $client = self::currentClient();
@@ -181,7 +268,7 @@ class TenantScope
             abort(403, 'This campaign belongs to another business.');
         }
 
-        if ($client->meta_page_id && $campaign->meta_page_id !== $client->meta_page_id) {
+        if (! self::tenantsSharePlatformMeta() && $client->meta_page_id && $campaign->meta_page_id !== $client->meta_page_id) {
             abort(403, 'This campaign belongs to another Facebook page.');
         }
     }
@@ -235,9 +322,22 @@ class TenantScope
             return $pages;
         }
 
-        return array_values(array_filter($pages, function (array $page) use ($pageId) {
+        $filtered = array_values(array_filter($pages, function (array $page) use ($pageId) {
             return (string) ($page['id'] ?? '') === (string) $pageId;
         }));
+
+        if ($filtered !== []) {
+            return $filtered;
+        }
+
+        if (self::tenantsSharePlatformMeta()) {
+            return [[
+                'id' => (string) $pageId,
+                'name' => (string) (self::platformPageName() ?: 'Facebook Page'),
+            ]];
+        }
+
+        return $pages;
     }
 
     public static function campaignAttributes(): array
@@ -249,10 +349,13 @@ class TenantScope
         }
 
         $account = self::resolveAdAccount();
+        $pageId = self::tenantsSharePlatformMeta()
+            ? self::platformPageId()
+            : $client->meta_page_id;
 
         return array_filter([
             'client_id' => $client->id,
-            'meta_page_id' => $client->meta_page_id,
+            'meta_page_id' => $pageId,
             'ad_account_id' => $account?->id,
         ]);
     }

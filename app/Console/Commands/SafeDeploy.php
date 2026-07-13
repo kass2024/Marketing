@@ -7,23 +7,11 @@ use Illuminate\Support\Facades\Artisan;
 
 class SafeDeploy extends Command
 {
-    /**
-     * Idempotent ALTER-only migrations safe for production (add nullable columns / indexes only).
-     *
-     * @var list<string>
-     */
-    protected array $safeAlterMigrations = [
-        'database/migrations/2026_05_25_100000_add_facebook_page_tenant_columns.php',
-        'database/migrations/2026_05_25_110000_add_client_ad_account_name_and_relax_ad_accounts_unique.php',
-        'database/migrations/2026_05_26_100000_add_ads_budget_and_metrics_columns.php',
-    ];
-
     protected $signature = 'deploy:safe
-        {--full-migrate : Run all pending migrations, not just safe ALTER files}
         {--skip-migrate : Skip database migrations}
         {--skip-clients : Skip client password + ad-account metadata sync}';
 
-    protected $description = 'Safe VPS deploy: run ALTER migrations and cache refresh without syncing or changing ads';
+    protected $description = 'VPS deploy: auto-migrate, cache refresh — does not sync or change Meta ads';
 
     public function handle(): int
     {
@@ -31,43 +19,13 @@ class SafeDeploy extends Command
         $this->newLine();
 
         if (! $this->option('skip-migrate')) {
-            foreach ($this->safeAlterMigrations as $path) {
-                $this->line("Running safe migration: {$path}");
-                $exitCode = Artisan::call('migrate', [
-                    '--force' => true,
-                    '--path' => $path,
-                ]);
-                $output = trim(Artisan::output());
+            $exitCode = Artisan::call('migrate:auto', ['--force' => true]);
+            $this->output->write(Artisan::output());
 
-                if ($output !== '') {
-                    $this->output->write($output);
-                    $this->newLine();
-                }
+            if ($exitCode !== 0) {
+                $this->error('Auto-migration failed.');
 
-                if ($exitCode !== 0) {
-                    $this->error("Migration failed: {$path}");
-
-                    return self::FAILURE;
-                }
-            }
-
-            if ($this->option('full-migrate')) {
-                $this->line('Running all remaining pending migrations (--force)...');
-                $exitCode = Artisan::call('migrate', ['--force' => true]);
-                $output = trim(Artisan::output());
-
-                if ($output !== '') {
-                    $this->output->write($output);
-                    $this->newLine();
-                }
-
-                if ($exitCode !== 0) {
-                    $this->error('Full migration failed.');
-
-                    return self::FAILURE;
-                }
-            } else {
-                $this->info('Skipped full migrate (use --full-migrate only if you need other pending migrations).');
+                return self::FAILURE;
             }
         } else {
             $this->warn('Skipped migrations.');
@@ -75,16 +33,16 @@ class SafeDeploy extends Command
 
         if (! $this->option('skip-clients')) {
             $this->newLine();
-            $this->line('Syncing client ad-account metadata (clients table only)...');
-            Artisan::call('business:sync-platform-ad-accounts');
-            $this->output->write(Artisan::output());
-
-            $this->line('Applying standard client login password (users table only)...');
-            Artisan::call('clients:set-default-password');
-            $this->output->write(Artisan::output());
+            $this->runOptionalCommand('business:sync-platform-ad-accounts', 'Syncing client ad-account metadata...');
+            $this->runOptionalCommand('clients:set-default-password', 'Applying standard client login password...');
         } else {
             $this->warn('Skipped client metadata/password sync.');
         }
+
+        $this->newLine();
+        $this->line('Auto-syncing Meta platform connection + WhatsApp numbers...');
+        Artisan::call('meta:auto-sync', ['--force' => true]);
+        $this->output->write(Artisan::output());
 
         $this->newLine();
         $this->line('Clearing caches...');
@@ -93,8 +51,22 @@ class SafeDeploy extends Command
         }
 
         $this->info('Safe deploy finished.');
-        $this->line('Not run (by design): meta:sync-*, SyncMetaAds, SyncMetaCampaigns — existing ads on Meta are untouched.');
+        $this->line('VPS cron (required): * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1');
+        $this->line('Heavy Meta ads inventory sync (meta:sync-*) still runs on schedule; publish path uses live Graph.');
 
         return self::SUCCESS;
+    }
+
+    protected function runOptionalCommand(string $name, string $label): void
+    {
+        if (! $this->getApplication()->has($name)) {
+            $this->warn("Skipped {$name} (command not registered).");
+
+            return;
+        }
+
+        $this->line($label);
+        Artisan::call($name);
+        $this->output->write(Artisan::output());
     }
 }

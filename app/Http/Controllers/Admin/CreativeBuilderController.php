@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdSet;
 use App\Models\Campaign;
 use App\Models\Creative;
 use App\Models\PlatformMetaConnection;
+use App\Services\Tenant\TenantConnectionResolver;
+use App\Services\Meta\CampaignAdLinker;
 use App\Services\Meta\ClickToWhatsAppCreativeBuilder;
 use App\Services\Meta\CreativeBuilderValidator;
+use App\Services\Meta\CreativeContextResolver;
 use App\Services\Meta\CreativeCopyGenerator;
 use App\Services\Meta\CreativeTemplateRegistry;
 use App\Services\MetaAdsService;
@@ -28,7 +32,9 @@ class CreativeBuilderController extends Controller
         protected MetaAdsService $meta,
         protected ClickToWhatsAppCreativeBuilder $whatsAppBuilder,
         protected CreativeCopyGenerator $copyGenerator,
-        protected CreativeBuilderValidator $validator
+        protected CreativeBuilderValidator $validator,
+        protected CreativeContextResolver $contextResolver,
+        protected CampaignAdLinker $adLinker
     ) {}
 
     public function create(Request $request): View
@@ -38,7 +44,7 @@ class CreativeBuilderController extends Controller
             $reuse = TenantScope::creatives(Creative::query())->find($request->integer('reuse'));
         }
 
-        $connection = PlatformMetaConnection::query()->latest()->first();
+        $connection = app(TenantConnectionResolver::class)->forCurrentUser();
         $pages = [];
 
         try {
@@ -46,11 +52,37 @@ class CreativeBuilderController extends Controller
         } catch (Throwable) {
         }
 
+        $selectedCampaign = null;
+        $selectedAdset = null;
+
+        $campaignId = $request->integer('campaign_id') ?: $reuse?->campaign_id;
+        $adsetId = $request->integer('adset_id') ?: $reuse?->adset_id;
+
+        if ($campaignId) {
+            $selectedCampaign = TenantScope::campaigns(
+                Campaign::query()->with(['adsets' => fn ($q) => $q->withCount(['ads', 'creatives'])->latest()])
+            )->find($campaignId);
+        }
+
+        if ($adsetId) {
+            $selectedAdset = TenantScope::adSets(AdSet::query()->with('campaign'))->find($adsetId);
+            $selectedCampaign = $selectedCampaign ?? $selectedAdset?->campaign;
+        }
+
+        $context = $this->contextResolver->resolve($selectedCampaign, $selectedAdset, $connection);
+
+        $campaigns = TenantScope::campaigns(
+            Campaign::query()->withCount('adsets')->latest()
+        )->get();
+
         return view('admin.creatives.builder', [
             'templates' => CreativeTemplateRegistry::templates(),
             'goals' => CreativeTemplateRegistry::goals(),
             'placementOptions' => CreativeTemplateRegistry::placements(),
-            'campaigns' => TenantScope::campaigns(Campaign::query())->latest()->get(),
+            'campaigns' => $campaigns,
+            'selectedCampaign' => $selectedCampaign,
+            'selectedAdset' => $selectedAdset,
+            'context' => $context,
             'pages' => $pages,
             'connection' => $connection,
             'reuse' => $reuse,
@@ -58,6 +90,43 @@ class CreativeBuilderController extends Controller
                 Creative::query()->where('is_reusable', true)->latest()->limit(20)
             )->get(),
         ]);
+    }
+
+    public function adsetsForCampaign(Campaign $campaign): JsonResponse
+    {
+        TenantScope::assertCampaign($campaign);
+
+        return response()->json([
+            'campaign' => [
+                'id' => $campaign->id,
+                'name' => $campaign->name,
+                'objective' => $campaign->objective,
+                'meta_id' => $campaign->meta_id,
+                'context' => $this->contextResolver->resolve($campaign, null),
+            ],
+            'adsets' => $this->contextResolver->adsetsPayload($campaign),
+        ]);
+    }
+
+    public function context(Request $request): JsonResponse
+    {
+        $campaign = null;
+        $adset = null;
+
+        if ($request->filled('campaign_id')) {
+            $campaign = TenantScope::campaigns(Campaign::query())->find($request->integer('campaign_id'));
+        }
+
+        if ($request->filled('adset_id')) {
+            $adset = TenantScope::adSets(AdSet::query()->with('campaign'))->find($request->integer('adset_id'));
+            $campaign = $campaign ?? $adset?->campaign;
+        }
+
+        if (! $campaign && ! $adset) {
+            return response()->json(['error' => 'campaign_id or adset_id required'], 422);
+        }
+
+        return response()->json($this->contextResolver->resolve($campaign, $adset));
     }
 
     public function generate(Request $request): JsonResponse
@@ -113,12 +182,15 @@ class CreativeBuilderController extends Controller
             'headline' => 'required|string|max:255',
             'description' => 'nullable|string|max:255',
             'call_to_action' => 'required|string|in:WHATSAPP_MESSAGE,SEND_MESSAGE',
-            'whatsapp_phone_number' => 'required|string|max:30',
+            'whatsapp_phone_number' => 'nullable|string|max:30',
+            'whatsapp_chat_url' => 'nullable|string|max:2048',
             'whatsapp_prefill_message' => 'nullable|string|max:1000',
             'placements' => 'nullable|array',
             'placements.*' => 'string',
             'active_variant' => 'nullable|string|in:A,B,C',
             'create_ab_variants' => 'nullable|boolean',
+            'publish_ads' => 'nullable|boolean',
+            'ad_status' => 'nullable|string|in:ACTIVE,PAUSED',
             'variant_a_primary' => 'nullable|string',
             'variant_a_headline' => 'nullable|string',
             'variant_a_description' => 'nullable|string',
@@ -138,6 +210,15 @@ class CreativeBuilderController extends Controller
             'name' => 'nullable|string|max:255',
         ]);
 
+        $campaign = Campaign::findOrFail($data['campaign_id']);
+        TenantScope::assertCampaign($campaign);
+
+        $adset = AdSet::query()
+            ->where('campaign_id', $campaign->id)
+            ->findOrFail($data['adset_id']);
+
+        TenantScope::assertAdSet($adset);
+
         $validation = $this->validator->validate($data, $request->file('image'), $request->file('video'));
         if (! $validation['valid']) {
             return back()->withInput()->withErrors(
@@ -149,20 +230,32 @@ class CreativeBuilderController extends Controller
             $groupId = (string) Str::uuid();
             $variants = $this->resolveVariants($data, $request->boolean('create_ab_variants'));
             $saved = [];
+            $linkedAds = 0;
+            $adStatus = $request->input('ad_status', 'PAUSED');
 
-            DB::transaction(function () use ($request, $data, $variants, $groupId, &$saved) {
+            DB::transaction(function () use ($request, $data, $variants, $groupId, $adset, $adStatus, &$saved, &$linkedAds) {
                 foreach ($variants as $variant => $copy) {
-                    $saved[] = $this->persistCreative($request, $data, $copy, $variant, $groupId, count($variants) > 1);
+                    $creative = $this->persistCreative($request, $data, $copy, $variant, $groupId, count($variants) > 1);
+                    $saved[] = $creative;
+
+                    if ($request->boolean('publish_ads') && $request->boolean('sync_meta')) {
+                        $this->adLinker->linkCreativeToAdSet($adset, $creative, $adStatus);
+                        $linkedAds++;
+                    }
                 }
             });
 
             $count = count($saved);
             $message = $count > 1
-                ? "{$count} A/B creative versions saved and ready for campaigns."
-                : 'Creative saved to library.';
+                ? "{$count} creatives saved for ad set “{$adset->name}”."
+                : "Creative saved for ad set “{$adset->name}”.";
+
+            if ($linkedAds > 0) {
+                $message .= " {$linkedAds} ad(s) published to Meta ({$adStatus}).";
+            }
 
             return redirect()
-                ->route('admin.creatives.index')
+                ->route('admin.campaigns.show', $campaign)
                 ->with('success', $message);
         } catch (Exception $e) {
             Log::error('CREATIVE_BUILDER_STORE_FAILED', ['error' => $e->getMessage()]);
@@ -209,10 +302,12 @@ class CreativeBuilderController extends Controller
     protected function persistCreative(Request $request, array $data, array $copy, string $variant, string $groupId, bool $isAbTest): Creative
     {
         $campaign = Campaign::findOrFail($data['campaign_id']);
-        TenantScope::assertCampaign($campaign);
+        $adset = AdSet::query()->where('campaign_id', $campaign->id)->findOrFail($data['adset_id']);
 
         if ($tenantPageId = TenantScope::pageId()) {
             $data['page_id'] = $tenantPageId;
+        } elseif (empty($data['page_id']) && $campaign->meta_page_id) {
+            $data['page_id'] = $campaign->meta_page_id;
         }
 
         $account = TenantScope::requireAdAccount();
@@ -238,10 +333,16 @@ class CreativeBuilderController extends Controller
         }
 
         $instagramUserId = $this->meta->resolveInstagramUserId($data['page_id'], $account->meta_id);
-        $waLink = $this->whatsAppBuilder->buildWhatsAppLink(
-            $data['whatsapp_phone_number'],
+        $waDestination = trim((string) ($data['whatsapp_chat_url'] ?? $data['whatsapp_phone_number'] ?? ''));
+        if ($waDestination === '') {
+            $waDestination = (string) (app(TenantConnectionResolver::class)->whatsappPhoneNumber() ?? '');
+        }
+
+        $waLink = $this->whatsAppBuilder->resolveWhatsAppLink(
+            $waDestination,
             $copy['whatsapp_prefill_message']
         );
+        $waPhone = $this->whatsAppBuilder->phoneFromLink($waDestination) ?? preg_replace('/\D+/', '', $waDestination);
 
         $creativeInput = [
             'page_id' => $data['page_id'],
@@ -250,7 +351,8 @@ class CreativeBuilderController extends Controller
             'primary_text' => $copy['primary_text'],
             'description' => $copy['description'],
             'image_hash' => $imageHash,
-            'whatsapp_phone_number' => $data['whatsapp_phone_number'],
+            'whatsapp_chat_url' => $waDestination,
+            'whatsapp_phone_number' => $waPhone,
             'whatsapp_prefill_message' => $copy['whatsapp_prefill_message'],
         ];
 
@@ -267,11 +369,13 @@ class CreativeBuilderController extends Controller
             $metaCreativeId = $response['id'] ?? null;
         }
 
-        $placements = $data['placements'] ?? array_keys(CreativeTemplateRegistry::placements());
+        $placements = $data['placements'] ?? $this->contextResolver->placementsFromTargeting(
+            is_array($adset->targeting) ? $adset->targeting : []
+        );
 
         return Creative::create([
-            'campaign_id' => $data['campaign_id'],
-            'adset_id' => $data['adset_id'],
+            'campaign_id' => $campaign->id,
+            'adset_id' => $adset->id,
             'name' => $creativeName,
             'service_name' => $data['service_name'],
             'campaign_goal' => $data['campaign_goal'] ?? null,
@@ -283,7 +387,7 @@ class CreativeBuilderController extends Controller
             'ab_variant' => $isAbTest ? $variant : ($data['active_variant'] ?? null),
             'creative_group_id' => $isAbTest ? $groupId : null,
             'placements' => $placements,
-            'builder_inputs' => $data,
+            'builder_inputs' => array_merge($data, ['linked_adset_name' => $adset->name, 'linked_campaign_name' => $campaign->name]),
             'is_reusable' => $request->boolean('is_reusable', true),
             'headline' => $copy['headline'],
             'body' => $copy['primary_text'],
@@ -292,9 +396,10 @@ class CreativeBuilderController extends Controller
             'creative_format' => 'click_to_whatsapp',
             'page_id' => $data['page_id'],
             'instagram_user_id' => $instagramUserId,
-            'whatsapp_phone_number' => $data['whatsapp_phone_number'],
+            'whatsapp_phone_number' => $waPhone,
             'whatsapp_prefill_message' => $copy['whatsapp_prefill_message'],
             'whatsapp_fallback_url' => $waLink,
+            'whatsapp_chat_url' => str_starts_with($waDestination, 'http') ? $waLink : null,
             'destination_url' => $waLink,
             'image_url' => $imagePath,
             'image_hash' => $imageHash,

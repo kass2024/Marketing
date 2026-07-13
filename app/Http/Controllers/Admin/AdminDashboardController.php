@@ -11,6 +11,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Template;
 use App\Models\PlatformMetaConnection;
+use App\Services\Tenant\TenantConnectionResolver;
 use App\Models\AdAccount;
 use App\Models\AdSet;
 use App\Models\Ad;
@@ -40,7 +41,7 @@ class AdminDashboardController extends Controller
         ];
 
         $platformMeta = class_exists(PlatformMetaConnection::class)
-                            ? PlatformMetaConnection::first()
+                            ? app(TenantConnectionResolver::class)->platformDefault()
                             : null;
 
         $recentClients = class_exists(Client::class)

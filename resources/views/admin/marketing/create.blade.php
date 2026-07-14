@@ -1021,8 +1021,8 @@
 function adStudio(config) {
     const templates = config.templates || {};
     const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    const defaultStart = now.toISOString().slice(0, 16);
+    const pad = (n) => String(n).padStart(2, '0');
+    const defaultStart = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
     return {
         stages: [
@@ -1925,6 +1925,15 @@ function adStudio(config) {
                 const form = document.getElementById('ad-studio-form');
                 const fd = new FormData(form);
                 fd.set('activate', activate ? '1' : '0');
+                // Browser-local unix so Meta does not treat datetime-local as UTC (Scheduled bug)
+                if (this.form.start_date) {
+                    const startMs = new Date(this.form.start_date).getTime();
+                    if (!Number.isNaN(startMs)) fd.set('start_time_unix', String(Math.floor(startMs / 1000)));
+                }
+                if (this.form.set_end_date && this.form.end_date) {
+                    const endMs = new Date(this.form.end_date).getTime();
+                    if (!Number.isNaN(endMs)) fd.set('end_time_unix', String(Math.floor(endMs / 1000)));
+                }
 
                 const res = await fetch(form.action, {
                     method: 'POST',

@@ -471,6 +471,8 @@ Route::get('{ad}/preview', [AdController::class,'preview'])
         ->name('preview-studio');
     Route::post('clean-duplicates', [AdController::class, 'cleanDuplicates'])
         ->name('clean-duplicates');
+    Route::post('{ad}/start-now', [AdController::class, 'startNow'])
+        ->name('start-now');
     Route::post('{ad}/publish', [AdController::class, 'publish'])
         ->name('publish');
 

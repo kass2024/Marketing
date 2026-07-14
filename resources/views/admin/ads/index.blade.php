@@ -297,6 +297,12 @@ ALERTS
             class="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-center text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">Preview</button>
         <a href="{{ route('admin.ads.preview',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-navy ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Insights</a>
         <a href="{{ route('admin.ads.edit',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-secondary ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Edit</a>
+        @if($ad->meta_ad_id)
+        <form method="POST" action="{{ route('admin.ads.start-now', $ad) }}" class="m-0" onsubmit="return confirm('Set this ad set to start now so Meta stops showing Scheduled?');">
+            @csrf
+            <button type="submit" class="w-full rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700">Start now</button>
+        </form>
+        @endif
         @if($ad->status !== 'ACTIVE')
             <form method="POST" action="{{ route('admin.ads.publish',$ad->id) }}" class="m-0">
                 @csrf

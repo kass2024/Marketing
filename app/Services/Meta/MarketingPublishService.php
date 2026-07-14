@@ -169,11 +169,23 @@ class MarketingPublishService
                 'targeting' => $targeting,
                 'status' => $status,
             ];
+            $startTs = $this->resolveScheduleTimestamp(
+                $wizardData['start_time_unix'] ?? null,
+                $wizardData['start_date'] ?? null,
+                true
+            );
+            $endTs = $this->resolveScheduleTimestamp(
+                $wizardData['end_time_unix'] ?? null,
+                ! empty($wizardData['end_date']) ? $wizardData['end_date'] : null,
+                false
+            );
             if (\Illuminate\Support\Facades\Schema::hasColumn('ad_sets', 'start_time')) {
-                $adSetAttrs['start_time'] = $wizardData['start_date'] ?? now();
+                $adSetAttrs['start_time'] = \Carbon\Carbon::createFromTimestamp($startTs);
             }
             if (\Illuminate\Support\Facades\Schema::hasColumn('ad_sets', 'end_time')) {
-                $adSetAttrs['end_time'] = $wizardData['end_date'] ?? null;
+                $adSetAttrs['end_time'] = $endTs
+                    ? \Carbon\Carbon::createFromTimestamp($endTs)
+                    : null;
             }
 
             $adSet = AdSet::create($adSetAttrs);
@@ -187,10 +199,8 @@ class MarketingPublishService
                 'whatsapp_phone_number' => (string) $whatsappPhone,
                 'whatsapp_phone_number_id' => $whatsappPhoneId,
                 'whats_app_business_phone_number_id' => $whatsappPhoneId,
-                'start_time' => isset($wizardData['start_date'])
-                    ? strtotime($wizardData['start_date'])
-                    : now()->addMinutes(5)->timestamp,
-                'end_time' => ! empty($wizardData['end_date']) ? strtotime($wizardData['end_date']) : null,
+                'start_time' => $startTs,
+                'end_time' => $endTs,
             ]));
 
             $adSet->update(['meta_id' => $metaAdSet['id'] ?? null]);
@@ -407,6 +417,39 @@ class MarketingPublishService
         }
 
         return null;
+    }
+
+    /**
+     * Resolve Meta schedule unix time.
+     * Prefer browser-local unix (start_time_unix) — datetime-local strings are naive and
+     * were interpreted as UTC, which pushed start into the future → Ads Manager "Scheduled".
+     *
+     * @param  mixed  $unix
+     * @param  mixed  $naiveDatetime
+     */
+    protected function resolveScheduleTimestamp($unix, $naiveDatetime, bool $defaultToNow): ?int
+    {
+        $now = now()->timestamp;
+
+        if ($unix !== null && $unix !== '' && is_numeric($unix)) {
+            $ts = (int) $unix;
+        } elseif ($naiveDatetime !== null && trim((string) $naiveDatetime) !== '') {
+            $parsed = strtotime((string) $naiveDatetime);
+            $ts = $parsed !== false ? $parsed : null;
+        } else {
+            $ts = $defaultToNow ? $now : null;
+        }
+
+        if ($ts === null) {
+            return null;
+        }
+
+        // If chosen time is already past (or within ~2 minutes), deliver immediately.
+        if ($defaultToNow && $ts <= $now + 120) {
+            return $now;
+        }
+
+        return $ts;
     }
 
     /**

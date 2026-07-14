@@ -1773,7 +1773,7 @@ if (!is_array($targeting)) {
 
         'status' => $data['status'] ?? 'PAUSED',
 
-        'start_time' => $data['start_time'] ?? now()->addMinutes(5)->timestamp,
+        'start_time' => $data['start_time'] ?? now()->timestamp,
 
         'targeting' => json_encode($targeting)
     ];

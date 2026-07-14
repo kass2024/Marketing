@@ -1306,6 +1306,55 @@ public function duplicate(Ad $ad): RedirectResponse
         'Local draft created only — nothing new was published to Meta. Use Ad Studio to publish intentionally.'
     );
 }
+
+    /**
+     * Fix Meta "Scheduled" ads: set ad set start_time to now so delivery can begin.
+     */
+    public function startNow(Ad $ad): RedirectResponse
+    {
+        TenantScope::assertAd($ad);
+        $ad->load('adSet');
+
+        $metaAdSetId = $ad->adSet?->meta_id;
+        if (! $metaAdSetId) {
+            return back()->withErrors(['start' => 'Ad set is not synced with Meta — cannot update schedule.']);
+        }
+
+        try {
+            $now = now()->timestamp;
+            $this->meta->updateAdSet((string) $metaAdSetId, [
+                'start_time' => $now,
+                'status' => 'ACTIVE',
+            ]);
+
+            if (Schema::hasColumn('ad_sets', 'start_time')) {
+                $ad->adSet->update([
+                    'start_time' => \Carbon\Carbon::createFromTimestamp($now),
+                    'status' => 'ACTIVE',
+                ]);
+            }
+
+            if ($ad->meta_ad_id) {
+                try {
+                    $this->meta->updateAd((string) $ad->meta_ad_id, ['status' => 'ACTIVE']);
+                } catch (Throwable) {
+                }
+            }
+            $ad->update(['status' => 'ACTIVE']);
+
+            return back()->with('success', 'Schedule updated — start time set to now. Meta should move from Scheduled to Active shortly.');
+        } catch (Throwable $e) {
+            Log::error('AD_START_NOW_FAILED', [
+                'ad_id' => $ad->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->withErrors([
+                'start' => $this->meta->humanizeMetaError($e),
+            ]);
+        }
+    }
+
 public function sync(Ad $ad): RedirectResponse
 {
     TenantScope::assertAd($ad);

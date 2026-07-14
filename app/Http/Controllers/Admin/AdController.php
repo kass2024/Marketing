@@ -317,16 +317,26 @@ class AdController extends Controller
      *
      * @return list<int>
      */
+    /**
+     * Keep one local ad per identical name (ACTIVE wins). Group by name only —
+     * same-name ads under different ad sets are still duplicates from retry publishes.
+     */
     protected function preferredAdIdsByAdSetName(): array
     {
         $rows = TenantScope::ads(
-            Ad::query()->select(['id', 'adset_id', 'name', 'status', 'created_at'])
+            Ad::query()->select(['id', 'adset_id', 'name', 'status', 'created_at', 'meta_ad_id'])
         )->get();
 
         $keep = [];
-        foreach ($rows->groupBy(fn (Ad $ad) => (string) ($ad->adset_id ?? 0).'|'.mb_strtolower(trim((string) $ad->name))) as $group) {
+        foreach ($rows->groupBy(fn (Ad $ad) => mb_strtolower(trim((string) $ad->name))) as $group) {
+            if ($group->count() === 0) {
+                continue;
+            }
             $best = $group->sortByDesc(function (Ad $ad) {
-                return sprintf('%d-%020d', $ad->status === 'ACTIVE' ? 1 : 0, (int) $ad->id);
+                $active = strtoupper((string) $ad->status) === 'ACTIVE' ? 2 : 0;
+                $hasMeta = $ad->meta_ad_id ? 1 : 0;
+
+                return sprintf('%d%d-%020d', $active, $hasMeta, (int) $ad->id);
             })->first();
             if ($best) {
                 $keep[] = (int) $best->id;
@@ -446,22 +456,33 @@ class AdController extends Controller
 
         $paused = 0;
         $deleted = 0;
+        $metaDeleted = 0;
 
         foreach ($extras as $ad) {
             try {
-                if ($ad->meta_ad_id && $ad->status === 'ACTIVE') {
+                if ($ad->meta_ad_id) {
                     try {
-                        $this->meta->updateAd((string) $ad->meta_ad_id, ['status' => 'PAUSED']);
+                        $this->meta->deleteAd((string) $ad->meta_ad_id);
+                        $metaDeleted++;
                     } catch (Throwable) {
+                        try {
+                            $this->meta->updateAd((string) $ad->meta_ad_id, ['status' => 'DELETED']);
+                            $metaDeleted++;
+                        } catch (Throwable) {
+                            if (strtoupper((string) $ad->status) === 'ACTIVE') {
+                                try {
+                                    $this->meta->updateAd((string) $ad->meta_ad_id, ['status' => 'PAUSED']);
+                                    $paused++;
+                                } catch (Throwable) {
+                                }
+                                $ad->update(['status' => 'PAUSED', 'pause_reason' => 'manual']);
+                            }
+                        }
                     }
-                    $ad->update(['status' => 'PAUSED', 'pause_reason' => 'manual']);
-                    $paused++;
                 }
-                // Soft-delete local duplicate row only when it has no Meta id or already paused
-                if (! $ad->meta_ad_id || $ad->status !== 'ACTIVE') {
-                    $ad->delete();
-                    $deleted++;
-                }
+
+                $ad->delete();
+                $deleted++;
             } catch (Throwable $e) {
                 Log::warning('AD_CLEAN_DUPLICATE_FAILED', [
                     'ad_id' => $ad->id,
@@ -479,8 +500,10 @@ class AdController extends Controller
                 )->get();
                 $adSetNames = $names->pluck('adSet.name')->filter()->unique()->values()->all();
                 $campaignNames = $names->pluck('adSet.campaign.name')->filter()->unique()->values()->all();
-                $metaOrphansRemoved = app(MarketingPublishService::class)
-                    ->purgeEmptyMetaDuplicates($accountId, $campaignNames, $adSetNames);
+                $adNames = $names->pluck('name')->filter()->unique()->values()->all();
+                $publisher = app(MarketingPublishService::class);
+                $metaOrphansRemoved = $publisher->purgeEmptyMetaDuplicates($accountId, $campaignNames, $adSetNames);
+                $metaOrphansRemoved += $publisher->purgePausedDuplicateAds($accountId, $adNames);
             }
         } catch (Throwable $e) {
             Log::warning('META_EMPTY_ORPHAN_CLEAN_FAILED', ['error' => $e->getMessage()]);
@@ -488,9 +511,9 @@ class AdController extends Controller
 
         return back()->with(
             'success',
-            "Duplicates cleaned: {$paused} paused on Meta, {$deleted} removed locally"
-            .($metaOrphansRemoved > 0 ? ", {$metaOrphansRemoved} empty Meta ad set/campaign orphan(s) deleted" : '')
-            .'. Primary ads kept.'
+            "Duplicates cleaned: {$metaDeleted} deleted on Meta, {$paused} paused on Meta, {$deleted} removed locally"
+            .($metaOrphansRemoved > 0 ? ", {$metaOrphansRemoved} Meta orphan/paused duplicate(s) purged" : '')
+            .'. Primary ACTIVE ad kept.'
         );
     }
 
@@ -549,7 +572,10 @@ public function index(Request $request): View
         // Previews fall back to local storage URLs when Meta lookup fails.
     }
 
-    $metrics = $this->buildAdsMetrics($allAds);
+    $metricsAds = (! $showDuplicates && $preferredIds !== [])
+        ? $allAds->whereIn('id', $preferredIds)
+        : $allAds;
+    $metrics = $this->buildAdsMetrics($metricsAds);
 
     return view('admin.ads.index', [
         'ads' => $ads,

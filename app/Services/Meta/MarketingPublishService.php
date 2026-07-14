@@ -89,8 +89,12 @@ class MarketingPublishService
 
             $campaignName = (string) ($wizardData['name'] ?? '');
             $adSetName = (string) ($wizardData['adset_name'] ?? ($campaignName.' — Ad Set'));
+            $adName = (string) ($wizardData['ad_name'] ?? ($campaignName.' — Ad'));
             $this->deleteRecentEmptyDuplicateCampaignsOnMeta($accountId, $campaignName);
             $this->deleteRecentEmptyDuplicateAdSetsOnMeta($accountId, $adSetName);
+            // Remove leftover PAUSED same-name ads from prior retries, then refuse if an ACTIVE still exists.
+            $this->purgePausedDuplicateAds($accountId, [$adName], true);
+            $this->assertNoActiveMetaAdNamed($accountId, $adName);
 
             $pageId = (string) ($wizardData['page_id'] ?? $connection->page_id);
             $instagramUserId = $wizardData['instagram_user_id']
@@ -450,6 +454,162 @@ class MarketingPublishService
         }
 
         return $removed;
+    }
+
+    /**
+     * Keep one Meta ad per name: prefer ACTIVE, delete the rest (paused duplicates from retries).
+     *
+     * @param  list<string>  $adNames  If empty, scans all ads and cleans every colliding name.
+     * @param  bool  $deleteLonePaused  When true (publish path), also delete a lone PAUSED same-name ad so a fresh ACTIVE can be created.
+     */
+    public function purgePausedDuplicateAds(string $accountId, array $adNames = [], bool $deleteLonePaused = false): int
+    {
+        $wanted = array_values(array_unique(array_filter(array_map(
+            static fn ($n) => mb_strtolower(trim((string) $n)),
+            $adNames
+        ))));
+
+        try {
+            $response = $this->meta->getAds($accountId);
+            $rows = $response['data'] ?? [];
+        } catch (\Throwable $e) {
+            Log::info('META_DUPLICATE_AD_SCAN_SKIP', ['error' => $e->getMessage()]);
+
+            return 0;
+        }
+
+        if (! is_array($rows) || $rows === []) {
+            return 0;
+        }
+
+        $byName = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $nameKey = mb_strtolower(trim((string) ($row['name'] ?? '')));
+            if ($nameKey === '') {
+                continue;
+            }
+            if ($wanted !== [] && ! in_array($nameKey, $wanted, true)) {
+                continue;
+            }
+            $byName[$nameKey][] = $row;
+        }
+
+        $removed = 0;
+        foreach ($byName as $nameKey => $group) {
+            usort($group, function (array $a, array $b) {
+                $score = static function (array $row): int {
+                    $status = strtoupper((string) ($row['effective_status'] ?? $row['status'] ?? ''));
+                    if ($status === 'ACTIVE') {
+                        return 3;
+                    }
+                    if (in_array($status, ['PENDING_REVIEW', 'PREAPPROVED', 'IN_PROCESS'], true)) {
+                        return 2;
+                    }
+                    if ($status === 'PAUSED') {
+                        return 1;
+                    }
+
+                    return 0;
+                };
+
+                return $score($b) <=> $score($a);
+            });
+
+            $keep = $group[0] ?? null;
+            $keepId = (string) ($keep['id'] ?? '');
+            $keepStatus = strtoupper((string) ($keep['effective_status'] ?? $keep['status'] ?? ''));
+
+            // Publish retry: wipe lone paused leftovers so we do not end up with Active + Paused.
+            if ($deleteLonePaused && count($group) === 1 && $keepStatus === 'PAUSED' && $keepId !== '') {
+                if ($this->deleteMetaAdQuietly($keepId, $nameKey, $keepId)) {
+                    $removed++;
+                }
+                continue;
+            }
+
+            if (count($group) < 2) {
+                continue;
+            }
+
+            foreach (array_slice($group, 1) as $dup) {
+                $id = (string) ($dup['id'] ?? '');
+                if ($id === '' || $id === $keepId) {
+                    continue;
+                }
+                $status = strtoupper((string) ($dup['effective_status'] ?? $dup['status'] ?? ''));
+                if ($status === 'ACTIVE') {
+                    try {
+                        $this->meta->updateAd($id, ['status' => 'PAUSED']);
+                    } catch (\Throwable) {
+                    }
+                }
+                if ($this->deleteMetaAdQuietly($id, $nameKey, $keepId)) {
+                    $removed++;
+                }
+            }
+        }
+
+        return $removed;
+    }
+
+    protected function assertNoActiveMetaAdNamed(string $accountId, string $adName): void
+    {
+        $adName = trim($adName);
+        if ($adName === '') {
+            return;
+        }
+
+        try {
+            $response = $this->meta->getAds($accountId);
+            $rows = $response['data'] ?? [];
+        } catch (\Throwable) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            if (strcasecmp((string) ($row['name'] ?? ''), $adName) !== 0) {
+                continue;
+            }
+            $status = strtoupper((string) ($row['effective_status'] ?? $row['status'] ?? ''));
+            if ($status === 'ACTIVE') {
+                throw new Exception(
+                    'An ACTIVE Meta ad named "'.$adName.'" already exists. Use that ad (Pause / Start now), or run Clean Meta duplicates first — publishing again creates duplicates.'
+                );
+            }
+        }
+    }
+
+    protected function deleteMetaAdQuietly(string $id, string $nameKey, string $keptId): bool
+    {
+        try {
+            $this->meta->deleteAd($id);
+            Log::warning('META_PAUSED_DUPLICATE_AD_DELETED', [
+                'ad_id' => $id,
+                'kept_ad_id' => $keptId,
+                'name' => $nameKey,
+            ]);
+
+            return true;
+        } catch (\Throwable $e) {
+            try {
+                $this->meta->updateAd($id, ['status' => 'DELETED']);
+
+                return true;
+            } catch (\Throwable) {
+                Log::error('META_PAUSED_DUPLICATE_AD_DELETE_FAILED', [
+                    'ad_id' => $id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return false;
+            }
+        }
     }
 
     protected function countEmptyMetaCampaignsByName(string $accountId, string $name): int

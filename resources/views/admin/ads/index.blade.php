@@ -37,11 +37,16 @@
                     <a href="{{ route('admin.ads.index', ['show_duplicates' => 1]) }}" class="font-semibold underline">Show duplicates</a>
                 @endif
                 ·
-                <form method="POST" action="{{ route('admin.ads.clean-duplicates') }}" class="inline" onsubmit="return confirm('Pause extra Meta ads with the same name, remove local duplicates, and delete empty Meta ad sets (No ads orphans)? Primary Active ads are kept.');">
+                <form method="POST" action="{{ route('admin.ads.clean-duplicates') }}" class="inline" onsubmit="return confirm('Delete extra Meta ads with the same name (keep the Active one), remove local duplicates, and clear empty Meta ad sets?');">
                     @csrf
                     <button type="submit" class="font-semibold underline">Clean duplicates</button>
                 </form>
             </p>
+        @else
+            <form method="POST" action="{{ route('admin.ads.clean-duplicates') }}" class="mt-2 inline" onsubmit="return confirm('Scan Meta for paused same-name ads and empty No ads ad sets, then remove them (Active ads are kept)?');">
+                @csrf
+                <button type="submit" class="text-xs font-semibold text-slate-500 underline hover:text-amber-800">Clean Meta duplicates</button>
+            </form>
         @endif
     </div>
     <div class="flex flex-shrink-0 flex-wrap items-center gap-2 sm:gap-3">

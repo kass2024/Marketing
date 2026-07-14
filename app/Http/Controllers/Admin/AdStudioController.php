@@ -489,6 +489,12 @@ class AdStudioController extends Controller
         $data['ad_name'] = $data['ad_name'] ?? (($data['name'] ?? 'Campaign').' — Ad');
         $data['creative_name'] = $data['creative_name'] ?? (($data['name'] ?? 'Campaign').' — Creative');
 
+        foreach (['dest_messenger', 'dest_instagram', 'dest_whatsapp'] as $destKey) {
+            if (array_key_exists($destKey, $data)) {
+                $data[$destKey] = filter_var($data[$destKey], FILTER_VALIDATE_BOOLEAN) ? '1' : '0';
+            }
+        }
+
         if (! empty($data['set_end_date']) && empty($data['end_date'])) {
             $data['end_date'] = null;
         }
@@ -670,6 +676,7 @@ class AdStudioController extends Controller
             }
         }
 
+        // Only fall back to platform connection number when no WABA directory phones exist
         if ($connection?->whatsapp_phone_number) {
             $digits = preg_replace('/\D+/', '', $connection->whatsapp_phone_number) ?? '';
 
@@ -847,7 +854,8 @@ class AdStudioController extends Controller
         if ($connection?->whatsapp_phone_number) {
             $digits = preg_replace('/\D+/', '', $connection->whatsapp_phone_number) ?? '';
             $platformId = (string) ($connection->whatsapp_phone_number_id ?: 'platform');
-            if (! str_starts_with($platformId, 'display:')) {
+            // Do not inject platform default when WABA directory already has numbers
+            if ($numbers === [] && ! str_starts_with($platformId, 'display:')) {
                 $push(
                     $platformId,
                     $connection->page_name ?? $connection->business_name ?? 'Platform default',

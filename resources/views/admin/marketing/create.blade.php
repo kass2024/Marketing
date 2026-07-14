@@ -490,6 +490,9 @@
                         </div>
 
                         <div x-show="form.message_destination_mode === 'manual'" class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+                            <input type="hidden" name="dest_messenger" :value="form.dest_messenger ? '1' : '0'">
+                            <input type="hidden" name="dest_instagram" :value="form.dest_instagram ? '1' : '0'">
+                            <input type="hidden" name="dest_whatsapp" :value="form.dest_whatsapp ? '1' : '0'">
                             <label class="flex items-center gap-2 text-sm font-medium text-slate-800">
                                 <input type="checkbox" x-model="form.dest_messenger" class="rounded text-[#0866FF]"> Facebook Messenger
                                 <span class="text-xs font-normal text-slate-500" x-text="'(' + selectedPageName() + ')'"></span>
@@ -503,7 +506,7 @@
                             </label>
                         </div>
 
-                        <div class="space-y-4 rounded-xl border-2 border-[#25D366]/30 bg-[#25D366]/5 p-4">
+                        <div class="space-y-4 rounded-xl border-2 border-[#25D366]/30 bg-[#25D366]/5 p-4" x-show="form.message_destination_mode === 'automatic' || form.dest_whatsapp">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <p class="text-sm font-bold text-slate-900">WhatsApp phone number</p>
                                 <div class="flex items-center gap-3">
@@ -529,18 +532,20 @@
 
                             <input type="text" x-show="!whatsappNumbers.length || form.whatsapp_phone_number === '__custom__'"
                                 x-model="form.whatsapp_phone_custom"
-                                @input="form.whatsapp_phone_number = form.whatsapp_phone_custom.replace(/\D/g,'')"
-                                placeholder="+1 438-703-0350"
+                                @input="form.whatsapp_phone_number = form.whatsapp_phone_custom.replace(/\D/g,''); form.whatsapp_chat_url = '';"
+                                placeholder="+1 450-367-5329"
                                 class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
                             <input type="hidden" name="whatsapp_phone_number"
                                 :value="form.whatsapp_phone_number === '__custom__' ? form.whatsapp_phone_custom.replace(/\D/g,'') : form.whatsapp_phone_number">
                             <input type="hidden" name="whatsapp_phone_number_id" :value="form.whatsapp_phone_number_id || ''">
 
                             <div>
-                                <label class="block text-xs font-semibold uppercase text-slate-500">Or WhatsApp link (wa.me)</label>
+                                <label class="block text-xs font-semibold uppercase text-slate-500">WhatsApp link (optional override)</label>
                                 <input type="text" name="whatsapp_chat_url" x-model="form.whatsapp_chat_url"
-                                    placeholder="https://wa.me/14387030350"
+                                    @input="if ((form.whatsapp_chat_url || '').trim()) { /* optional override — leave dropdown for identity */ }"
+                                    placeholder="Leave blank to use the selected number above"
                                     class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 font-mono text-sm">
+                                <p class="mt-1 text-[11px] text-slate-500">Leave empty. The dropdown number is what gets published. A filled wa.me link was overriding your selection.</p>
                             </div>
 
                             <label class="flex items-center gap-2 text-sm">
@@ -1145,10 +1150,14 @@ function adStudio(config) {
 
         init() {
             if (!this.form.placements.length) this.form.placements = config.placementKeys || [];
-            if (this.whatsappNumbers.length && !this.form.whatsapp_phone_number) {
-                this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
-            }
-            if (this.form.whatsapp_phone_number && this.form.whatsapp_phone_number !== '__custom__') {
+            // Prefer synced WABA numbers over platform/defaultPhone (avoids wrong platform …0350)
+            if (this.whatsappNumbers.length) {
+                const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
+                if (!match) {
+                    this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
+                }
+                this.onWhatsAppSelect();
+            } else if (this.form.whatsapp_phone_number && this.form.whatsapp_phone_number !== '__custom__') {
                 this.onWhatsAppSelect();
             }
             if (!this.form.instagram_user_id && this.instagramAccounts.length) {
@@ -1293,16 +1302,22 @@ function adStudio(config) {
         },
 
         get waLink() {
-            const custom = (this.form.whatsapp_chat_url || '').trim();
+            // Always preview the selected dropdown / custom number — never a stale wa.me override
             const text = this.form.whatsapp_prefill_message || '';
-            if (custom.startsWith('http')) {
-                if (text && !/[?&]text=/i.test(custom)) {
-                    return custom + (custom.includes('?') ? '&' : '?') + 'text=' + encodeURIComponent(text);
-                }
-                return custom;
+            let phone = '';
+            if (this.form.whatsapp_phone_number === '__custom__') {
+                phone = (this.form.whatsapp_phone_custom || '').replace(/\D/g, '');
+            } else {
+                phone = String(this.form.whatsapp_phone_number || '').replace(/\D/g, '');
             }
-            const phone = (custom || this.form.whatsapp_phone_number || '').replace(/\D/g, '');
-            if (!phone || phone === '__custom__') return '';
+            if (!phone) {
+                const custom = (this.form.whatsapp_chat_url || '').trim();
+                if (custom.startsWith('http')) {
+                    const m = custom.match(/wa\.me\/(\d+)/i);
+                    phone = m ? m[1] : custom.replace(/\D/g, '');
+                }
+            }
+            if (!phone) return '';
             return 'https://wa.me/' + phone + (text ? '?text=' + encodeURIComponent(text) : '');
         },
 
@@ -1356,6 +1371,9 @@ function adStudio(config) {
         },
 
         hasWa() {
+            if (this.form.message_destination_mode === 'manual' && !this.form.dest_whatsapp) {
+                return true; // Messenger / Instagram-only does not need a WhatsApp number
+            }
             const p = this.form.whatsapp_phone_number;
             if (p && p !== '__custom__') return true;
             if (this.form.whatsapp_phone_custom?.replace(/\D/g, '')) return true;
@@ -1367,7 +1385,13 @@ function adStudio(config) {
             if (i === 1) return !!this.form.primary_text && (!!this.previewImage || !!this.form.stock_image_id || !!this.form.ai_image_path);
             if (i === 2) return !!this.form.name && !!this.form.objective;
             if (i === 3) return this.form.daily_budget_dollars >= 5 && this.form.countries.length > 0;
-            if (i === 4) return this.hasWa();
+            if (i === 4) {
+                if (this.form.message_destination_mode === 'manual'
+                    && !this.form.dest_messenger && !this.form.dest_instagram && !this.form.dest_whatsapp) {
+                    return false;
+                }
+                return this.hasWa();
+            }
             return false;
         },
 
@@ -1639,6 +1663,7 @@ function adStudio(config) {
             if (this.form.whatsapp_phone_number === '__custom__') {
                 this.form.whatsapp_phone_custom = '';
                 this.form.whatsapp_phone_number_id = '';
+                this.form.whatsapp_chat_url = '';
                 return;
             }
             const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
@@ -1646,6 +1671,7 @@ function adStudio(config) {
             if (String(this.form.whatsapp_phone_number_id).startsWith('display:')) {
                 this.form.whatsapp_phone_number_id = '';
             }
+            // Clear leftover platform wa.me so it cannot override the selected WABA number on publish
             this.form.whatsapp_chat_url = '';
         },
 

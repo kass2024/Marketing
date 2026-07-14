@@ -2021,6 +2021,10 @@ if (!is_array($targeting)) {
             'object_story_spec' => json_encode($objectStorySpec),
         ];
 
+        if (! empty($data['asset_feed_spec']) && is_array($data['asset_feed_spec'])) {
+            $payload['asset_feed_spec'] = json_encode($data['asset_feed_spec']);
+        }
+
         Log::info('META_CREATIVE_PAYLOAD',$payload);
 
         return $this->post("{$accountId}/adcreatives", $payload, true);
@@ -2635,7 +2639,16 @@ public function getAccountStatus($accountId)
             $promoted['whats_app_business_phone_number_id'] = $phoneNumberId;
         }
 
-        if ($phoneDigits === '' && empty($promoted['whats_app_business_phone_number_id'])) {
+        $destinationType = strtoupper((string) (
+            $data['destination_type']
+            ?? 'WHATSAPP'
+        ));
+
+        if (
+            ($destinationType === 'WHATSAPP' || str_contains($destinationType, 'WHATSAPP'))
+            && $phoneDigits === ''
+            && empty($promoted['whats_app_business_phone_number_id'])
+        ) {
             throw new Exception(
                 'WhatsApp Business number missing for Click-to-WhatsApp — select a business phone before publishing (Meta error 2446885 if the Page only has a personal WhatsApp).'
             );

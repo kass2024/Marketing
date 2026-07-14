@@ -67,23 +67,42 @@ class MarketingPublishService
                 ?? $connection->instagram_business_account_id
                 ?? $this->meta->resolveInstagramUserId($pageId, $account->meta_id);
 
-            // Do not use ?? on chat_url — the form always posts an empty string and would
-            // shadow the selected business phone, leaving promoted_object with only page_id
-            // (Meta then uses the Page's personal WhatsApp → error 2446885).
-            $chatUrl = trim((string) ($wizardData['whatsapp_chat_url'] ?? ''));
+            $messagingApps = $this->creativeBuilder->resolveMessagingApps($wizardData);
+            Log::info('MESSAGING_DESTINATIONS', $messagingApps);
+
+            // Dropdown phone ALWAYS wins over a leftover wa.me / platform default URL.
+            // That stale link (e.g. platform …0350) was overriding the selected WABA number (…5329).
             $phoneField = trim((string) ($wizardData['whatsapp_phone_number'] ?? ''));
+            if ($phoneField === '__custom__') {
+                $phoneField = '';
+            }
+            $chatUrl = trim((string) ($wizardData['whatsapp_chat_url'] ?? ''));
             $connectionPhone = trim((string) ($connection->whatsapp_phone_number ?? ''));
-            $waDestination = $chatUrl !== ''
-                ? $chatUrl
-                : ($phoneField !== '' ? $phoneField : $connectionPhone);
-            $whatsappPhone = $this->creativeBuilder->phoneFromLink($waDestination)
-                ?? (preg_replace('/\D+/', '', $waDestination) ?: null)
-                ?? '';
-            $whatsappPhoneId = $this->resolveWhatsAppBusinessPhoneNumberId(
-                (string) $whatsappPhone,
-                $wizardData,
-                $connection
-            );
+
+            if ($phoneField !== '') {
+                $waDestination = $phoneField;
+            } elseif ($chatUrl !== '') {
+                $waDestination = $chatUrl;
+            } elseif (! empty($messagingApps['whatsapp'])) {
+                // Never prefer .env / platform default when WhatsApp accounts are selected in UI —
+                // only use connection as last resort if nothing else was posted.
+                $waDestination = $connectionPhone;
+            } else {
+                $waDestination = '';
+            }
+
+            $whatsappPhone = $waDestination !== ''
+                ? ((string) ($this->creativeBuilder->phoneFromLink($waDestination)
+                    ?? (preg_replace('/\D+/', '', $waDestination) ?: null)
+                    ?? ''))
+                : '';
+            $whatsappPhoneId = $whatsappPhone !== ''
+                ? $this->resolveWhatsAppBusinessPhoneNumberId(
+                    (string) $whatsappPhone,
+                    $wizardData,
+                    $connection
+                )
+                : null;
             $status = $activate ? 'ACTIVE' : 'PAUSED';
             $budgetCents = $this->resolveBudgetCents($wizardData);
 
@@ -115,19 +134,30 @@ class MarketingPublishService
             ]);
 
             $targeting = $this->buildTargeting($wizardData);
-            $adSetDefaults = $this->creativeBuilder->whatsAppAdSetDefaults(
+            $adSetDefaults = $this->creativeBuilder->messagingAdSetDefaults(
                 $pageId,
+                $messagingApps,
                 (string) $whatsappPhone,
                 $whatsappPhoneId
             );
 
-            if (empty($adSetDefaults['promoted_object']['whatsapp_phone_number'])) {
+            if (! empty($messagingApps['whatsapp']) && empty($adSetDefaults['promoted_object']['whatsapp_phone_number'])) {
                 throw new Exception(
-                    'Select a WhatsApp Business number before publishing. Meta needs promoted_object.whatsapp_phone_number so it does not fall back to a personal WhatsApp linked on the Page.'
+                    'Select a WhatsApp Business number from your WhatsApp accounts before publishing (do not rely on the platform default).'
                 );
             }
 
-            Log::info('WA_PROMOTED_OBJECT', $adSetDefaults['promoted_object'] ?? []);
+            if (! empty($messagingApps['instagram']) && empty($instagramUserId)) {
+                throw new Exception(
+                    'Instagram is selected as a message destination — choose an Instagram account in Ad set identities.'
+                );
+            }
+
+            Log::info('WA_PROMOTED_OBJECT', [
+                'destination_type' => $adSetDefaults['destination_type'] ?? null,
+                'promoted_object' => $adSetDefaults['promoted_object'] ?? [],
+                'messaging_apps' => $messagingApps,
+            ]);
 
             $adSetAttrs = [
                 'campaign_id' => $campaign->id,
@@ -178,7 +208,9 @@ class MarketingPublishService
             }
 
             $prefill = (string) ($wizardData['whatsapp_prefill_message'] ?? '');
-            $fallbackUrl = $this->creativeBuilder->resolveWhatsAppLink($waDestination, $prefill);
+            $fallbackUrl = $whatsappPhone !== ''
+                ? $this->creativeBuilder->buildWhatsAppLink((string) $whatsappPhone, $prefill)
+                : '';
 
             $creativeInput = [
                 'page_id' => $pageId,
@@ -187,14 +219,14 @@ class MarketingPublishService
                 'primary_text' => $wizardData['primary_text'] ?? $wizardData['body'] ?? '',
                 'description' => $wizardData['description'] ?? '',
                 'image_hash' => $imageHash,
-                'whatsapp_chat_url' => str_starts_with($waDestination, 'http') ? $waDestination : null,
                 'whatsapp_phone_number' => $whatsappPhone,
                 'whatsapp_prefill_message' => $prefill,
             ];
 
-            $creativePayload = $this->creativeBuilder->buildCreativePayload(
+            $creativePayload = $this->creativeBuilder->buildMessagingCreativePayload(
                 $wizardData['creative_name'] ?? ($campaign->name.' — Creative'),
-                $creativeInput
+                $creativeInput,
+                $messagingApps
             );
 
             $metaCreative = $this->meta->createClickToWhatsAppCreative($accountId, $creativePayload);
@@ -206,15 +238,15 @@ class MarketingPublishService
                 'headline' => $wizardData['headline'] ?? null,
                 'body' => $wizardData['primary_text'] ?? $wizardData['body'] ?? null,
                 'description' => $wizardData['description'] ?? null,
-                'call_to_action' => $this->creativeBuilder->buildObjectStorySpec($creativeInput)['link_data']['call_to_action']['type'] ?? 'WHATSAPP_MESSAGE',
+                'call_to_action' => $creativePayload['object_story_spec']['link_data']['call_to_action']['type'] ?? 'WHATSAPP_MESSAGE',
                 'creative_format' => 'click_to_whatsapp',
                 'page_id' => $pageId,
                 'instagram_user_id' => $instagramUserId,
-                'whatsapp_phone_number' => $whatsappPhone,
+                'whatsapp_phone_number' => $whatsappPhone ?: null,
                 'whatsapp_prefill_message' => $prefill,
-                'whatsapp_chat_url' => str_starts_with($waDestination, 'http') ? $fallbackUrl : null,
-                'whatsapp_fallback_url' => $fallbackUrl,
-                'destination_url' => $fallbackUrl,
+                'whatsapp_chat_url' => $fallbackUrl !== '' ? $fallbackUrl : null,
+                'whatsapp_fallback_url' => $fallbackUrl !== '' ? $fallbackUrl : null,
+                'destination_url' => $fallbackUrl !== '' ? $fallbackUrl : null,
                 'image_url' => $wizardData['image_path'] ?? null,
                 'image_hash' => $imageHash,
                 'meta_id' => $metaCreative['id'] ?? null,
@@ -322,19 +354,30 @@ class MarketingPublishService
 
     /**
      * Resolve Meta WhatsApp Business phone number ID for promoted_object.
-     * Prefers wizard phone_number_id, then connection, then local directory match by digits.
+     * Prefer the selected dropdown id / directory match by digits — never a mismatched platform .env number.
      */
     protected function resolveWhatsAppBusinessPhoneNumberId(
         string $digits,
         array $wizardData,
         PlatformMetaConnection $connection
     ): ?string {
-        $candidates = [
+        $pick = static function (string $id): ?string {
+            $id = trim($id);
+            if ($id === '' || str_starts_with($id, 'display:') || $id === 'platform' || ! ctype_digit($id)) {
+                return null;
+            }
+
+            return $id;
+        };
+
+        foreach ([
             (string) ($wizardData['whatsapp_phone_number_id'] ?? ''),
             (string) ($wizardData['phone_number_id'] ?? ''),
-            (string) ($connection->whatsapp_phone_number_id ?? ''),
-            (string) (config('platform.whatsapp.phone_number_id') ?? ''),
-        ];
+        ] as $raw) {
+            if ($found = $pick($raw)) {
+                return $found;
+            }
+        }
 
         $tail = strlen($digits) >= 10 ? substr($digits, -10) : $digits;
         try {
@@ -346,20 +389,20 @@ class MarketingPublishService
                 $display = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?: '';
                 $phoneTail = strlen($display) >= 10 ? substr($display, -10) : $display;
                 if ($tail !== '' && $phoneTail === $tail) {
-                    $candidates[] = (string) ($phone['id'] ?? '');
+                    if ($found = $pick((string) ($phone['id'] ?? ''))) {
+                        return $found;
+                    }
                 }
             }
         } catch (\Throwable) {
             // ignore
         }
 
-        foreach ($candidates as $id) {
-            $id = trim($id);
-            if ($id === '' || str_starts_with($id, 'display:') || $id === 'platform') {
-                continue;
-            }
-            if (ctype_digit($id)) {
-                return $id;
+        $connectionDigits = preg_replace('/\D+/', '', (string) ($connection->whatsapp_phone_number ?? '')) ?: '';
+        $connectionTail = strlen($connectionDigits) >= 10 ? substr($connectionDigits, -10) : $connectionDigits;
+        if ($tail !== '' && $connectionTail === $tail) {
+            if ($found = $pick((string) ($connection->whatsapp_phone_number_id ?? ''))) {
+                return $found;
             }
         }
 

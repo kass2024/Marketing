@@ -467,6 +467,10 @@ Route::prefix('ads')->name('ads.')->group(function () {
         ->name('sync');
 Route::get('{ad}/preview', [AdController::class,'preview'])
     ->name('preview');
+    Route::get('{ad}/preview-studio', [AdController::class, 'previewStudio'])
+        ->name('preview-studio');
+    Route::post('clean-duplicates', [AdController::class, 'cleanDuplicates'])
+        ->name('clean-duplicates');
     Route::post('{ad}/publish', [AdController::class, 'publish'])
         ->name('publish');
 

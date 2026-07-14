@@ -2606,6 +2606,34 @@ public function getAccountStatus($accountId)
         return $this->createCampaign($accountId, $data);
     }
 
+    /**
+     * Fetch iframe HTML for an existing Meta ad preview.
+     *
+     * @see https://developers.facebook.com/docs/marketing-api/generatepreview
+     */
+    public function fetchAdPreviewHtml(string $adId, string $adFormat = 'MOBILE_FEED_STANDARD'): ?string
+    {
+        $this->ensureConfigured();
+
+        try {
+            $res = $this->get($adId.'/previews', [
+                'ad_format' => $adFormat,
+            ]);
+            $body = data_get($res, 'data.0.body')
+                ?? data_get($res, 'data.0.iframe')
+                ?? null;
+
+            return is_string($body) && $body !== '' ? $body : null;
+        } catch (Throwable $e) {
+            Log::info('META_AD_PREVIEW_SKIP', [
+                'ad_id' => $adId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
     public function createWhatsAppAdSet(string $accountId, array $data): array
     {
         $data['optimization_goal'] = $data['optimization_goal'] ?? 'CONVERSATIONS';

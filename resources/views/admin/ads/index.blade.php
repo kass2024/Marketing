@@ -4,7 +4,7 @@
 
 @section('content')
 
-<div class="mx-auto max-w-[1600px] space-y-6 sm:space-y-8">
+<div class="mx-auto max-w-[1600px] space-y-6 sm:space-y-8" x-data="adsPreviewStudio()">
 
 @if($errors->any())
 <div class="bg-red-100 border border-red-200 text-red-700 p-4 rounded-lg">
@@ -28,6 +28,21 @@
             <span id="live-indicator" class="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
             <span id="live-status">Live from Meta — updating…</span>
         </p>
+        @if(($duplicateCount ?? 0) > 0)
+            <p class="mt-2 text-xs text-amber-800">
+                {{ $duplicateCount }} duplicate name(s) hidden —
+                @if($showDuplicates ?? false)
+                    <a href="{{ route('admin.ads.index') }}" class="font-semibold underline">Hide duplicates</a>
+                @else
+                    <a href="{{ route('admin.ads.index', ['show_duplicates' => 1]) }}" class="font-semibold underline">Show duplicates</a>
+                @endif
+                ·
+                <form method="POST" action="{{ route('admin.ads.clean-duplicates') }}" class="inline" onsubmit="return confirm('Pause extra Meta ads with the same name and remove local duplicates? Primary Active ads are kept.');">
+                    @csrf
+                    <button type="submit" class="font-semibold underline">Clean duplicates</button>
+                </form>
+            </p>
+        @endif
     </div>
     <div class="flex flex-shrink-0 flex-wrap items-center gap-2 sm:gap-3">
         <a
@@ -196,10 +211,25 @@ ALERTS
     $targetsIg = $ad->adSet?->targetsInstagram() ?? false;
 @endphp
     <div class="space-y-1">
+        @php $msgLabels = $ad->adSet?->messagingDestinationLabels() ?? []; @endphp
+        @if(count($msgLabels))
+            <div class="flex flex-wrap gap-1">
+                @foreach($msgLabels as $lab)
+                    <span class="inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1
+                        @if($lab === 'WhatsApp') bg-emerald-50 text-emerald-800 ring-emerald-600/15
+                        @elseif($lab === 'Instagram') bg-fuchsia-50 text-fuchsia-800 ring-fuchsia-600/15
+                        @else bg-sky-50 text-sky-800 ring-sky-600/15
+                        @endif">{{ $lab }}</span>
+                @endforeach
+            </div>
+        @endif
         @if(count($targetLabels))
             <div class="text-[11px] text-slate-500" title="Ad set placement settings">
                 Target: {{ implode(', ', $targetLabels) }}
             </div>
+        @endif
+        @if(!empty($ad->is_list_duplicate))
+            <span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900 ring-1 ring-amber-600/15">Duplicate name</span>
         @endif
         @if($igImp > 0)
             <span class="inline-flex rounded-md bg-fuchsia-50 px-2 py-0.5 text-xs font-semibold text-fuchsia-800 ring-1 ring-fuchsia-600/15">
@@ -262,7 +292,10 @@ ALERTS
 {{-- ACTIONS: sticky + vertical stack so nothing clips --}}
 <td class="sticky right-0 z-10 min-w-[10.5rem] border-l border-slate-200 bg-white px-3 py-3 align-top shadow-[-12px_0_24px_-12px_rgba(15,23,42,0.1)] backdrop-blur-[2px] transition-colors group-hover:bg-slate-50/95 lg:min-w-[11rem] lg:px-4">
     <div class="flex flex-col items-stretch gap-1.5">
-        <a href="{{ route('admin.ads.preview',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-navy ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Preview</a>
+        <button type="button"
+            @click="openPreview({{ $ad->id }})"
+            class="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-center text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15 transition hover:bg-emerald-100">Preview</button>
+        <a href="{{ route('admin.ads.preview',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-navy ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Insights</a>
         <a href="{{ route('admin.ads.edit',$ad) }}" class="rounded-lg bg-slate-50 px-2.5 py-1.5 text-center text-xs font-semibold text-xander-secondary ring-1 ring-slate-200/80 transition hover:bg-white hover:ring-xander-navy/25">Edit</a>
         @if($ad->status !== 'ACTIVE')
             <form method="POST" action="{{ route('admin.ads.publish',$ad->id) }}" class="m-0">
@@ -293,9 +326,9 @@ ALERTS
             @csrf
             <button type="submit" class="w-full rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/80 transition hover:bg-white">Sync</button>
         </form>
-        <form method="POST" action="{{ route('admin.ads.duplicate',$ad->id) }}" class="m-0">
+        <form method="POST" action="{{ route('admin.ads.duplicate',$ad->id) }}" class="m-0" onsubmit="return confirm('Create a LOCAL draft copy only? This does not publish another ad to Meta.');">
             @csrf
-            <button type="submit" class="w-full rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-800 ring-1 ring-violet-600/15 transition hover:bg-violet-100">Duplicate</button>
+            <button type="submit" class="w-full rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs font-semibold text-violet-800 ring-1 ring-violet-600/15 transition hover:bg-violet-100">Draft copy</button>
         </form>
         <form method="POST" action="{{ route('admin.ads.destroy',$ad->id) }}" class="m-0" onsubmit="return confirm('Delete this ad?');">
             @csrf
@@ -330,10 +363,165 @@ ALERTS
     </div>
 @endif
 </div>
+
+{{-- Meta-style Ad preview (Ad + Destination) --}}
+<div x-show="open" x-cloak class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="close()">
+    <div class="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" @click.outside="close()">
+        <div class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+            <p class="text-base font-bold text-slate-900">Ad preview</p>
+            <button type="button" class="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100" @click="close()" aria-label="Close">✕</button>
+        </div>
+        <div class="flex gap-2 border-b border-slate-100 px-5 pt-3">
+            <button type="button" @click="tab = 'ad'"
+                class="rounded-t-lg px-4 py-2 text-sm font-semibold"
+                :class="tab === 'ad' ? 'bg-sky-50 text-[#0866FF] ring-1 ring-[#0866FF]/30' : 'text-slate-500 hover:text-slate-800'">Ad</button>
+            <button type="button" @click="tab = 'destination'"
+                class="rounded-t-lg px-4 py-2 text-sm font-semibold"
+                :class="tab === 'destination' ? 'bg-sky-50 text-[#0866FF] ring-1 ring-[#0866FF]/30' : 'text-slate-500 hover:text-slate-800'">Destination</button>
+        </div>
+        <div class="flex min-h-0 flex-1 overflow-hidden">
+            <div class="flex flex-1 items-center justify-center overflow-auto bg-slate-100 p-4">
+                <template x-if="loading">
+                    <p class="text-sm text-slate-500">Loading preview…</p>
+                </template>
+                <template x-if="!loading && error">
+                    <p class="text-sm text-red-600" x-text="error"></p>
+                </template>
+                <template x-if="!loading && !error && tab === 'ad'">
+                    <div class="w-full max-w-sm">
+                        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg" x-show="!metaPreviewHtml">
+                            <div class="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                                <div class="h-8 w-8 rounded-full bg-slate-200"></div>
+                                <div class="min-w-0">
+                                    <p class="truncate text-xs font-bold text-slate-800" x-text="data?.destinations?.page_name || 'Page'"></p>
+                                    <p class="text-[10px] text-slate-400">Sponsored</p>
+                                </div>
+                            </div>
+                            <p class="px-3 py-2 text-sm text-slate-800" x-text="data?.creative?.body || ''"></p>
+                            <img :src="data?.creative?.image_url" x-show="data?.creative?.image_url" class="aspect-[4/5] w-full object-cover bg-slate-100" alt="">
+                            <div class="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2">
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-semibold text-slate-900" x-text="data?.creative?.headline || data?.ad?.name"></p>
+                                    <p class="text-[10px] uppercase text-slate-400">WhatsApp</p>
+                                </div>
+                                <span class="shrink-0 rounded-lg bg-[#0866FF] px-3 py-1.5 text-xs font-bold text-white">Send message</span>
+                            </div>
+                        </div>
+                        <div x-show="metaPreviewHtml" class="overflow-hidden rounded-xl bg-white shadow" x-html="metaPreviewHtml"></div>
+                        <a :href="data?.ad?.insights_url" class="mt-3 block text-center text-xs font-semibold text-[#0866FF] underline" x-show="data?.ad?.insights_url">Open full insights →</a>
+                    </div>
+                </template>
+                <template x-if="!loading && !error && tab === 'destination'">
+                    <div class="w-full max-w-[320px]">
+                        {{-- WhatsApp destination mock --}}
+                        <div x-show="destApp === 'whatsapp'" class="overflow-hidden rounded-[1.75rem] border-[6px] border-slate-800 bg-[#efeae2] shadow-xl">
+                            <div class="flex items-center gap-2 bg-[#075E54] px-3 py-2.5 text-white">
+                                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-xs font-bold">P</div>
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate text-sm font-semibold" x-text="(data?.destinations?.page_name || 'Business').slice(0, 22)"></p>
+                                    <p class="text-[10px] text-white/80">Business Account</p>
+                                </div>
+                            </div>
+                            <div class="space-y-2 px-3 py-3" style="min-height: 280px;">
+                                <div class="mx-auto max-w-[85%] rounded-lg bg-white p-2 shadow-sm">
+                                    <div class="flex gap-2">
+                                        <img :src="data?.creative?.image_url" x-show="data?.creative?.image_url" class="h-12 w-12 rounded object-cover" alt="">
+                                        <div class="min-w-0">
+                                            <p class="text-[10px] font-semibold text-slate-500">Ad</p>
+                                            <p class="truncate text-xs text-[#027eb5]">View details</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="max-w-[90%] rounded-lg rounded-tl-none bg-white px-3 py-2 text-xs text-slate-800 shadow-sm" x-text="data?.destinations?.welcome_message"></div>
+                            </div>
+                            <div class="flex items-center gap-2 bg-[#f0f2f5] px-2 py-2">
+                                <div class="min-w-0 flex-1 rounded-full bg-white px-3 py-2 text-xs text-slate-700 shadow-sm" x-text="data?.destinations?.prefill_message"></div>
+                                <div class="flex h-9 w-9 items-center justify-center rounded-full bg-[#25D366] text-sm text-white">➤</div>
+                            </div>
+                        </div>
+                        {{-- Messenger --}}
+                        <div x-show="destApp === 'messenger'" class="overflow-hidden rounded-[1.75rem] border-[6px] border-slate-800 bg-white shadow-xl">
+                            <div class="border-b border-slate-100 bg-[#0866FF] px-3 py-3 text-center text-sm font-semibold text-white">Messenger</div>
+                            <div class="space-y-3 p-4" style="min-height: 280px;">
+                                <p class="text-center text-xs text-slate-500" x-text="'Chat with ' + (data?.destinations?.page_name || 'Page')"></p>
+                                <div class="rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-800" x-text="data?.destinations?.prefill_message"></div>
+                            </div>
+                        </div>
+                        {{-- Instagram --}}
+                        <div x-show="destApp === 'instagram'" class="overflow-hidden rounded-[1.75rem] border-[6px] border-slate-800 bg-black shadow-xl">
+                            <div class="border-b border-white/10 px-3 py-3 text-center text-sm font-semibold text-white">Instagram</div>
+                            <div class="space-y-3 bg-neutral-900 p-4" style="min-height: 280px;">
+                                <p class="text-center text-xs text-white/60">Instagram Direct</p>
+                                <div class="rounded-2xl bg-neutral-800 px-3 py-2 text-sm text-white" x-text="data?.destinations?.prefill_message"></div>
+                            </div>
+                        </div>
+                        <p class="mt-2 text-center text-[11px] text-slate-500" x-show="destApp === 'whatsapp' && data?.destinations?.whatsapp_display">
+                            Number: <span class="font-semibold text-slate-800" x-text="data?.destinations?.whatsapp_display"></span>
+                        </p>
+                    </div>
+                </template>
+            </div>
+            <div class="flex w-14 flex-col items-center gap-3 border-l border-slate-100 bg-white py-6" x-show="tab === 'destination'">
+                <button type="button" @click="destApp = 'messenger'" x-show="data?.destinations?.apps?.messenger"
+                    class="flex h-10 w-10 items-center justify-center rounded-xl text-lg"
+                    :class="destApp === 'messenger' ? 'bg-sky-100 ring-2 ring-[#0866FF]' : 'bg-slate-50'" title="Messenger">💬</button>
+                <button type="button" @click="destApp = 'whatsapp'" x-show="data?.destinations?.apps?.whatsapp !== false"
+                    class="flex h-10 w-10 items-center justify-center rounded-xl text-lg"
+                    :class="destApp === 'whatsapp' ? 'bg-emerald-100 ring-2 ring-[#25D366]' : 'bg-slate-50'" title="WhatsApp">🟢</button>
+                <button type="button" @click="destApp = 'instagram'" x-show="data?.destinations?.apps?.instagram"
+                    class="flex h-10 w-10 items-center justify-center rounded-xl text-lg"
+                    :class="destApp === 'instagram' ? 'bg-fuchsia-100 ring-2 ring-fuchsia-500' : 'bg-slate-50'" title="Instagram">📷</button>
+            </div>
+        </div>
+        <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+            <button type="button" @click="close()" class="rounded-lg bg-[#0866FF] px-5 py-2 text-sm font-semibold text-white">OK</button>
+        </div>
+    </div>
+</div>
 </div>
 {{-- =========================================================
 LIVE AJAX DASHBOARD UPDATE
 ========================================================= --}}
+<script>
+function adsPreviewStudio() {
+    return {
+        open: false,
+        loading: false,
+        error: '',
+        tab: 'destination',
+        destApp: 'whatsapp',
+        data: null,
+        metaPreviewHtml: '',
+        async openPreview(adId) {
+            this.open = true;
+            this.loading = true;
+            this.error = '';
+            this.data = null;
+            this.metaPreviewHtml = '';
+            this.tab = 'destination';
+            this.destApp = 'whatsapp';
+            try {
+                const res = await fetch(`/admin/ads/${adId}/preview-studio`, { headers: { 'Accept': 'application/json' } });
+                const json = await res.json();
+                if (!json.ok) throw new Error(json.message || 'Preview failed');
+                this.data = json;
+                this.metaPreviewHtml = json.meta_preview_html || '';
+                const apps = json.destinations?.apps || {};
+                if (apps.whatsapp) this.destApp = 'whatsapp';
+                else if (apps.messenger) this.destApp = 'messenger';
+                else if (apps.instagram) this.destApp = 'instagram';
+            } catch (e) {
+                this.error = e.message || 'Could not load preview';
+            } finally {
+                this.loading = false;
+            }
+        },
+        close() {
+            this.open = false;
+        }
+    };
+}
+</script>
 <script>
 
 (function(){

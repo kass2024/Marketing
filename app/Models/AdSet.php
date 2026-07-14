@@ -318,6 +318,45 @@ public function getBudgetFormattedAttribute(): string
         return $labels;
     }
 
+    /**
+     * Messaging apps this ad set can open (from Meta destination_type).
+     *
+     * @return array{messenger: bool, instagram: bool, whatsapp: bool}
+     */
+    public function messagingDestinationApps(): array
+    {
+        $type = strtoupper(trim((string) ($this->destination_type ?? 'WHATSAPP')));
+
+        if ($type === '' || $type === 'UNDEFINED') {
+            return ['messenger' => false, 'instagram' => false, 'whatsapp' => true];
+        }
+
+        return [
+            'messenger' => $type === 'MESSENGER' || str_contains($type, 'MESSENGER'),
+            'instagram' => $type === 'INSTAGRAM_DIRECT' || str_contains($type, 'INSTAGRAM'),
+            'whatsapp' => $type === 'WHATSAPP' || str_contains($type, 'WHATSAPP'),
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function messagingDestinationLabels(): array
+    {
+        $apps = $this->messagingDestinationApps();
+        $labels = [];
+        if ($apps['messenger']) {
+            $labels[] = 'Messenger';
+        }
+        if ($apps['whatsapp']) {
+            $labels[] = 'WhatsApp';
+        }
+        if ($apps['instagram']) {
+            $labels[] = 'Instagram';
+        }
+
+        return $labels;
+    }
 
     /*
     |--------------------------------------------------------------------------

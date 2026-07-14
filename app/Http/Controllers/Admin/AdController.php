@@ -271,9 +271,9 @@ class AdController extends Controller
         return TenantScope::ads(
             Ad::query()
                 ->with([
-                    'creative:id,name,image_url,image_hash,json_payload',
-                    'adSet:id,name,campaign_id,targeting',
-                    'adSet.campaign:id,name,ad_account_id',
+                    'creative',
+                    'adSet:id,name,campaign_id,targeting,destination_type',
+                    'adSet.campaign:id,name,ad_account_id,meta_page_id',
                     'adSet.campaign.adAccount:id,name,meta_id',
                 ])
                 ->select($this->adsSelectColumns())
@@ -303,6 +303,178 @@ class AdController extends Controller
         ]));
     }
 
+    /**
+     * @return list<int>
+     */
+    protected function allTenantAdIds(): array
+    {
+        return TenantScope::ads(Ad::query()->select('id'))->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * One preferred ad per (adset_id + name): ACTIVE first, then newest id.
+     *
+     * @return list<int>
+     */
+    protected function preferredAdIdsByAdSetName(): array
+    {
+        $rows = TenantScope::ads(
+            Ad::query()->select(['id', 'adset_id', 'name', 'status', 'created_at'])
+        )->get();
+
+        $keep = [];
+        foreach ($rows->groupBy(fn (Ad $ad) => (string) ($ad->adset_id ?? 0).'|'.mb_strtolower(trim((string) $ad->name))) as $group) {
+            $best = $group->sortByDesc(function (Ad $ad) {
+                return sprintf('%d-%020d', $ad->status === 'ACTIVE' ? 1 : 0, (int) $ad->id);
+            })->first();
+            if ($best) {
+                $keep[] = (int) $best->id;
+            }
+        }
+
+        return $keep;
+    }
+
+    /**
+     * Meta-style Ad + Destination preview payload (for modal).
+     */
+    public function previewStudio(Ad $ad): JsonResponse
+    {
+        TenantScope::assertAd($ad);
+
+        $ad->load([
+            'creative',
+            'adSet',
+            'adSet.campaign',
+        ]);
+
+        if ($ad->creative) {
+            try {
+                Creative::hydrateMetaImageUrls(collect([$ad->creative]), $this->meta);
+                $ad->load('creative');
+            } catch (Throwable) {
+            }
+        }
+
+        $creative = $ad->creative;
+        $apps = $ad->adSet?->messagingDestinationApps() ?? [
+            'messenger' => false,
+            'instagram' => false,
+            'whatsapp' => true,
+        ];
+
+        $phone = preg_replace('/\D+/', '', (string) ($creative?->whatsapp_phone_number ?? '')) ?: '';
+        $prefill = (string) ($creative?->whatsapp_prefill_message ?? '');
+        $welcome = 'Thanks for reaching out — send the message below to get started.';
+        $payload = is_array($creative?->json_payload) ? $creative->json_payload : [];
+        $welcomeRaw = data_get($payload, 'object_story_spec.link_data.page_welcome_message');
+        if (is_string($welcomeRaw) && $welcomeRaw !== '') {
+            $decoded = json_decode($welcomeRaw, true);
+            if (is_array($decoded)) {
+                $welcome = (string) (data_get($decoded, 'text_format.message.text') ?: $welcome);
+                $autofill = (string) (data_get($decoded, 'text_format.message.autofill_message.content') ?: '');
+                if ($autofill !== '' && $prefill === '') {
+                    $prefill = $autofill;
+                }
+            }
+        }
+        if ($prefill === '') {
+            $prefill = "Hi! I'd like more details.";
+        }
+
+        $pageName = 'Business Account';
+        try {
+            $connection = app(\App\Services\Tenant\TenantConnectionResolver::class)->forCurrentUser();
+            if ($connection?->page_name) {
+                $pageName = (string) $connection->page_name;
+            }
+        } catch (Throwable) {
+        }
+
+        $imageUrl = $creative?->image_url;
+        $metaPreviewHtml = null;
+        if ($ad->meta_ad_id) {
+            try {
+                $metaPreviewHtml = $this->meta->fetchAdPreviewHtml((string) $ad->meta_ad_id, 'MOBILE_FEED_STANDARD');
+            } catch (Throwable) {
+                $metaPreviewHtml = null;
+            }
+        }
+
+        return response()->json([
+            'ok' => true,
+            'ad' => [
+                'id' => $ad->id,
+                'name' => $ad->name,
+                'meta_ad_id' => $ad->meta_ad_id,
+                'status' => $ad->status,
+                'insights_url' => route('admin.ads.preview', $ad),
+            ],
+            'creative' => [
+                'image_url' => $imageUrl,
+                'headline' => $creative?->headline ?: $creative?->name,
+                'body' => $creative?->body,
+                'cta' => $creative?->call_to_action ?: 'WHATSAPP_MESSAGE',
+            ],
+            'destinations' => [
+                'apps' => $apps,
+                'labels' => $ad->adSet?->messagingDestinationLabels() ?? ['WhatsApp'],
+                'destination_type' => $ad->adSet?->destination_type,
+                'page_name' => $pageName,
+                'whatsapp_phone' => $phone,
+                'whatsapp_display' => $phone !== ''
+                    ? (strlen($phone) === 11 && str_starts_with($phone, '1')
+                        ? '+1 '.substr($phone, 1, 3).'-'.substr($phone, 4, 3).'-'.substr($phone, 7)
+                        : '+'.$phone)
+                    : null,
+                'whatsapp_link' => $phone !== '' ? 'https://wa.me/'.$phone : ($creative?->whatsapp_fallback_url ?: $creative?->whatsapp_chat_url),
+                'welcome_message' => $welcome,
+                'prefill_message' => $prefill,
+                'instagram_user_id' => $creative?->instagram_user_id,
+            ],
+            'meta_preview_html' => $metaPreviewHtml,
+        ]);
+    }
+
+    public function cleanDuplicates(): RedirectResponse
+    {
+        $preferred = $this->preferredAdIdsByAdSetName();
+        $extras = TenantScope::ads(
+            Ad::query()->whereNotIn('id', $preferred ?: [0])
+        )->get();
+
+        $paused = 0;
+        $deleted = 0;
+
+        foreach ($extras as $ad) {
+            try {
+                if ($ad->meta_ad_id && $ad->status === 'ACTIVE') {
+                    try {
+                        $this->meta->updateAd((string) $ad->meta_ad_id, ['status' => 'PAUSED']);
+                    } catch (Throwable) {
+                    }
+                    $ad->update(['status' => 'PAUSED', 'pause_reason' => 'manual']);
+                    $paused++;
+                }
+                // Soft-delete local duplicate row only when it has no Meta id or already paused
+                if (! $ad->meta_ad_id || $ad->status !== 'ACTIVE') {
+                    $ad->delete();
+                    $deleted++;
+                }
+            } catch (Throwable $e) {
+                Log::warning('AD_CLEAN_DUPLICATE_FAILED', [
+                    'ad_id' => $ad->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return back()->with(
+            'success',
+            "Duplicates cleaned: {$paused} paused on Meta, {$deleted} removed locally. Primary ads kept."
+        );
+    }
+
     protected function buildAdsMetrics(iterable $ads, ?int $totalAds = null): array
     {
         $collection = collect($ads);
@@ -322,9 +494,18 @@ class AdController extends Controller
     | LIST ADS
     |--------------------------------------------------------------------------
     */
-public function index(): View
+public function index(Request $request): View
 {
-    $ads = $this->adsListQuery()->paginate(20);
+    $showDuplicates = $request->boolean('show_duplicates');
+    $preferredIds = $this->preferredAdIdsByAdSetName();
+    $duplicateCount = max(0, count($this->allTenantAdIds()) - count($preferredIds));
+
+    $query = $this->adsListQuery();
+    if (! $showDuplicates && $preferredIds !== []) {
+        $query->whereIn('id', $preferredIds);
+    }
+
+    $ads = $query->paginate(20)->withQueryString();
 
     $allAds = $this->adsMetricsQuery()->get();
     $this->hydrateLiveMetricsFromMeta($allAds, true, false);
@@ -332,7 +513,12 @@ public function index(): View
 
     $freshMap = $allAds->keyBy('id');
     $ads->setCollection(
-        $ads->getCollection()->map(fn (Ad $ad) => $freshMap->get($ad->id, $ad))
+        $ads->getCollection()->map(function (Ad $ad) use ($freshMap, $preferredIds) {
+            $row = $freshMap->get($ad->id, $ad);
+            $row->is_list_duplicate = ! in_array((int) $row->id, $preferredIds, true);
+
+            return $row;
+        })
     );
 
     try {
@@ -349,6 +535,8 @@ public function index(): View
     return view('admin.ads.index', [
         'ads' => $ads,
         'metrics' => $metrics,
+        'showDuplicates' => $showDuplicates,
+        'duplicateCount' => $duplicateCount,
     ]);
 }
 
@@ -1097,22 +1285,26 @@ public function pause(Ad $ad): RedirectResponse
 }
 public function duplicate(Ad $ad): RedirectResponse
 {
+    TenantScope::assertAd($ad);
+
+    // Local draft only — never creates a second Meta ad (avoids Ads Manager duplicates).
     $copy = $ad->replicate();
-
-    $copy->name = $ad->name.' Copy';
-
+    $copy->name = $ad->name.' (draft copy)';
     $copy->meta_ad_id = null;
-
     $copy->impressions = 0;
     $copy->clicks = 0;
     $copy->spend = 0;
     $copy->ctr = 0;
-
     $copy->status = 'PAUSED';
-
+    if (Schema::hasColumn('ads', 'pause_reason')) {
+        $copy->pause_reason = 'manual';
+    }
     $copy->save();
 
-    return back()->with('success','Ad duplicated.');
+    return back()->with(
+        'success',
+        'Local draft created only — nothing new was published to Meta. Use Ad Studio to publish intentionally.'
+    );
 }
 public function sync(Ad $ad): RedirectResponse
 {

@@ -147,7 +147,7 @@ Daily Budget ($)
 <input
 type="number"
 name="daily_budget"
-value="{{ old('daily_budget',2) }}"
+value="{{ old('daily_budget',5) }}"
 step="0.01"
 min="0.10"
 class="w-full border rounded-lg px-4 py-2"

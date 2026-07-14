@@ -127,7 +127,7 @@ Daily Budget ($)
        step="0.01"
        min="1"
        name="daily_budget"
-       value="{{ old('daily_budget',$ad->daily_budget ?? 2) }}"
+       value="{{ old('daily_budget',$ad->resolvedDailyBudgetDollars() ?: 5) }}"
        class="w-full border rounded-lg px-3 py-2 focus:ring focus:ring-blue-200">
 
 <p class="text-xs text-gray-500 mt-1">

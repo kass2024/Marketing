@@ -279,8 +279,11 @@ ALERTS
 {{-- TODAY --}}
 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-xander-secondary lg:px-5" id="today-{{ $ad->id }}">${{ number_format($ad->displayDailySpend(), 2) }}</td>
 
-{{-- BUDGET --}}
-<td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-slate-700 lg:px-5">${{ number_format($ad->daily_budget ?? 0,2) }}</td>
+{{-- BUDGET (ad-set / studio daily budget in USD) --}}
+<td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-slate-700 lg:px-5">
+    ${{ number_format($ad->resolvedDailyBudgetDollars(), 2) }}
+    <div class="text-[10px] font-normal text-slate-400">Daily</div>
+</td>
 
 {{-- REASON --}}
 <td class="px-4 py-3 align-top lg:px-5">

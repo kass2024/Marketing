@@ -162,7 +162,7 @@ $0.00
 <div>
 <p class="text-xs text-gray-500">Daily Budget</p>
 <p class="font-semibold text-gray-900">
-${{ number_format($ad->daily_budget ?? 0,2) }}
+${{ number_format($ad->resolvedDailyBudgetDollars(),2) }}
 </p>
 </div>
 

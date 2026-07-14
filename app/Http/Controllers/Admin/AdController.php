@@ -261,7 +261,7 @@ class AdController extends Controller
     {
         return TenantScope::ads(
             Ad::query()
-                ->with(['adSet:id,name,campaign_id,targeting'])
+                ->with(['adSet:id,name,campaign_id,targeting,destination_type,daily_budget'])
                 ->select($this->adsSelectColumns())
                 ->latest()
         );
@@ -273,8 +273,8 @@ class AdController extends Controller
             Ad::query()
                 ->with([
                     'creative',
-                    'adSet:id,name,campaign_id,targeting,destination_type',
-                    'adSet.campaign:id,name,ad_account_id,meta_page_id',
+                    'adSet:id,name,campaign_id,targeting,destination_type,daily_budget',
+                    'adSet.campaign:id,name,ad_account_id,meta_page_id,daily_budget',
                     'adSet.campaign.adAccount:id,name,meta_id',
                 ])
                 ->select($this->adsSelectColumns())
@@ -550,6 +550,9 @@ public function index(Request $request): View
     $ads = $query->paginate(20)->withQueryString();
 
     $allAds = $this->adsMetricsQuery()->get();
+    foreach ($allAds as $metricAd) {
+        $metricAd->syncDailyBudgetFromAdSet(true);
+    }
     $this->hydrateLiveMetricsFromMeta($allAds, true, false);
     $this->hydratePlacementDeliveryFromMeta($allAds);
 
@@ -558,6 +561,8 @@ public function index(Request $request): View
         $ads->getCollection()->map(function (Ad $ad) use ($freshMap, $preferredIds) {
             $row = $freshMap->get($ad->id, $ad);
             $row->is_list_duplicate = ! in_array((int) $row->id, $preferredIds, true);
+            // Show Ad Studio / Meta ad-set budget ($5), not stale ads.daily_budget default ($2).
+            $row->daily_budget = $row->syncDailyBudgetFromAdSet(true);
 
             return $row;
         })
@@ -784,7 +789,7 @@ $ad = Ad::create([
 'name' => $data['name'],
 'status' => $data['status'],
 
-'daily_budget' => $request->input('daily_budget', 2),
+'daily_budget' => $request->input('daily_budget', 5),
 'daily_spend' => 0
 ]);
 

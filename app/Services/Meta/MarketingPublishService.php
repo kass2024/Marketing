@@ -309,6 +309,8 @@ class MarketingPublishService
                 'creative_id' => $creative->id,
                 'name' => $wizardData['ad_name'] ?? ($campaign->name.' — Ad'),
                 'status' => $status,
+                // AdBudgetGuard + Ads list use dollars; ad set / campaign store Meta cents.
+                'daily_budget' => round($budgetCents / 100, 2),
             ]);
 
             $metaAd = $this->meta->createAd($accountId, [

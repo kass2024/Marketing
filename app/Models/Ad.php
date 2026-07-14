@@ -286,6 +286,54 @@ protected $casts = [
         return (float) ($this->daily_spend ?? 0);
     }
 
+    /**
+     * Daily budget in USD for Ads Manager UI / AdBudgetGuard.
+     * Prefer ad set (and campaign) cents from Ad Studio → Meta; fall back to ads.daily_budget dollars.
+     */
+    public function resolvedDailyBudgetDollars(): float
+    {
+        $this->loadMissing(['adSet.campaign']);
+
+        $adSetCents = (float) ($this->adSet?->daily_budget ?? 0);
+        if ($adSetCents >= 100) {
+            return round($adSetCents / 100, 2);
+        }
+
+        $campaignCents = (float) ($this->adSet?->campaign?->daily_budget ?? 0);
+        if ($campaignCents >= 100) {
+            return round($campaignCents / 100, 2);
+        }
+
+        $local = (float) ($this->daily_budget ?? 0);
+        if ($local >= 100) {
+            // Legacy rows accidentally stored cents on the ad.
+            return round($local / 100, 2);
+        }
+
+        return round(max(0, $local), 2);
+    }
+
+    /**
+     * Copy ad-set budget onto the ad row when Studio published cents but Ad.daily_budget stayed empty/stale.
+     */
+    public function syncDailyBudgetFromAdSet(bool $persist = true): float
+    {
+        $dollars = $this->resolvedDailyBudgetDollars();
+        if ($dollars <= 0) {
+            return (float) ($this->daily_budget ?? 0);
+        }
+
+        if (abs((float) ($this->daily_budget ?? 0) - $dollars) >= 0.005) {
+            $this->daily_budget = $dollars;
+            if ($persist && $this->exists) {
+                $this->forceFill(['daily_budget' => $dollars])->saveQuietly();
+            }
+        }
+
+        return $dollars;
+    }
+
+
 
     /**
      * Link to Meta Ads Manager

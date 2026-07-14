@@ -2241,6 +2241,7 @@ public function getAds(?string $accountId = null): array
             'id',
             'name',
             'status',
+            'configured_status',
             'effective_status',
             'adset_id',
 
@@ -2262,7 +2263,7 @@ public function getAds(?string $accountId = null): array
 public function getAd(string $adId): array
 {
     return $this->get($adId, [
-        'fields' => 'id,name,status,effective_status,adset_id,campaign_id'
+        'fields' => 'id,name,status,configured_status,effective_status,adset_id,campaign_id'
     ]);
 }
 /*

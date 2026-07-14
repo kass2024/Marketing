@@ -333,7 +333,99 @@ protected $casts = [
         return $dollars;
     }
 
+    /**
+     * Meta Ads Manager–style Delivery column (label, tip, key).
+     *
+     * @return array{label: string, key: string, tip_title: string, tip_body: string, effective: string}
+     */
+    public function deliveryPresentation(): array
+    {
+        $effective = strtoupper(trim((string) ($this->meta_effective_status ?: $this->status ?: '')));
+        $impressions = (int) ($this->impressions ?? 0);
 
+        // Meta shows "Preparing" while the auction warms up after approval (often still ACTIVE, 0 impr).
+        if (in_array($effective, ['IN_PROCESS', 'PREAPPROVED'], true)
+            || ($effective === 'ACTIVE' && $impressions === 0 && $this->pause_reason !== 'budget_limit')) {
+            return [
+                'key' => 'preparing',
+                'label' => 'Preparing',
+                'tip_title' => 'Preparing to deliver',
+                'tip_body' => 'Your ad successfully passed review. Now our delivery system is matching it to the right bid and audience so you can start seeing impressions. Typically up to a few hours (can take up to 12 hours).',
+                'effective' => $effective !== '' ? $effective : 'IN_PROCESS',
+            ];
+        }
+
+        return match ($effective) {
+            'ACTIVE', 'WITH_ISSUES' => [
+                'key' => 'active',
+                'label' => $effective === 'WITH_ISSUES' ? 'Active (issues)' : 'Active',
+                'tip_title' => $effective === 'WITH_ISSUES' ? 'Delivering with issues' : 'Active',
+                'tip_body' => $effective === 'WITH_ISSUES'
+                    ? 'This ad is delivering but Meta reported issues. Check Ads Manager recommendations.'
+                    : 'This ad is on and eligible to deliver impressions.',
+                'effective' => $effective,
+            ],
+            'PENDING_REVIEW', 'PENDING' => [
+                'key' => 'in_review',
+                'label' => 'In review',
+                'tip_title' => 'In review',
+                'tip_body' => 'Meta is reviewing this ad before it can deliver.',
+                'effective' => $effective,
+            ],
+            'DISAPPROVED' => [
+                'key' => 'disapproved',
+                'label' => 'Disapproved',
+                'tip_title' => 'Disapproved',
+                'tip_body' => 'Meta disapproved this ad. Edit the creative or check policy feedback.',
+                'effective' => $effective,
+            ],
+            'PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'PENDING_BILLING_INFO' => [
+                'key' => 'off',
+                'label' => 'Off',
+                'tip_title' => 'Off',
+                'tip_body' => match ($effective) {
+                    'CAMPAIGN_PAUSED' => 'The campaign is paused, so this ad is not delivering.',
+                    'ADSET_PAUSED' => 'The ad set is paused, so this ad is not delivering.',
+                    'PENDING_BILLING_INFO' => 'Billing info is required before this ad can deliver.',
+                    default => 'This ad is paused and not delivering.',
+                },
+                'effective' => $effective,
+            ],
+            'COMPLETED' => [
+                'key' => 'completed',
+                'label' => 'Completed',
+                'tip_title' => 'Completed',
+                'tip_body' => 'This ad finished its schedule and is no longer delivering.',
+                'effective' => $effective,
+            ],
+            'ARCHIVED', 'DELETED' => [
+                'key' => 'archived',
+                'label' => 'Archived',
+                'tip_title' => 'Archived',
+                'tip_body' => 'This ad is archived or deleted on Meta.',
+                'effective' => $effective,
+            ],
+            'DRAFT', '' => [
+                'key' => 'draft',
+                'label' => 'Draft',
+                'tip_title' => 'Draft',
+                'tip_body' => 'This ad has not been published to Meta yet.',
+                'effective' => $effective !== '' ? $effective : 'DRAFT',
+            ],
+            default => [
+                'key' => 'other',
+                'label' => ucwords(strtolower(str_replace('_', ' ', $effective))),
+                'tip_title' => 'Delivery status',
+                'tip_body' => 'Meta effective status: '.$effective,
+                'effective' => $effective,
+            ],
+        };
+    }
+
+    public function deliveryLabel(): string
+    {
+        return $this->deliveryPresentation()['label'];
+    }
 
     /**
      * Link to Meta Ads Manager

@@ -257,6 +257,86 @@ class AdController extends Controller
         }
     }
 
+    /**
+     * Pull Meta configured/effective status so Delivery matches Ads Manager (Preparing / Off / Active / Completed).
+     *
+     * @param  iterable<int, Ad>  $ads
+     */
+    protected function hydrateDeliveryStatusFromMeta(iterable $ads): bool
+    {
+        $ads = collect($ads)->filter(fn (Ad $ad) => filled($ad->meta_ad_id));
+        if ($ads->isEmpty()) {
+            return true;
+        }
+
+        $accountId = TenantScope::adAccountMetaId();
+        if (! $accountId) {
+            return true;
+        }
+
+        try {
+            $cacheKey = 'meta_ad_delivery_status:'.md5($accountId);
+            $map = Cache::remember($cacheKey, now()->addSeconds(15), function () use ($accountId) {
+                $response = $this->meta->getAds($accountId);
+                $out = [];
+                foreach ($response['data'] ?? [] as $row) {
+                    if (! is_array($row) || empty($row['id'])) {
+                        continue;
+                    }
+                    $out[(string) $row['id']] = [
+                        'status' => (string) ($row['configured_status'] ?? $row['status'] ?? ''),
+                        'effective_status' => (string) ($row['effective_status'] ?? $row['status'] ?? ''),
+                    ];
+                }
+
+                return $out;
+            });
+
+            if (! is_array($map)) {
+                return false;
+            }
+
+            foreach ($ads as $ad) {
+                $info = $map[(string) $ad->meta_ad_id] ?? null;
+                if (! is_array($info)) {
+                    continue;
+                }
+
+                $effective = strtoupper(trim((string) ($info['effective_status'] ?? '')));
+                $configured = strtoupper(trim((string) ($info['status'] ?? '')));
+                $payload = [];
+
+                if ($effective !== '' && $effective !== strtoupper((string) ($ad->meta_effective_status ?? ''))) {
+                    $payload['meta_effective_status'] = $effective;
+                } elseif ($effective !== '' && empty($ad->meta_effective_status)) {
+                    $payload['meta_effective_status'] = $effective;
+                }
+
+                // Keep local On/Off aligned with Meta configured status (except budget-guard pauses).
+                if (in_array($configured, ['ACTIVE', 'PAUSED'], true)
+                    && ($ad->pause_reason ?? null) !== 'budget_limit'
+                    && $configured !== strtoupper((string) $ad->status)) {
+                    $payload['status'] = $configured;
+                }
+
+                if ($payload !== []) {
+                    $ad->forceFill($payload);
+                    $ad->saveQuietly();
+                } elseif ($effective !== '') {
+                    $ad->setAttribute('meta_effective_status', $effective);
+                }
+            }
+
+            return true;
+        } catch (Throwable $e) {
+            Log::warning('ADS_LIVE_DELIVERY_STATUS_FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     protected function adsMetricsQuery()
     {
         return TenantScope::ads(
@@ -300,6 +380,7 @@ class AdController extends Controller
             Schema::hasColumn('ads', 'daily_spend_anchor') ? 'daily_spend_anchor' : null,
             Schema::hasColumn('ads', 'pause_reason') ? 'pause_reason' : null,
             Schema::hasColumn('ads', 'spend_date') ? 'spend_date' : null,
+            Schema::hasColumn('ads', 'meta_effective_status') ? 'meta_effective_status' : null,
             'created_at',
         ]));
     }
@@ -554,6 +635,7 @@ public function index(Request $request): View
         $metricAd->syncDailyBudgetFromAdSet(true);
     }
     $this->hydrateLiveMetricsFromMeta($allAds, true, false);
+    $this->hydrateDeliveryStatusFromMeta($allAds);
     $this->hydratePlacementDeliveryFromMeta($allAds);
 
     $freshMap = $allAds->keyBy('id');
@@ -1416,6 +1498,16 @@ public function sync(Ad $ad): RedirectResponse
     }
 
     try {
+        $accountId = $this->resolveMetaAccountId();
+        if ($accountId) {
+            Cache::forget('meta_ad_delivery_status:'.md5($accountId));
+            Cache::forget('meta_ad_insights_maps:'.md5($accountId));
+        }
+
+        $metaAd = $this->meta->getAd((string) $ad->meta_ad_id);
+        $effective = strtoupper((string) ($metaAd['effective_status'] ?? $metaAd['status'] ?? ''));
+        $configured = strtoupper((string) ($metaAd['configured_status'] ?? $metaAd['status'] ?? ''));
+
         $insights = $this->meta->getInsights($ad->meta_ad_id, 'maximum');
         $today = $this->meta->getInsights($ad->meta_ad_id, 'today');
 
@@ -1435,6 +1527,13 @@ public function sync(Ad $ad): RedirectResponse
             'ctr' => $ctr,
         ];
 
+        if ($effective !== '') {
+            $payload['meta_effective_status'] = $effective;
+        }
+        if (in_array($configured, ['ACTIVE', 'PAUSED'], true) && ($ad->pause_reason ?? null) !== 'budget_limit') {
+            $payload['status'] = $configured;
+        }
+
         if (Schema::hasColumn('ads', 'spend_date')) {
             $payload = array_merge($payload, AdBudgetGuard::metricsPayloadFromMetaToday($ad, $metaTodaySpend));
         } else {
@@ -1444,10 +1543,14 @@ public function sync(Ad $ad): RedirectResponse
         }
 
         $ad->update(AdBudgetGuard::filterPersistablePayload($payload));
+        $ad->syncDailyBudgetFromAdSet(true);
 
         AdBudgetGuard::enforce($ad, $this->meta, $metaTodaySpend);
 
-        return back()->with('success','Ad metrics refreshed from Meta.');
+        return back()->with(
+            'success',
+            'Ad refreshed from Meta — delivery: '.$ad->fresh()->deliveryLabel().'.'
+        );
 
     } catch (Throwable $e) {
 
@@ -1602,12 +1705,16 @@ public function live(): JsonResponse
 {
     try {
         $ads = $this->adsMetricsQuery()->get();
+        foreach ($ads as $ad) {
+            $ad->syncDailyBudgetFromAdSet(true);
+        }
         $metaSynced = $this->hydrateLiveMetricsFromMeta($ads, true, false);
 
         if (! $metaSynced) {
             $metaSynced = $this->hydrateLiveMetricsFromMeta($ads, true, true);
         }
 
+        $deliverySynced = $this->hydrateDeliveryStatusFromMeta($ads);
         $this->hydratePlacementDeliveryFromMeta($ads);
 
         $metrics = $this->buildAdsMetrics($ads);
@@ -1617,7 +1724,7 @@ public function live(): JsonResponse
                 'metrics' => $metrics,
                 'ads' => $ads->map(fn (Ad $ad) => $this->formatAdForLiveJson($ad))->values(),
                 'refreshed_at' => now()->toIso8601String(),
-                'meta_synced' => $metaSynced,
+                'meta_synced' => $metaSynced && $deliverySynced,
             ])
             ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     } catch (Throwable $e) {
@@ -1655,6 +1762,8 @@ public function live(): JsonResponse
 
 protected function formatAdForLiveJson(Ad $ad): array
 {
+    $delivery = $ad->deliveryPresentation();
+
     return array_merge([
         'id' => $ad->id,
         'name' => $ad->name,
@@ -1662,12 +1771,14 @@ protected function formatAdForLiveJson(Ad $ad): array
         'creative_id' => $ad->creative_id,
         'meta_ad_id' => $ad->meta_ad_id,
         'status' => $ad->status,
+        'meta_effective_status' => $ad->meta_effective_status,
+        'delivery' => $delivery,
         'impressions' => (int) ($ad->impressions ?? 0),
         'clicks' => (int) ($ad->clicks ?? 0),
         'ctr' => (float) ($ad->ctr ?? 0),
         'spend' => (float) ($ad->spend ?? 0),
         'daily_spend' => $ad->displayDailySpend(),
-        'daily_budget' => (float) ($ad->daily_budget ?? 0),
+        'daily_budget' => $ad->resolvedDailyBudgetDollars(),
         'pause_reason' => $ad->pause_reason ?? null,
     ], [
         'placement' => $this->buildPlacementPayloadForAd($ad),

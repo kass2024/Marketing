@@ -177,32 +177,48 @@ ALERTS
     <span class="line-clamp-2 text-slate-700" title="{{ $ad->adSet?->name }}">{{ $ad->adSet?->name ?? '—' }}</span>
 </td>
 
-{{-- STATUS --}}
+{{-- DELIVERY (Meta Ads Manager effective status) --}}
 <td class="whitespace-nowrap px-4 py-3 align-top lg:px-5" id="status-{{ $ad->id }}">
-
-@switch($ad->status)
-
-@case('ACTIVE')
-<span class="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15">Active</span>
-@break
-
-@case('PAUSED')
-<span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-600/15">Paused</span>
-@break
-
-@case('PENDING_REVIEW')
-<span class="inline-flex rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800 ring-1 ring-sky-600/15">In review</span>
-@break
-
-@case('DISAPPROVED')
-<span class="inline-flex rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-800 ring-1 ring-red-600/15">Disapproved</span>
-@break
-
-@default
-<span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Draft</span>
-
-@endswitch
-
+@php $delivery = $ad->deliveryPresentation(); @endphp
+<div class="group/delivery relative inline-flex max-w-[11rem] cursor-help items-center gap-2"
+     title="{{ $delivery['tip_title'] }} — {{ $delivery['tip_body'] }}">
+    @switch($delivery['key'])
+        @case('preparing')
+            <span class="relative flex h-2.5 w-2.5 shrink-0">
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40"></span>
+                <span class="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-emerald-500 bg-white"></span>
+            </span>
+            <span class="text-sm font-medium text-emerald-700">{{ $delivery['label'] }}</span>
+            @break
+        @case('active')
+            <span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500"></span>
+            <span class="text-sm font-medium text-emerald-800">{{ $delivery['label'] }}</span>
+            @break
+        @case('in_review')
+            <span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-sky-500"></span>
+            <span class="text-sm font-medium text-sky-800">{{ $delivery['label'] }}</span>
+            @break
+        @case('disapproved')
+            <span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-500"></span>
+            <span class="text-sm font-medium text-red-800">{{ $delivery['label'] }}</span>
+            @break
+        @case('completed')
+            <span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400"></span>
+            <span class="text-sm font-medium text-slate-700">{{ $delivery['label'] }}</span>
+            @break
+        @case('off')
+            <span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400"></span>
+            <span class="text-sm font-medium text-slate-600">{{ $delivery['label'] }}</span>
+            @break
+        @default
+            <span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-slate-300"></span>
+            <span class="text-sm font-medium text-slate-600">{{ $delivery['label'] }}</span>
+    @endswitch
+    <div class="pointer-events-none absolute left-0 top-full z-30 mt-2 hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-xl group-hover/delivery:block">
+        <p class="text-xs font-semibold text-slate-900">{{ $delivery['tip_title'] }}</p>
+        <p class="mt-1 text-[11px] leading-relaxed text-slate-600">{{ $delivery['tip_body'] }}</p>
+    </div>
+</div>
 </td>
 
 {{-- PLATFORMS --}}
@@ -280,7 +296,7 @@ ALERTS
 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-xander-secondary lg:px-5" id="today-{{ $ad->id }}">${{ number_format($ad->displayDailySpend(), 2) }}</td>
 
 {{-- BUDGET (ad-set / studio daily budget in USD) --}}
-<td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-slate-700 lg:px-5">
+<td class="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-slate-700 lg:px-5" id="budget-{{ $ad->id }}">
     ${{ number_format($ad->resolvedDailyBudgetDollars(), 2) }}
     <div class="text-[10px] font-normal text-slate-400">Daily</div>
 </td>
@@ -577,30 +593,75 @@ function setLiveStatus(ok, refreshedAt, warning){
 
 
 /* =============================
-   STATUS BADGE
+   STATUS / DELIVERY BADGE (Meta Ads Manager style)
 ============================= */
 
-function renderStatus(status){
+function renderStatus(status, delivery){
+    if(delivery && delivery.label){
+        return renderDelivery(delivery);
+    }
 
     switch(status){
 
         case 'ACTIVE':
-            return '<span class="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-600/15">Active</span>';
+            return renderDelivery({key:'active', label:'Active', tip_title:'Active', tip_body:'This ad is on and eligible to deliver impressions.'});
 
         case 'PAUSED':
-            return '<span class="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-600/15">Paused</span>';
+            return renderDelivery({key:'off', label:'Off', tip_title:'Off', tip_body:'This ad is paused and not delivering.'});
 
         case 'PENDING_REVIEW':
-            return '<span class="inline-flex rounded-md bg-sky-50 px-2 py-0.5 text-xs font-semibold text-sky-800 ring-1 ring-sky-600/15">In review</span>';
+            return renderDelivery({key:'in_review', label:'In review', tip_title:'In review', tip_body:'Meta is reviewing this ad before it can deliver.'});
 
         case 'DISAPPROVED':
-            return '<span class="inline-flex rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-800 ring-1 ring-red-600/15">Disapproved</span>';
+            return renderDelivery({key:'disapproved', label:'Disapproved', tip_title:'Disapproved', tip_body:'Meta disapproved this ad.'});
 
         default:
-            return '<span class="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-400/20">Draft</span>';
+            return renderDelivery({key:'draft', label:'Draft', tip_title:'Draft', tip_body:'This ad has not been published to Meta yet.'});
 
     }
+}
 
+function escapeHtml(value){
+    return String(value == null ? '' : value)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+
+function renderDelivery(delivery){
+    const key = delivery.key || 'other';
+    const label = escapeHtml(delivery.label || '—');
+    const tipTitle = escapeHtml(delivery.tip_title || delivery.label || 'Delivery');
+    const tipBody = escapeHtml(delivery.tip_body || '');
+
+    let dot = '<span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-slate-300"></span>';
+    let textClass = 'text-sm font-medium text-slate-600';
+
+    if(key === 'preparing'){
+        dot = '<span class="relative flex h-2.5 w-2.5 shrink-0"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40"></span><span class="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-emerald-500 bg-white"></span></span>';
+        textClass = 'text-sm font-medium text-emerald-700';
+    } else if(key === 'active'){
+        dot = '<span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500"></span>';
+        textClass = 'text-sm font-medium text-emerald-800';
+    } else if(key === 'in_review'){
+        dot = '<span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-sky-500"></span>';
+        textClass = 'text-sm font-medium text-sky-800';
+    } else if(key === 'disapproved'){
+        dot = '<span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-500"></span>';
+        textClass = 'text-sm font-medium text-red-800';
+    } else if(key === 'completed' || key === 'off' || key === 'archived'){
+        dot = '<span class="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400"></span>';
+        textClass = 'text-sm font-medium text-slate-600';
+    }
+
+    return '<div class="group/delivery relative inline-flex max-w-[11rem] cursor-help items-center gap-2" title="'+tipTitle+' — '+tipBody+'">'
+        + dot
+        + '<span class="'+textClass+'">'+label+'</span>'
+        + '<div class="pointer-events-none absolute left-0 top-full z-30 mt-2 hidden w-72 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-xl group-hover/delivery:block">'
+        + '<p class="text-xs font-semibold text-slate-900">'+tipTitle+'</p>'
+        + '<p class="mt-1 text-[11px] leading-relaxed text-slate-600">'+tipBody+'</p>'
+        + '</div></div>';
 }
 
 
@@ -720,6 +781,7 @@ async function refreshAdsDashboard(){
             const ctr = document.getElementById('ctr-'+ad.id);
             const spn = document.getElementById('spend-'+ad.id);
             const tdy = document.getElementById('today-'+ad.id);
+            const bud = document.getElementById('budget-'+ad.id);
             const sts = document.getElementById('status-'+ad.id);
             const plt = document.getElementById('platforms-'+ad.id);
 
@@ -728,9 +790,12 @@ async function refreshAdsDashboard(){
             if(ctr) ctr.innerHTML = renderCtr(ad.ctr);
             if(spn) spn.textContent = money(ad.spend);
             if(tdy) tdy.textContent = money(ad.daily_spend);
+            if(bud){
+                bud.innerHTML = money(ad.daily_budget) + '<div class="text-[10px] font-normal text-slate-400">Daily</div>';
+            }
 
             if(sts){
-                sts.innerHTML = renderStatus(ad.status);
+                sts.innerHTML = renderStatus(ad.status, ad.delivery);
             }
 
             if(plt && ad.placement){

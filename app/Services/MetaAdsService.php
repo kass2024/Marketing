@@ -2189,7 +2189,36 @@ public function getAdSets(string $accountId): array
     $accountId = $this->formatAccount($accountId);
 
     return $this->get("{$accountId}/adsets", [
-        'fields' => 'id,name,campaign_id,status,daily_budget'
+        'fields' => 'id,name,campaign_id,status,effective_status,daily_budget',
+        'limit' => 200,
+        'filtering' => json_encode([
+            [
+                'field' => 'effective_status',
+                'operator' => 'IN',
+                'value' => [
+                    'ACTIVE',
+                    'PAUSED',
+                    'CAMPAIGN_PAUSED',
+                    'PENDING_REVIEW',
+                    'DISAPPROVED',
+                    'PREAPPROVED',
+                    'PENDING_BILLING_INFO',
+                    'WITH_ISSUES',
+                    'IN_PROCESS',
+                ],
+            ],
+        ]),
+    ]);
+}
+
+/**
+ * List ads under a campaign or ad set (used to detect empty orphan objects).
+ */
+public function getChildAds(string $parentId, int $limit = 1): array
+{
+    return $this->get("{$parentId}/ads", [
+        'fields' => 'id,status,effective_status',
+        'limit' => max(1, $limit),
     ]);
 }
 

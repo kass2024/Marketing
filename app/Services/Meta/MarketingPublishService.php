@@ -10,6 +10,7 @@ use App\Models\PlatformMetaConnection;
 use App\Services\MetaAdsService;
 use App\Support\TenantScope;
 use Exception;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -56,11 +57,40 @@ class MarketingPublishService
             throw new Exception('Primary ad text is required before publishing.');
         }
 
-        $result = DB::transaction(function () use ($wizardData, $connection, $activate) {
+        $lockKey = 'marketing_publish_'.(TenantScope::clientId() ?: 'platform').'_'.md5(
+            mb_strtolower(trim((string) ($wizardData['name'] ?? 'campaign')))
+        );
+        $lock = Cache::lock($lockKey, 120);
+        if (! $lock->get()) {
+            throw new Exception(
+                'A publish for this campaign is already running. Wait for it to finish — clicking Publish again creates duplicate Meta ad sets.'
+            );
+        }
+
+        /** @var array{campaign:?string,adset:?string,creative:?string,ad:?string} $createdMeta */
+        $createdMeta = [
+            'campaign' => null,
+            'adset' => null,
+            'creative' => null,
+            'ad' => null,
+        ];
+
+        $publishCompleted = false;
+
+        try {
+            // Remove leftover Meta objects from a previous failed publish of the same name
+            $this->cleanupCachedPublishOrphans($lockKey);
+
+            $result = DB::transaction(function () use ($wizardData, $connection, $activate, &$createdMeta, $lockKey) {
             $account = TenantScope::requireAdAccount();
             $accountId = str_starts_with($account->meta_id, 'act_')
                 ? $account->meta_id
                 : 'act_'.$account->meta_id;
+
+            $campaignName = (string) ($wizardData['name'] ?? '');
+            $adSetName = (string) ($wizardData['adset_name'] ?? ($campaignName.' — Ad Set'));
+            $this->deleteRecentEmptyDuplicateCampaignsOnMeta($accountId, $campaignName);
+            $this->deleteRecentEmptyDuplicateAdSetsOnMeta($accountId, $adSetName);
 
             $pageId = (string) ($wizardData['page_id'] ?? $connection->page_id);
             $instagramUserId = $wizardData['instagram_user_id']
@@ -127,6 +157,8 @@ class MarketingPublishService
                 'objective' => $campaign->objective,
                 'status' => $status,
             ]);
+            $createdMeta['campaign'] = (string) ($metaCampaign['id'] ?? '');
+            $this->cachePublishOrphans($lockKey, $createdMeta);
 
             $campaign->update([
                 'meta_id' => $metaCampaign['id'] ?? null,
@@ -202,6 +234,8 @@ class MarketingPublishService
                 'start_time' => $startTs,
                 'end_time' => $endTs,
             ]));
+            $createdMeta['adset'] = (string) ($metaAdSet['id'] ?? '');
+            $this->cachePublishOrphans($lockKey, $createdMeta);
 
             $adSet->update(['meta_id' => $metaAdSet['id'] ?? null]);
 
@@ -240,6 +274,8 @@ class MarketingPublishService
             );
 
             $metaCreative = $this->meta->createClickToWhatsAppCreative($accountId, $creativePayload);
+            $createdMeta['creative'] = (string) ($metaCreative['id'] ?? '');
+            $this->cachePublishOrphans($lockKey, $createdMeta);
 
             $creative = Creative::create([
                 'campaign_id' => $campaign->id,
@@ -277,6 +313,8 @@ class MarketingPublishService
                 'status' => $status,
                 'creative' => ['id' => $metaCreative['id']],
             ]);
+            $createdMeta['ad'] = (string) ($metaAd['id'] ?? '');
+            $this->cachePublishOrphans($lockKey, $createdMeta);
 
             $ad->update([
                 'meta_ad_id' => $metaAd['id'] ?? null,
@@ -310,9 +348,272 @@ class MarketingPublishService
                 'creative' => $creative,
                 'ad' => $ad->fresh(),
             ];
-        });
+            });
 
-        return $result;
+            $publishCompleted = true;
+            Cache::forget($this->publishOrphanCacheKey($lockKey));
+
+            return $result;
+        } catch (\Throwable $e) {
+            if (! $publishCompleted) {
+                $this->abortMetaPublish($createdMeta);
+            }
+            Cache::forget($this->publishOrphanCacheKey($lockKey));
+            throw $e;
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    /**
+     * @param  array{campaign:?string,adset:?string,creative:?string,ad:?string}  $createdMeta
+     */
+    protected function abortMetaPublish(array $createdMeta): void
+    {
+        // Delete newest → oldest so Meta does not leave "No ads" ad sets behind.
+        foreach (['ad', 'creative', 'adset', 'campaign'] as $key) {
+            $id = trim((string) ($createdMeta[$key] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+            try {
+                match ($key) {
+                    'ad' => $this->meta->deleteAd($id),
+                    'creative' => $this->meta->updateCreative($id, ['status' => 'DELETED']),
+                    'adset' => $this->meta->deleteAdSet($id),
+                    'campaign' => $this->meta->deleteCampaign($id),
+                };
+                Log::warning('META_PUBLISH_ORPHAN_DELETED', ['type' => $key, 'id' => $id]);
+            } catch (\Throwable $e) {
+                try {
+                    match ($key) {
+                        'ad' => $this->meta->updateAd($id, ['status' => 'DELETED']),
+                        'adset' => $this->meta->updateAdSet($id, ['status' => 'DELETED']),
+                        'campaign' => $this->meta->updateCampaign($id, ['status' => 'DELETED']),
+                        default => null,
+                    };
+                } catch (\Throwable $inner) {
+                    Log::error('META_PUBLISH_ORPHAN_DELETE_FAILED', [
+                        'type' => $key,
+                        'id' => $id,
+                        'error' => $e->getMessage(),
+                        'fallback_error' => $inner->getMessage(),
+                    ]);
+                }
+            }
+        }
+    }
+
+    protected function publishOrphanCacheKey(string $lockKey): string
+    {
+        return $lockKey.'_meta_orphans';
+    }
+
+    /**
+     * @param  array{campaign:?string,adset:?string,creative:?string,ad:?string}  $createdMeta
+     */
+    protected function cachePublishOrphans(string $lockKey, array $createdMeta): void
+    {
+        Cache::put($this->publishOrphanCacheKey($lockKey), $createdMeta, now()->addHours(6));
+    }
+
+    protected function cleanupCachedPublishOrphans(string $lockKey): void
+    {
+        $cached = Cache::get($this->publishOrphanCacheKey($lockKey));
+        if (! is_array($cached)) {
+            return;
+        }
+        $this->abortMetaPublish($cached);
+        Cache::forget($this->publishOrphanCacheKey($lockKey));
+    }
+
+    /**
+     * Public entry for Ads list "Clean duplicates" — removes Ads Manager "No ads" orphans.
+     *
+     * @param  list<string>  $campaignNames
+     * @param  list<string>  $adSetNames
+     */
+    public function purgeEmptyMetaDuplicates(string $accountId, array $campaignNames = [], array $adSetNames = []): int
+    {
+        $removed = 0;
+        foreach (array_unique(array_filter(array_map('trim', $campaignNames))) as $name) {
+            $before = $this->countEmptyMetaCampaignsByName($accountId, $name);
+            $this->deleteRecentEmptyDuplicateCampaignsOnMeta($accountId, $name);
+            $after = $this->countEmptyMetaCampaignsByName($accountId, $name);
+            $removed += max(0, $before - $after);
+        }
+        foreach (array_unique(array_filter(array_map('trim', $adSetNames))) as $name) {
+            $before = $this->countEmptyMetaAdSetsByName($accountId, $name);
+            $this->deleteRecentEmptyDuplicateAdSetsOnMeta($accountId, $name);
+            $after = $this->countEmptyMetaAdSetsByName($accountId, $name);
+            $removed += max(0, $before - $after);
+        }
+
+        return $removed;
+    }
+
+    protected function countEmptyMetaCampaignsByName(string $accountId, string $name): int
+    {
+        try {
+            $campaigns = $this->meta->getCampaigns($accountId);
+            $rows = $campaigns['data'] ?? [];
+            $count = 0;
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                if (strcasecmp((string) ($row['name'] ?? ''), $name) !== 0) {
+                    continue;
+                }
+                $id = (string) ($row['id'] ?? '');
+                if ($id !== '' && ! $this->metaObjectHasAds($id)) {
+                    $count++;
+                }
+            }
+
+            return $count;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    protected function countEmptyMetaAdSetsByName(string $accountId, string $name): int
+    {
+        try {
+            $adsets = $this->meta->getAdSets($accountId);
+            $rows = $adsets['data'] ?? [];
+            $count = 0;
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                if (strcasecmp((string) ($row['name'] ?? ''), $name) !== 0) {
+                    continue;
+                }
+                $id = (string) ($row['id'] ?? '');
+                if ($id !== '' && ! $this->metaObjectHasAds($id)) {
+                    $count++;
+                }
+            }
+
+            return $count;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Remove Meta campaigns with the same name that have zero ads (failed prior publishes).
+     */
+    protected function deleteRecentEmptyDuplicateCampaignsOnMeta(string $accountId, string $name): void
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return;
+        }
+
+        try {
+            $campaigns = $this->meta->getCampaigns($accountId);
+            $rows = $campaigns['data'] ?? (is_array($campaigns) ? $campaigns : []);
+            if (! is_array($rows)) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                if (strcasecmp((string) ($row['name'] ?? ''), $name) !== 0) {
+                    continue;
+                }
+                $id = (string) ($row['id'] ?? '');
+                if ($id === '' || $this->metaObjectHasAds($id)) {
+                    continue;
+                }
+
+                try {
+                    $this->meta->deleteCampaign($id);
+                    Log::warning('META_EMPTY_DUPLICATE_CAMPAIGN_DELETED', [
+                        'campaign_id' => $id,
+                        'name' => $name,
+                    ]);
+                } catch (\Throwable $e) {
+                    try {
+                        $this->meta->updateCampaign($id, ['status' => 'DELETED']);
+                    } catch (\Throwable) {
+                        Log::error('META_EMPTY_DUPLICATE_CAMPAIGN_DELETE_FAILED', [
+                            'campaign_id' => $id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::info('META_DUPLICATE_CAMPAIGN_SCAN_SKIP', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Remove Meta ad sets with the same name that have zero ads (Ads Manager "No ads" orphans).
+     */
+    protected function deleteRecentEmptyDuplicateAdSetsOnMeta(string $accountId, string $name): void
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return;
+        }
+
+        try {
+            $adsets = $this->meta->getAdSets($accountId);
+            $rows = $adsets['data'] ?? (is_array($adsets) ? $adsets : []);
+            if (! is_array($rows)) {
+                return;
+            }
+
+            foreach ($rows as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                if (strcasecmp((string) ($row['name'] ?? ''), $name) !== 0) {
+                    continue;
+                }
+                $id = (string) ($row['id'] ?? '');
+                if ($id === '' || $this->metaObjectHasAds($id)) {
+                    continue;
+                }
+
+                try {
+                    $this->meta->deleteAdSet($id);
+                    Log::warning('META_EMPTY_DUPLICATE_ADSET_DELETED', [
+                        'adset_id' => $id,
+                        'name' => $name,
+                    ]);
+                } catch (\Throwable $e) {
+                    try {
+                        $this->meta->updateAdSet($id, ['status' => 'DELETED']);
+                    } catch (\Throwable) {
+                        Log::error('META_EMPTY_DUPLICATE_ADSET_DELETE_FAILED', [
+                            'adset_id' => $id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::info('META_DUPLICATE_ADSET_SCAN_SKIP', ['error' => $e->getMessage()]);
+        }
+    }
+
+    protected function metaObjectHasAds(string $parentId): bool
+    {
+        try {
+            $ads = $this->meta->getChildAds($parentId, 1);
+
+            return ! empty($ads['data'][0]['id'] ?? null);
+        } catch (\Throwable) {
+            // Safer to keep the object if we cannot confirm it is empty
+            return true;
+        }
     }
 
     /**

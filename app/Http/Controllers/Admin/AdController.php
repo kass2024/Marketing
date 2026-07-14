@@ -8,6 +8,7 @@ use App\Models\AdSet;
 use App\Models\Creative;
 use App\Services\InstagramDeliveryService;
 use App\Services\MetaAdsService;
+use App\Services\Meta\MarketingPublishService;
 use App\Support\AdBudgetGuard;
 use App\Models\AdAccount;
 use App\Support\TenantScope;
@@ -469,9 +470,27 @@ class AdController extends Controller
             }
         }
 
+        $metaOrphansRemoved = 0;
+        try {
+            $accountId = $this->resolveMetaAccountId();
+            if ($accountId) {
+                $names = TenantScope::ads(
+                    Ad::query()->with(['adSet', 'adSet.campaign'])
+                )->get();
+                $adSetNames = $names->pluck('adSet.name')->filter()->unique()->values()->all();
+                $campaignNames = $names->pluck('adSet.campaign.name')->filter()->unique()->values()->all();
+                $metaOrphansRemoved = app(MarketingPublishService::class)
+                    ->purgeEmptyMetaDuplicates($accountId, $campaignNames, $adSetNames);
+            }
+        } catch (Throwable $e) {
+            Log::warning('META_EMPTY_ORPHAN_CLEAN_FAILED', ['error' => $e->getMessage()]);
+        }
+
         return back()->with(
             'success',
-            "Duplicates cleaned: {$paused} paused on Meta, {$deleted} removed locally. Primary ads kept."
+            "Duplicates cleaned: {$paused} paused on Meta, {$deleted} removed locally"
+            .($metaOrphansRemoved > 0 ? ", {$metaOrphansRemoved} empty Meta ad set/campaign orphan(s) deleted" : '')
+            .'. Primary ads kept.'
         );
     }
 

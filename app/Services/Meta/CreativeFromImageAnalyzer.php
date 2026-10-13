@@ -80,7 +80,7 @@ class CreativeFromImageAnalyzer
     }
 
     /**
-     * OCR + write CTWA copy from the original creative bytes.
+     * OCR the flyer, then write Click-to-WhatsApp campaign fields from those facts.
      *
      * @param  array<int, string>  $warnings
      * @return array<string, string>
@@ -88,11 +88,12 @@ class CreativeFromImageAnalyzer
     protected function extractCopyFromImage(string $originalBinary, string $originalName, array &$warnings): array
     {
         $attempts = [
-            ['side' => 1536, 'quality' => 88, 'tokens' => 1200],
-            ['side' => 2048, 'quality' => 90, 'tokens' => 1600],
+            ['side' => 1600, 'quality' => 90],
+            ['side' => 2200, 'quality' => 92],
         ];
 
         $lastError = null;
+        $bestFacts = null;
 
         foreach ($attempts as $i => $attempt) {
             try {
@@ -102,23 +103,27 @@ class CreativeFromImageAnalyzer
                     $attempt['quality']
                 );
 
-                $raw = $this->gemini->analyzeImage(
-                    $vision['base64'],
-                    $vision['mime'],
-                    $this->buildPrompt($i > 0),
-                    $this->systemPrompt(),
-                    $attempt['tokens']
-                );
+                $facts = $this->readFlyerFacts($vision['base64'], $vision['mime'], $i > 0);
+                if ($this->factsAreEmpty($facts)) {
+                    $lastError = 'Flyer facts were empty or only a print size.';
+                    Log::info('CREATIVE_VISION_EMPTY_FACTS', ['attempt' => $i + 1]);
+                    continue;
+                }
 
-                $parsed = $this->parseJson($raw);
-                $normalized = $this->normalize($parsed);
+                $bestFacts = $facts;
+                $written = $this->writeCampaignFromFacts($facts);
+                $normalized = $this->normalize($written);
 
-                if ($this->looksWeak($normalized)) {
+                if ($this->looksWeak($normalized) || $this->missesFlyerFacts($normalized, $facts)) {
                     Log::info('CREATIVE_VISION_WEAK_RETRY', [
                         'attempt' => $i + 1,
                         'headline' => $normalized['headline'] ?? '',
                         'service' => $normalized['service_name'] ?? '',
                     ]);
+                    $composed = $this->normalize($this->composeFromFacts($facts));
+                    if (! $this->looksWeak($composed) && ! $this->missesFlyerFacts($composed, $facts)) {
+                        return $composed;
+                    }
                     $lastError = 'Weak extraction (generic or format-like copy).';
                     continue;
                 }
@@ -133,51 +138,182 @@ class CreativeFromImageAnalyzer
             }
         }
 
+        if (is_array($bestFacts) && ! $this->factsAreEmpty($bestFacts)) {
+            $composed = $this->normalize($this->composeFromFacts($bestFacts));
+            if (! $this->looksWeak($composed)) {
+                return $composed;
+            }
+        }
+
         $warnings[] = 'AI could not read enough text from the creative — edit the copy below before publishing.';
         Log::warning('CREATIVE_VISION_GAVE_UP', ['error' => $lastError, 'file' => $originalName]);
 
         return $this->fallbackAttractiveCopy($originalName);
     }
 
-    protected function systemPrompt(): string
-    {
-        return 'You are an expert Meta ads copywriter for Click-to-WhatsApp campaigns. '
-            .'First OCR every readable word on the creative (headlines, offers, programs, brand, dates, CTAs). '
-            .'Then write persuasive, customer-facing ad copy grounded ONLY in that text. '
-            .'Never invent phone numbers. Never use aspect ratios, placements, or filenames (like 4:5, 4x5, 9:16) as the offer. '
-            .'Return ONLY valid JSON.';
-    }
-
-    protected function buildPrompt(bool $strictRetry = false): string
+    /**
+     * @return array<string, mixed>
+     */
+    protected function readFlyerFacts(string $base64, string $mime, bool $strictRetry): array
     {
         $extra = $strictRetry
-            ? "\nThis is a retry — previous output was too generic. Quote concrete phrases from the image (programs, visa, fees, university/brand, promotion)."
+            ? ' Previous read missed the offer. Transcribe the largest headline, any salary or price, the place, and the brand.'
             : '';
 
+        $raw = $this->gemini->analyzeImage(
+            $base64,
+            $mime,
+            $this->ocrPrompt($extra),
+            'You read advertising flyers for a media buyer. Transcribe what is printed. Correct obvious misspellings when the intended word is clear (Uskilled means Unskilled). Never invent phone numbers, prices, or benefits. Ignore aspect ratios, pixel sizes, and filenames. Return only JSON.',
+            3072
+        );
+
+        return $this->parseJson($raw);
+    }
+
+    protected function ocrPrompt(string $extra): string
+    {
         return <<<PROMPT
-Read this advertising flyer/creative carefully (OCR all visible text).{$extra}
+Read this advertising flyer. Extract only what is visibly printed.{$extra}
+
+Ignore print sizes and placement labels (4:5, 4x5, 4x5 inch, 9:16, 1:1, 1080x1350, Stories, Feed). Those are not the offer.
+
+Return JSON:
+{
+  "brand": "company or school name printed on the flyer, else empty",
+  "headline_on_flyer": "the main headline as a person would say it",
+  "offer": "what is being sold, taught, or recruited for, in plain language",
+  "location": "city or country if printed, else empty",
+  "money": "salary, fee, or price exactly as shown, else empty",
+  "audience": "who this flyer is for",
+  "benefits": ["short benefits actually printed"],
+  "cta": "the call to action printed on the flyer",
+  "language": "en or fr",
+  "readable_text": "the important visible lines with spelling corrected"
+}
+PROMPT;
+    }
+
+    /**
+     * @param  array<string, mixed>  $facts
+     * @return array<string, mixed>
+     */
+    protected function writeCampaignFromFacts(array $facts): array
+    {
+        $factsJson = json_encode($this->publicFacts($facts), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if ($factsJson === false) {
+            return $this->composeFromFacts($facts);
+        }
+
+        $raw = $this->gemini->generateJson(
+            $this->copyPrompt($factsJson),
+            'You are a senior Meta ads copywriter for Click-to-WhatsApp campaigns. You write specific, attractive ads from flyer facts. You never use a filename, a print size, or a generic "interested in...?" line as the ad. Return only JSON.',
+            2048
+        );
+
+        $parsed = $this->parseJson($raw);
+        if ($this->looksWeak($this->normalize($parsed))) {
+            return $this->composeFromFacts($facts);
+        }
+
+        return $parsed;
+    }
+
+    protected function copyPrompt(string $factsJson): string
+    {
+        return <<<PROMPT
+Write a Click-to-WhatsApp campaign a media buyer would actually publish. Use ONLY these flyer facts:
+
+{$factsJson}
 
 Return JSON with exactly these keys:
 {
-  "ocr_summary": "1-2 sentences summarizing what the flyer promotes, using real words from the image",
-  "service_name": "clear product/service name from the flyer (e.g. Study short courses in Canada)",
-  "target_audience": "who should click (e.g. students seeking short courses on a visitor visa)",
-  "main_benefit": "strongest benefit or offer from the flyer (e.g. application fees waived)",
-  "campaign_name": "short internal campaign name",
-  "adset_name": "short ad set name",
-  "ad_name": "short ad name",
-  "primary_text": "2-4 punchy sentences for Facebook/Instagram primary text. Lead with the hook from the flyer, mention the offer, invite to WhatsApp. Max ~220 chars.",
-  "headline": "benefit headline ≤40 characters",
-  "description": "link description ≤30 characters",
-  "whatsapp_prefill_message": "natural first WhatsApp message a prospect would send ≤120 chars"
+  "service_name": "clear offer name a customer understands",
+  "target_audience": "who should tap the ad",
+  "main_benefit": "strongest concrete benefit, including money or place when the facts have them",
+  "campaign_name": "internal name: brand + offer, max 55 characters",
+  "adset_name": "short ad set name, max 60 characters",
+  "ad_name": "short ad name, max 60 characters",
+  "primary_text": "2 or 3 sentences. Sentence 1 is the hook: the offer, the place, and the money if present. Sentence 2 is one real benefit. Sentence 3 invites them to message on WhatsApp. 140 to 320 characters. No hashtags. No emojis.",
+  "headline": "benefit headline, 40 characters or fewer",
+  "description": "30 characters or fewer",
+  "whatsapp_prefill_message": "first person, names the offer, 110 characters or fewer"
 }
 
+BAD primary_text: "Interested in Work In Dubai Uskilled Work 4X5 Inch? Message us on WhatsApp for personalized guidance — spots and promotions move fast."
+GOOD primary_text: "Special Dubai job offer: unskilled work from USD 850, with food and accommodation. Message Parrot Canada on WhatsApp and apply now."
+
 Rules:
-- Ground every field in text or offers visible on the image.
-- Prefer English unless the flyer is clearly French.
-- Make copy attractive: urgency, benefit, clarity — not dry.
-- Do NOT output placement labels (4x5, 1:1, Stories) as service/headline.
+- Sound like a paid ad, not a file name and not a form.
+- Never mention aspect ratios, inches, pixels, Stories, or Feed.
+- Do not invent prices, visas, phone numbers, or benefits that are not in the facts.
+- If money or a place is in the facts, both primary_text and headline must include them.
+- Write in the flyer language (en or fr).
+- Count headline and description characters and stay inside the caps.
 PROMPT;
+    }
+
+    /**
+     * Local campaign when the copy model drifts, still grounded in the flyer.
+     *
+     * @param  array<string, mixed>  $facts
+     * @return array<string, string>
+     */
+    protected function composeFromFacts(array $facts): array
+    {
+        $brand = $this->cleanFact((string) ($facts['brand'] ?? ''));
+        $offer = $this->cleanFact((string) ($facts['offer'] ?? ''));
+        $flyerHeadline = $this->cleanFact((string) ($facts['headline_on_flyer'] ?? ''));
+        $location = $this->cleanFact((string) ($facts['location'] ?? ''));
+        $money = $this->cleanFact((string) ($facts['money'] ?? ''));
+        $audience = $this->cleanFact((string) ($facts['audience'] ?? ''));
+        $cta = $this->cleanFact((string) ($facts['cta'] ?? ''));
+
+        $benefits = $facts['benefits'] ?? [];
+        if (is_string($benefits)) {
+            $benefits = preg_split('/[,;|]/', $benefits) ?: [];
+        }
+        $benefits = array_values(array_filter(array_map(
+            fn ($item) => $this->cleanFact((string) $item),
+            is_array($benefits) ? $benefits : []
+        )));
+
+        $service = $offer !== '' ? $offer : $flyerHeadline;
+        if ($service === '') {
+            $service = $brand !== '' ? $brand : 'This offer';
+        }
+        if ($location !== '' && ! str_contains(mb_strtolower($service), mb_strtolower($location))) {
+            $service = trim($service.' in '.$location);
+        }
+
+        $hook = $flyerHeadline !== '' ? $flyerHeadline : $service;
+        if ($money !== '' && ! str_contains(mb_strtolower($hook), mb_strtolower($money))) {
+            $hook = rtrim($hook, '.').' — '.$money;
+        }
+
+        $benefitLine = $benefits !== []
+            ? ' Includes '.implode(', ', array_slice($benefits, 0, 3)).'.'
+            : '';
+        $who = $brand !== '' ? $brand : 'us';
+        $primary = trim($hook.'.'.$benefitLine.' Message '.$who.' on WhatsApp to get started.');
+
+        $headlineSource = trim(($location !== '' ? $location.' ' : '').($money !== '' ? $money : ($offer !== '' ? $offer : $service)));
+        $headline = $this->clip($headlineSource !== '' ? $headlineSource : $service, 40);
+        $description = $this->clip($cta !== '' ? $cta : 'Message us on WhatsApp', 30);
+        $campaign = $this->clip(trim(($brand !== '' ? $brand.' ' : '').$service).' — WhatsApp', 60);
+
+        return [
+            'service_name' => $service,
+            'target_audience' => $audience !== '' ? $audience : 'People interested in '.$service,
+            'main_benefit' => $money !== '' ? $money : ($benefits[0] ?? $hook),
+            'campaign_name' => $campaign,
+            'adset_name' => $this->clip($campaign.' — Ad set', 70),
+            'ad_name' => $this->clip($campaign.' — Ad', 70),
+            'primary_text' => $this->clip($primary, 420),
+            'headline' => $headline,
+            'description' => $description,
+            'whatsapp_prefill_message' => $this->clip("Hi! I'd like details about {$service}.", 120),
+        ];
     }
 
     /**
@@ -186,68 +322,153 @@ PROMPT;
      */
     protected function normalize(array $data): array
     {
-        $service = trim((string) ($data['service_name'] ?? ''));
-        $audience = trim((string) ($data['target_audience'] ?? ''));
-        $benefit = trim((string) ($data['main_benefit'] ?? ''));
-        $ocr = trim((string) ($data['ocr_summary'] ?? ''));
+        $service = $this->cleanFact((string) ($data['service_name'] ?? ''));
+        $audience = $this->cleanFact((string) ($data['target_audience'] ?? ''));
+        $benefit = $this->cleanFact((string) ($data['main_benefit'] ?? ''));
+        $ocr = $this->cleanFact((string) ($data['ocr_summary'] ?? ''));
 
-        if ($service === '' || $this->isJunkLabel($service)) {
-            $service = $this->firstUsefulPhrase($ocr, $benefit, 'WhatsApp offer');
+        if ($service === '') {
+            $service = $this->firstUsefulPhrase($ocr, $benefit, 'Your offer');
         }
-        if ($audience === '' || $this->isJunkLabel($audience)) {
+        if ($audience === '') {
             $audience = 'People interested in '.$service;
         }
-        if ($benefit === '' || $this->isJunkLabel($benefit)) {
-            $benefit = $ocr !== '' ? Str::limit($ocr, 120, '') : 'Get details on WhatsApp';
+        if ($benefit === '') {
+            $benefit = $ocr !== '' ? $this->clip($ocr, 120) : 'Get details on WhatsApp';
         }
 
-        $campaign = trim((string) ($data['campaign_name'] ?? ''));
-        if ($campaign === '' || $this->isJunkLabel($campaign)) {
-            $campaign = Str::limit($service.' — WhatsApp', 60, '');
+        $campaign = $this->cleanFact((string) ($data['campaign_name'] ?? ''));
+        if ($campaign === '') {
+            $campaign = $this->clip($service.' — WhatsApp', 60);
         }
 
-        $adset = trim((string) ($data['adset_name'] ?? ''));
-        if ($adset === '' || $this->isJunkLabel($adset)) {
-            $adset = $campaign.' — Ad Set';
+        $adset = $this->cleanFact((string) ($data['adset_name'] ?? ''));
+        if ($adset === '') {
+            $adset = $this->clip($campaign.' — Ad set', 70);
         }
 
-        $ad = trim((string) ($data['ad_name'] ?? ''));
-        if ($ad === '' || $this->isJunkLabel($ad)) {
-            $ad = $campaign.' — Ad';
+        $ad = $this->cleanFact((string) ($data['ad_name'] ?? ''));
+        if ($ad === '') {
+            $ad = $this->clip($campaign.' — Ad', 70);
         }
 
-        $primary = trim((string) ($data['primary_text'] ?? ''));
-        if ($primary === '' || $this->isJunkLabel($primary) || $this->looksLikeGenericDiscover($primary)) {
+        $primary = $this->cleanFact((string) ($data['primary_text'] ?? ''));
+        if ($primary === '' || $this->looksLikeGenericDiscover($primary) || $this->looksLikeFilenameFallback($primary)) {
             $primary = $this->composePrimary($service, $benefit, $audience);
         }
 
-        $headline = trim((string) ($data['headline'] ?? ''));
-        if ($headline === '' || $this->isJunkLabel($headline)) {
-            $headline = Str::limit($this->attractiveHeadline($service, $benefit), 40, '');
+        $headline = $this->cleanFact((string) ($data['headline'] ?? ''));
+        if ($headline === '') {
+            $headline = $this->clip($this->attractiveHeadline($service, $benefit), 40);
         }
 
-        $description = trim((string) ($data['description'] ?? ''));
-        if ($description === '' || $this->isJunkLabel($description) || strcasecmp($description, 'Chat on WhatsApp') === 0) {
-            $description = Str::limit($benefit !== '' ? $benefit : 'Message us today', 30, '');
+        $description = $this->cleanFact((string) ($data['description'] ?? ''));
+        if ($description === '' || strcasecmp($description, 'Chat on WhatsApp') === 0) {
+            $description = $this->clip($benefit !== '' ? $benefit : 'Message us today', 30);
         }
 
-        $prefill = trim((string) ($data['whatsapp_prefill_message'] ?? ''));
-        if ($prefill === '' || $this->isJunkLabel($prefill) || $this->looksLikeGenericDiscover($prefill)) {
+        $prefill = $this->cleanFact((string) ($data['whatsapp_prefill_message'] ?? ''));
+        if ($prefill === '' || $this->looksLikeGenericDiscover($prefill)) {
             $prefill = "Hi! I'm interested in {$service}. Can you share details?";
         }
 
         return [
-            'campaign_name' => Str::limit($campaign, 80, ''),
-            'adset_name' => Str::limit($adset, 80, ''),
-            'ad_name' => Str::limit($ad, 80, ''),
-            'service_name' => Str::limit($service, 120, ''),
-            'target_audience' => Str::limit($audience, 160, ''),
-            'main_benefit' => Str::limit($benefit, 160, ''),
-            'primary_text' => Str::limit($primary, 500, ''),
-            'headline' => Str::limit($headline, 40, ''),
-            'description' => Str::limit($description, 30, ''),
-            'whatsapp_prefill_message' => Str::limit($prefill, 200, ''),
+            'campaign_name' => $this->clip($campaign, 80),
+            'adset_name' => $this->clip($adset, 80),
+            'ad_name' => $this->clip($ad, 80),
+            'service_name' => $this->clip($service, 120),
+            'target_audience' => $this->clip($audience, 160),
+            'main_benefit' => $this->clip($benefit, 160),
+            'primary_text' => $this->clip($primary, 500),
+            'headline' => $this->clip($headline, 40),
+            'description' => $this->clip($description, 30),
+            'whatsapp_prefill_message' => $this->clip($prefill, 200),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $facts
+     */
+    protected function factsAreEmpty(array $facts): bool
+    {
+        $facts = $this->publicFacts($facts);
+        $blob = trim(implode(' ', array_filter([
+            $facts['brand'],
+            $facts['offer'],
+            $facts['headline_on_flyer'],
+            $facts['money'],
+            $facts['location'],
+            $facts['readable_text'],
+        ])));
+
+        return mb_strlen($this->scrubPrintSizes($blob)) < 8;
+    }
+
+    /**
+     * @param  array<string, mixed>  $facts
+     * @return array<string, mixed>
+     */
+    protected function publicFacts(array $facts): array
+    {
+        $benefits = $facts['benefits'] ?? [];
+        if (! is_array($benefits)) {
+            $benefits = [$benefits];
+        }
+
+        $language = strtolower(substr(trim((string) ($facts['language'] ?? 'en')), 0, 2));
+
+        return [
+            'brand' => $this->cleanFact((string) ($facts['brand'] ?? '')),
+            'headline_on_flyer' => $this->cleanFact((string) ($facts['headline_on_flyer'] ?? '')),
+            'offer' => $this->cleanFact((string) ($facts['offer'] ?? '')),
+            'location' => $this->cleanFact((string) ($facts['location'] ?? '')),
+            'money' => $this->cleanFact((string) ($facts['money'] ?? '')),
+            'audience' => $this->cleanFact((string) ($facts['audience'] ?? '')),
+            'benefits' => array_values(array_filter(array_map(
+                fn ($item) => $this->cleanFact((string) $item),
+                $benefits
+            ))),
+            'cta' => $this->cleanFact((string) ($facts['cta'] ?? '')),
+            'language' => $language !== '' ? $language : 'en',
+            'readable_text' => $this->scrubPrintSizes($this->fixCommonOcr((string) ($facts['readable_text'] ?? ''))),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $normalized
+     * @param  array<string, mixed>  $facts
+     */
+    protected function missesFlyerFacts(array $normalized, array $facts): bool
+    {
+        $facts = $this->publicFacts($facts);
+        $hay = mb_strtolower(implode(' ', [
+            $normalized['primary_text'] ?? '',
+            $normalized['headline'] ?? '',
+            $normalized['service_name'] ?? '',
+        ]));
+
+        $needles = [];
+        if (preg_match_all('/\d{2,}/', (string) $facts['money'], $money)) {
+            $needles = array_merge($needles, $money[0]);
+        }
+        if (preg_match_all('/[A-Za-z]{4,}/', (string) $facts['location'], $places)) {
+            foreach ($places[0] as $place) {
+                $needles[] = mb_strtolower($place);
+            }
+        }
+
+        $needles = array_values(array_unique(array_filter($needles)));
+        if ($needles === []) {
+            return false;
+        }
+
+        foreach ($needles as $needle) {
+            if (! str_contains($hay, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -261,12 +482,18 @@ PROMPT;
             }
         }
 
-        if ($this->looksLikeGenericDiscover((string) ($normalized['primary_text'] ?? ''))) {
+        $primary = (string) ($normalized['primary_text'] ?? '');
+        if ($this->looksLikeGenericDiscover($primary) || $this->looksLikeFilenameFallback($primary)) {
             return true;
         }
 
-        $primary = (string) ($normalized['primary_text'] ?? '');
-        if (strlen($primary) < 40) {
+        foreach (['service_name', 'headline', 'primary_text', 'campaign_name'] as $key) {
+            if ($this->containsPrintSize((string) ($normalized[$key] ?? ''))) {
+                return true;
+            }
+        }
+
+        if (mb_strlen($primary) < 40) {
             return true;
         }
 
@@ -280,14 +507,20 @@ PROMPT;
             return true;
         }
 
-        $junk = [
+        $exact = [
             '4x5', '4:5', '4×5', '1x1', '1:1', '9x16', '9:16', '1.91:1', '1.91',
             'feed', 'stories', 'story', 'square', 'landscape', 'portrait',
-            'whatsapp offer', 'offer', 'image', 'creative', 'upload', 'untitled',
-            'chat on whatsapp', 'discover 4x5', 'discover 4:5',
+            'offer', 'image', 'creative', 'upload', 'untitled',
+        ];
+        $phrases = [
+            'whatsapp offer', 'chat on whatsapp', 'discover 4x5', 'discover 4:5',
         ];
 
-        foreach ($junk as $j) {
+        if (in_array($v, $exact, true)) {
+            return true;
+        }
+
+        foreach ($phrases as $j) {
             if ($v === $j || str_starts_with($v, $j.' ') || str_ends_with($v, ' '.$j)) {
                 return true;
             }
@@ -302,7 +535,63 @@ PROMPT;
             return true;
         }
 
+        if ($this->containsPrintSize($v) && mb_strlen($this->scrubPrintSizes($v)) < 8) {
+            return true;
+        }
+
         return false;
+    }
+
+    protected function containsPrintSize(string $value): bool
+    {
+        return (bool) preg_match('/\b\d+\s*[x×:]\s*\d+\s*(inch|inches|px|cm)?\b/i', $value)
+            || (bool) preg_match('/\b(4\s*[:x×]\s*5|9\s*[:x×]\s*16|1\s*[:x×]\s*1|1\.91\s*:\s*1)\b/i', $value);
+    }
+
+    protected function scrubPrintSizes(string $value): string
+    {
+        $value = preg_replace('/\b\d+\s*[x×:]\s*\d+\s*(inch|inches|px|cm)?\b/i', ' ', $value) ?? $value;
+        $value = preg_replace('/\s{2,}/', ' ', $value) ?? $value;
+        $value = trim($value, " \t-—|,;");
+
+        return $this->fixCommonOcr($value);
+    }
+
+    protected function fixCommonOcr(string $value): string
+    {
+        return preg_replace('/\buskilled\b/i', 'Unskilled', $value) ?? $value;
+    }
+
+    protected function cleanFact(string $value): string
+    {
+        $value = $this->scrubPrintSizes(trim($value));
+        if ($value === '' || $this->isJunkLabel($value)) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    protected function clip(string $value, int $max): string
+    {
+        $value = trim(preg_replace('/\s+/', ' ', $value) ?? $value);
+        if (mb_strlen($value) <= $max) {
+            return $value;
+        }
+
+        $cut = mb_substr($value, 0, $max);
+        $space = mb_strrpos($cut, ' ');
+        if ($space !== false && $space > (int) ($max * 0.6)) {
+            $cut = mb_substr($cut, 0, $space);
+        }
+
+        return rtrim($cut, " \t,.;:-—");
+    }
+
+    protected function looksLikeFilenameFallback(string $text): bool
+    {
+        return (bool) preg_match('/personalized guidance/i', $text)
+            || (bool) preg_match('/^interested in .+\?\s*message us on whatsapp/i', trim($text));
     }
 
     protected function looksLikeGenericDiscover(string $text): bool
@@ -365,17 +654,17 @@ PROMPT;
     protected function fallbackAttractiveCopy(string $filename): array
     {
         $base = Str::title(str_replace(['-', '_'], ' ', pathinfo($filename, PATHINFO_FILENAME)));
-        $service = ($base !== '' && ! $this->isJunkLabel($base))
-            ? $base
-            : 'This limited offer';
+        $service = ($base !== '' && ! $this->containsPrintSize($base) && ! $this->isJunkLabel($this->scrubPrintSizes($base)))
+            ? $this->scrubPrintSizes($base)
+            : 'Your offer';
 
         return $this->normalize([
             'service_name' => $service,
             'campaign_name' => $service.' — WhatsApp',
             'target_audience' => 'People exploring this offer',
-            'main_benefit' => 'Get details and next steps instantly',
-            'primary_text' => "Interested in {$service}? Message us on WhatsApp for personalized guidance — spots and promotions move fast.",
-            'headline' => Str::limit($service, 40, ''),
+            'main_benefit' => 'Get the details on WhatsApp',
+            'primary_text' => "Want the details on {$service}? Message us on WhatsApp and we will walk you through the next step.",
+            'headline' => $this->clip($service, 40),
             'description' => 'Chat for details',
             'whatsapp_prefill_message' => "Hi! I'd like details about {$service}.",
         ]);

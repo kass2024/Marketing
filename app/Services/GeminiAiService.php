@@ -73,12 +73,23 @@ class GeminiAiService
             'contents' => [
                 ['role' => 'user', 'parts' => $parts],
             ],
-            'generationConfig' => [
-                'temperature' => 0.2,
-                'maxOutputTokens' => $maxTokens ?? (int) config('gemini.max_output_tokens'),
-                'responseMimeType' => 'application/json',
-            ],
+            'generationConfig' => $this->jsonGenerationConfig(0.1, $maxTokens ?? 3072),
         ];
+
+        $timeout = max((int) config('gemini.timeout'), (int) config('gemini.image_timeout'));
+        $response = $this->sendContentRequest(config('gemini.model'), $payload, $timeout);
+
+        return $this->extractText($response);
+    }
+
+    /**
+     * Text-only JSON (ad copy, campaign fields). Thinking is off so the token
+     * budget is spent on the answer, matching Xander School's Gemini client.
+     */
+    public function generateJson(string $prompt, ?string $system = null, ?int $maxTokens = null): string
+    {
+        $payload = $this->buildTextPayload($prompt, $system, $maxTokens);
+        $payload['generationConfig'] = $this->jsonGenerationConfig(0.4, $maxTokens ?? 2048);
 
         $response = $this->sendContentRequest(config('gemini.model'), $payload);
 
@@ -115,6 +126,24 @@ class GeminiAiService
             throw new Exception($hint);
         }
 
+        try {
+            return $this->postWithRetries($model, $payload, $timeout);
+        } catch (Exception $e) {
+            if (! $this->shouldRetryWithoutJsonOptions($e->getMessage(), $payload)) {
+                throw $e;
+            }
+
+            unset($payload['generationConfig']['thinkingConfig'], $payload['generationConfig']['responseMimeType']);
+
+            return $this->postWithRetries($model, $payload, $timeout);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function postWithRetries(string $model, array $payload, ?int $timeout = null): Response
+    {
         $url = rtrim((string) config('gemini.base_url'), '/')."/models/{$model}:generateContent";
         $attempts = max(1, (int) config('gemini.retry_attempts'));
         $lastError = 'Gemini request failed';
@@ -123,12 +152,15 @@ class GeminiAiService
             try {
                 $response = Http::connectTimeout((int) config('gemini.connect_timeout'))
                     ->timeout($timeout ?? (int) config('gemini.timeout'))
-                    ->withQueryParameters(['key' => $this->apiKey()])
+                    ->withHeaders([
+                        'x-goog-api-key' => $this->apiKey(),
+                    ])
                     ->post($url, $payload);
             } catch (ConnectionException $e) {
                 $lastError = 'Gemini connection error: '.$e->getMessage();
                 if ($attempt < $attempts) {
                     usleep((int) config('gemini.retry_delay_ms') * 1000 * $attempt);
+
                     continue;
                 }
                 throw new Exception($lastError);
@@ -136,8 +168,9 @@ class GeminiAiService
 
             if ($response->failed()) {
                 $lastError = $this->sanitizeError($response->json('error.message') ?? $response->body());
-                if ($attempt < $attempts) {
+                if ($attempt < $attempts && ! $this->shouldRetryWithoutJsonOptions($lastError, $payload)) {
                     usleep((int) config('gemini.retry_delay_ms') * 1000 * $attempt);
+
                     continue;
                 }
                 throw new Exception('Gemini API error: '.$lastError);
@@ -149,7 +182,39 @@ class GeminiAiService
         throw new Exception($lastError);
     }
 
-  protected function buildTextPayload(string $prompt, ?string $system, ?int $maxTokens): array
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function shouldRetryWithoutJsonOptions(string $message, array $payload): bool
+    {
+        if (! isset($payload['generationConfig']['thinkingConfig']) && ! isset($payload['generationConfig']['responseMimeType'])) {
+            return false;
+        }
+
+        return stripos($message, 'thinking') !== false
+            || stripos($message, 'Unknown name') !== false
+            || stripos($message, 'responseMimeType') !== false
+            || stripos($message, 'INVALID_ARGUMENT') !== false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function jsonGenerationConfig(float $temperature, int $maxTokens): array
+    {
+        return [
+            'temperature' => $temperature,
+            'maxOutputTokens' => max(2048, $maxTokens),
+            'responseMimeType' => 'application/json',
+            // gemini-2.5-flash thinks by default and can spend the whole
+            // output budget before it writes the JSON.
+            'thinkingConfig' => [
+                'thinkingBudget' => 0,
+            ],
+        ];
+    }
+
+    protected function buildTextPayload(string $prompt, ?string $system, ?int $maxTokens): array
     {
         $parts = [];
         if ($system) {
@@ -164,6 +229,9 @@ class GeminiAiService
             'generationConfig' => [
                 'temperature' => 0.4,
                 'maxOutputTokens' => $maxTokens ?? (int) config('gemini.max_output_tokens'),
+                'thinkingConfig' => [
+                    'thinkingBudget' => 0,
+                ],
             ],
         ];
     }
@@ -174,8 +242,19 @@ class GeminiAiService
         $text = '';
 
         foreach ($parts as $part) {
+            if (! empty($part['thought']) || ! empty($part['thoughtSignature']) || ! empty($part['thought_signature'])) {
+                continue;
+            }
             if (! empty($part['text'])) {
                 $text .= $part['text'];
+            }
+        }
+
+        if (trim($text) === '') {
+            foreach ($parts as $part) {
+                if (! empty($part['text'])) {
+                    $text .= $part['text'];
+                }
             }
         }
 

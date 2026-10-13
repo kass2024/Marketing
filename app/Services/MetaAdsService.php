@@ -2861,6 +2861,9 @@ public function getAccountStatus($accountId)
                 || str_contains($lower, 'personal account')
                 || str_contains($lower, 'page with whatsapp business account required') =>
                 'Meta still sees a personal WhatsApp on this Page. In Ad Studio pick your WhatsApp Business number (not personal), and in Meta Business Suite link that Business number to the Page. Then publish again.',
+            str_contains($lower, 'whatsapp_phone_number')
+                || str_contains($lower, 'invalid whatsapp phone') =>
+                'Meta rejected this number. Click-to-WhatsApp ads can only open a chat with a WhatsApp Business number connected to the Facebook Page. Personal numbers are not allowed.',
             str_contains($message, '1815433')
                 || str_contains($lower, 'invalid facebook position')
                 || str_contains($lower, 'invalid value reels for the placement field facebook_positions') =>

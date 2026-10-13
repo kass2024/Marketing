@@ -42,9 +42,22 @@ class MarketingPreflightValidator
             $errors[] = $this->issue('missing_page', 'Facebook Page is required.', 'Select a Page in step 2.');
         }
 
-        $phone = trim((string) ($wizardData['whatsapp_chat_url'] ?? $wizardData['whatsapp_phone_number'] ?? $connection?->whatsapp_phone_number ?? ''));
-        if ($phone === '') {
-            $errors[] = $this->issue('missing_whatsapp_number', 'WhatsApp chat link or phone is required.', 'Enter a wa.me link or phone number in step 8.');
+        $apps = $this->creativeBuilder->resolveMessagingApps($wizardData);
+        if (! empty($apps['whatsapp'])) {
+            $rawPhone = trim((string) ($wizardData['whatsapp_phone_number'] ?? ''));
+            if ($rawPhone === '' || $rawPhone === '__custom__') {
+                $rawPhone = trim((string) ($wizardData['whatsapp_chat_url'] ?? ''));
+            }
+            $digits = (string) ($this->creativeBuilder->phoneFromLink($rawPhone) ?? '');
+            if (strlen($digits) < 10 || strlen($digits) > 15) {
+                $errors[] = $this->issue(
+                    'missing_whatsapp_number',
+                    'A WhatsApp Business number is required so people who tap the ad have an inbox.',
+                    'On Destinations, add the business number with country code. Meta does not allow personal WhatsApp numbers.'
+                );
+            } elseif (empty($wizardData['whatsapp_phone_number_id'])) {
+                $warnings[] = 'This number is not a synced WhatsApp Business phone id. Meta delivers the chats only if it is a WhatsApp Business number connected to the Facebook Page.';
+            }
         }
 
         $budget = (int) ($wizardData['daily_budget'] ?? 0);

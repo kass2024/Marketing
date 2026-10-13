@@ -484,6 +484,16 @@ class AdStudioController extends Controller
             $data['placements'] = $this->buildPlacementsFromKeys($data['placements']);
         }
 
+        $phoneRaw = trim((string) ($data['whatsapp_phone_number'] ?? ''));
+        $phoneDigits = preg_replace('/\D+/', '', $phoneRaw) ?: '';
+        if ($phoneDigits !== '') {
+            $data['whatsapp_phone_number'] = $phoneDigits;
+        }
+        $phoneId = trim((string) ($data['whatsapp_phone_number_id'] ?? ''));
+        if ($phoneId !== '' && ! ctype_digit($phoneId)) {
+            $data['whatsapp_phone_number_id'] = '';
+        }
+
         $data['call_to_action'] = 'WHATSAPP_MESSAGE';
         $data['adset_name'] = $data['adset_name'] ?? (($data['name'] ?? 'Campaign').' — Ad Set');
         $data['ad_name'] = $data['ad_name'] ?? (($data['name'] ?? 'Campaign').' — Ad');

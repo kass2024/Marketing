@@ -525,18 +525,30 @@
                                 class="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
                                 <template x-for="n in whatsappNumbers" :key="n.id">
                                     <option :value="n.phone"
-                                        x-text="n.display + ' — ' + (n.label || 'WhatsApp') + (n.waba_name ? ' · ' + n.waba_name : '')"></option>
+                                        x-text="n.display + ' — ' + (n.label || 'WhatsApp') + (n.waba_name ? ' · ' + n.waba_name : '') + (n.source === 'added' ? ' · added on this page' : '')"></option>
                                 </template>
-                                <option value="__custom__">Enter custom number…</option>
                             </select>
+                            <p class="text-xs leading-relaxed text-slate-600" x-show="selectedWaStatus()" x-text="selectedWaStatus()"></p>
 
-                            <input type="text" x-show="!whatsappNumbers.length || form.whatsapp_phone_number === '__custom__'"
-                                x-model="form.whatsapp_phone_custom"
-                                @input="form.whatsapp_phone_number = form.whatsapp_phone_custom.replace(/\D/g,''); form.whatsapp_chat_url = '';"
-                                placeholder="+1 450-367-5329"
-                                class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                            <input type="hidden" name="whatsapp_phone_number"
-                                :value="form.whatsapp_phone_number === '__custom__' ? form.whatsapp_phone_custom.replace(/\D/g,'') : form.whatsapp_phone_number">
+                            <div class="rounded-xl border border-slate-200 bg-white p-3">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Add a business number</p>
+                                <p class="mt-1 text-xs leading-relaxed text-slate-500">People who tap the ad open a WhatsApp chat with this number. Use the full number with country code.</p>
+                                <div class="mt-3 grid gap-2 sm:grid-cols-[1fr_1.2fr_auto]">
+                                    <input type="text" x-model="waAddLabel" maxlength="80" placeholder="Business name (optional)"
+                                        class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                                    <input type="tel" x-model="waAddPhone" inputmode="tel" autocomplete="tel" placeholder="+1 431 340 4830"
+                                        @keydown.enter.prevent="addBusinessNumber()"
+                                        class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                                    <button type="button" @click="addBusinessNumber()"
+                                        class="rounded-xl bg-[#075E54] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#064e46]">
+                                        Use this number
+                                    </button>
+                                </div>
+                                <p x-show="waAddError" x-cloak class="mt-2 text-xs text-red-700" x-text="waAddError"></p>
+                                <p x-show="waAddNote" x-cloak class="mt-2 text-xs text-emerald-800" x-text="waAddNote"></p>
+                            </div>
+
+                            <input type="hidden" name="whatsapp_phone_number" :value="deliveryPhoneDigits()">
                             <input type="hidden" name="whatsapp_phone_number_id" :value="form.whatsapp_phone_number_id || ''">
 
                             <div>
@@ -545,7 +557,7 @@
                                     @input="if ((form.whatsapp_chat_url || '').trim()) { /* optional override — leave dropdown for identity */ }"
                                     placeholder="Leave blank to use the selected number above"
                                     class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 font-mono text-sm">
-                                <p class="mt-1 text-[11px] text-slate-500">Leave empty. The dropdown number is what gets published. A filled wa.me link was overriding your selection.</p>
+                                <p class="mt-1 text-[11px] text-slate-500">Leave this blank. The business number above is the inbox that receives the ad.</p>
                             </div>
 
                             <label class="flex items-center gap-2 text-sm">
@@ -561,8 +573,7 @@
                         </div>
 
                         <div class="rounded-xl border border-slate-100 bg-slate-50 p-4 text-[11px] leading-relaxed text-slate-600">
-                            WhatsApp names and phone numbers are subject to Meta Advertising Policies and the WhatsApp Commerce Policy.
-                            Click-to-WhatsApp ads can show an “Active on WhatsApp” status when using the WhatsApp Business app.
+                            Meta only delivers Click-to-WhatsApp ads to a WhatsApp Business number on the Facebook Page you selected. Personal WhatsApp numbers are rejected. A number already on your WhatsApp Business account is used with Meta’s phone id. A number you add here is sent as that same destination — Meta accepts it when it is a business number connected to the Page.
                         </div>
 
                         <div class="rounded-xl bg-[#e5ddd5] p-4">
@@ -1069,6 +1080,10 @@ function adStudio(config) {
         countryOptions: config.countryOptions || {},
         waLoading: false,
         waError: '',
+        waAddPhone: '',
+        waAddLabel: '',
+        waAddError: '',
+        waAddNote: '',
         geoSearchType: 'city',
         geoQuery: '',
         geoResults: [],
@@ -1094,7 +1109,6 @@ function adStudio(config) {
             dest_whatsapp: true,
             whatsapp_phone_number: config.defaultPhone || '',
             whatsapp_phone_number_id: '',
-            whatsapp_phone_custom: '',
             whatsapp_chat_url: '',
             notify_on_publish: true,
             notification_whatsapp_number: '',
@@ -1150,14 +1164,16 @@ function adStudio(config) {
 
         init() {
             if (!this.form.placements.length) this.form.placements = config.placementKeys || [];
+            this.mergeAddedIntoList(this.rememberedAddedNumbers());
             // Prefer synced WABA numbers over platform/defaultPhone (avoids wrong platform …0350)
             if (this.whatsappNumbers.length) {
-                const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
-                if (!match) {
+                const current = String(this.form.whatsapp_phone_number || '').replace(/\D/g, '');
+                const match = this.whatsappNumbers.find(n => this.samePhone(n.phone, current));
+                if (match) {
+                    this.form.whatsapp_phone_number = match.phone;
+                } else {
                     this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
                 }
-                this.onWhatsAppSelect();
-            } else if (this.form.whatsapp_phone_number && this.form.whatsapp_phone_number !== '__custom__') {
                 this.onWhatsAppSelect();
             }
             if (!this.form.instagram_user_id && this.instagramAccounts.length) {
@@ -1199,11 +1215,126 @@ function adStudio(config) {
         },
 
         selectedWaLabel() {
-            const phone = this.form.whatsapp_phone_number === '__custom__'
-                ? this.form.whatsapp_phone_custom
-                : this.form.whatsapp_phone_number;
-            const n = this.whatsappNumbers.find(w => w.phone === phone);
-            return n?.display || phone || 'Select WhatsApp';
+            const phone = this.deliveryPhoneDigits();
+            const n = this.whatsappNumbers.find(w => this.samePhone(w.phone, phone));
+            return n?.display || (phone ? this.formatWa(phone) : '') || 'Select WhatsApp';
+        },
+
+        selectedWaStatus() {
+            const phone = this.deliveryPhoneDigits();
+            if (!phone) return '';
+            const n = this.whatsappNumbers.find(w => this.samePhone(w.phone, phone));
+            if (n && n.phone_number_id && String(n.phone_number_id).match(/^\d+$/)) {
+                return 'Connected WhatsApp Business number. People who tap the ad chat with ' + (n.display || this.formatWa(phone)) + '.';
+            }
+            return 'Ad chats go to ' + this.formatWa(phone) + '. Meta delivers them only if this is a WhatsApp Business number on the Facebook Page. Personal numbers are not accepted.';
+        },
+
+        deliveryPhoneDigits() {
+            return String(this.form.whatsapp_phone_number || '').replace(/\D/g, '');
+        },
+
+        samePhone(a, b) {
+            const da = String(a || '').replace(/\D/g, '');
+            const db = String(b || '').replace(/\D/g, '');
+            if (!da || !db) return false;
+            if (da === db) return true;
+            return da.slice(-10) === db.slice(-10) && da.slice(-10).length === 10;
+        },
+
+        formatWa(digits) {
+            const d = String(digits || '').replace(/\D/g, '');
+            if (d.length === 11 && d.startsWith('1')) {
+                return '+1 ' + d.slice(1, 4) + '-' + d.slice(4, 7) + '-' + d.slice(7);
+            }
+            return d ? '+' + d : '';
+        },
+
+        rememberedAddedNumbers() {
+            const fromList = (this.whatsappNumbers || []).filter(n => n && n.source === 'added');
+            let stored = [];
+            try {
+                stored = JSON.parse(sessionStorage.getItem('adstudio_added_wa') || '[]');
+            } catch (e) {
+                stored = [];
+            }
+            const all = fromList.concat(Array.isArray(stored) ? stored : []);
+            const seen = {};
+            return all.filter(n => {
+                const phone = String(n.phone || '').replace(/\D/g, '');
+                if (phone.length < 10 || phone.length > 15 || seen[phone]) return false;
+                seen[phone] = true;
+                n.phone = phone;
+                n.source = 'added';
+                return true;
+            });
+        },
+
+        mergeAddedIntoList(entries) {
+            (entries || []).forEach(entry => {
+                const phone = String(entry.phone || '').replace(/\D/g, '');
+                if (phone.length < 10) return;
+                const existing = this.whatsappNumbers.find(n => this.samePhone(n.phone, phone));
+                if (existing) return;
+                this.whatsappNumbers.push({
+                    id: entry.id || ('added:' + phone),
+                    phone: phone,
+                    display: entry.display || this.formatWa(phone),
+                    label: entry.label || 'Business number',
+                    phone_number_id: '',
+                    verified: false,
+                    waba_name: null,
+                    source: 'added',
+                });
+            });
+        },
+
+        persistAddedNumbers() {
+            const added = this.whatsappNumbers.filter(n => n.source === 'added');
+            sessionStorage.setItem('adstudio_added_wa', JSON.stringify(added));
+        },
+
+        addBusinessNumber() {
+            this.waAddError = '';
+            this.waAddNote = '';
+            const digits = String(this.waAddPhone || '').replace(/\D/g, '');
+            if (digits.length < 10 || digits.length > 15) {
+                this.waAddError = 'Enter the full business number with country code, for example +1 431 340 4830.';
+                return;
+            }
+            const existing = this.whatsappNumbers.find(n => this.samePhone(n.phone, digits) && n.source !== 'added');
+            if (existing) {
+                this.form.whatsapp_phone_number = existing.phone;
+                this.form.whatsapp_chat_url = '';
+                this.onWhatsAppSelect();
+                this.waAddPhone = '';
+                this.waAddLabel = '';
+                this.waAddNote = 'That number is already on your WhatsApp Business account. Ad chats will go to ' + (existing.display || this.formatWa(existing.phone)) + '.';
+                return;
+            }
+            const label = String(this.waAddLabel || '').trim() || 'Business number';
+            const already = this.whatsappNumbers.find(n => this.samePhone(n.phone, digits));
+            if (!already) {
+                this.whatsappNumbers.push({
+                    id: 'added:' + digits,
+                    phone: digits,
+                    display: this.formatWa(digits),
+                    label: label,
+                    phone_number_id: '',
+                    verified: false,
+                    waba_name: null,
+                    source: 'added',
+                });
+            } else if (label && label !== 'Business number') {
+                already.label = label;
+            }
+            this.form.whatsapp_phone_number = digits;
+            this.form.whatsapp_chat_url = '';
+            this.onWhatsAppSelect();
+            this.persistAddedNumbers();
+            this.waAddPhone = '';
+            this.waAddLabel = '';
+            this.waAddNote = 'Ad chats will go to ' + this.formatWa(digits) + '. Meta accepts this when it is a WhatsApp Business number on the Facebook Page.';
         },
 
         onPageChange() {
@@ -1302,14 +1433,9 @@ function adStudio(config) {
         },
 
         get waLink() {
-            // Always preview the selected dropdown / custom number — never a stale wa.me override
+            // Always preview the selected business number — never a stale wa.me override
             const text = this.form.whatsapp_prefill_message || '';
-            let phone = '';
-            if (this.form.whatsapp_phone_number === '__custom__') {
-                phone = (this.form.whatsapp_phone_custom || '').replace(/\D/g, '');
-            } else {
-                phone = String(this.form.whatsapp_phone_number || '').replace(/\D/g, '');
-            }
+            let phone = this.deliveryPhoneDigits();
             if (!phone) {
                 const custom = (this.form.whatsapp_chat_url || '').trim();
                 if (custom.startsWith('http')) {
@@ -1374,10 +1500,8 @@ function adStudio(config) {
             if (this.form.message_destination_mode === 'manual' && !this.form.dest_whatsapp) {
                 return true; // Messenger / Instagram-only does not need a WhatsApp number
             }
-            const p = this.form.whatsapp_phone_number;
-            if (p && p !== '__custom__') return true;
-            if (this.form.whatsapp_phone_custom?.replace(/\D/g, '')) return true;
-            return !!(this.form.whatsapp_chat_url || '').trim();
+            const digits = this.deliveryPhoneDigits();
+            return digits.length >= 10 && digits.length <= 15;
         },
 
         stageComplete(i) {
@@ -1573,14 +1697,18 @@ function adStudio(config) {
                     this.waError = 'Could not sync WhatsApp numbers from Meta.';
                     return;
                 }
+                const keep = this.deliveryPhoneDigits();
+                const remembered = this.rememberedAddedNumbers();
                 this.whatsappNumbers = data.data || [];
-                if (this.whatsappNumbers.length) {
-                    const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
-                    if (!match) {
-                        this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
-                    }
-                    this.onWhatsAppSelect();
+                this.mergeAddedIntoList(remembered);
+                const match = this.whatsappNumbers.find(n => this.samePhone(n.phone, keep));
+                if (match) {
+                    this.form.whatsapp_phone_number = match.phone;
+                } else if (!keep && this.whatsappNumbers.length) {
+                    this.form.whatsapp_phone_number = this.whatsappNumbers[0].phone;
                 }
+                this.onWhatsAppSelect();
+                this.persistAddedNumbers();
             } catch (e) {
                 this.waError = 'Could not reach Meta to list WhatsApp numbers. Check token / Business Manager sync.';
             } finally {
@@ -1625,7 +1753,7 @@ function adStudio(config) {
                 return;
             }
             if (this.stage === 4 && !this.hasWa()) {
-                alert('Select or enter a WhatsApp delivery number.');
+                alert('Add the WhatsApp Business number that should receive these ad chats.');
                 return;
             }
             if (this.stage < this.stages.length - 1) {
@@ -1660,18 +1788,16 @@ function adStudio(config) {
         },
 
         onWhatsAppSelect() {
-            if (this.form.whatsapp_phone_number === '__custom__') {
-                this.form.whatsapp_phone_custom = '';
-                this.form.whatsapp_phone_number_id = '';
-                this.form.whatsapp_chat_url = '';
-                return;
+            const match = this.whatsappNumbers.find(n => this.samePhone(n.phone, this.form.whatsapp_phone_number));
+            if (match) {
+                this.form.whatsapp_phone_number = match.phone;
             }
-            const match = this.whatsappNumbers.find(n => String(n.phone) === String(this.form.whatsapp_phone_number));
-            this.form.whatsapp_phone_number_id = match?.phone_number_id || match?.id || '';
-            if (String(this.form.whatsapp_phone_number_id).startsWith('display:')) {
-                this.form.whatsapp_phone_number_id = '';
+            let id = match?.phone_number_id || '';
+            if (!id || String(id).startsWith('display:') || String(id).startsWith('added:') || id === 'platform') {
+                id = '';
             }
-            // Clear leftover platform wa.me so it cannot override the selected WABA number on publish
+            this.form.whatsapp_phone_number_id = id;
+            // Clear leftover platform wa.me so it cannot override the selected business number on publish
             this.form.whatsapp_chat_url = '';
         },
 

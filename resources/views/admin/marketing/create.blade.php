@@ -532,17 +532,33 @@
 
                             <div class="rounded-xl border border-slate-200 bg-white p-3">
                                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Add a business number</p>
-                                <p class="mt-1 text-xs leading-relaxed text-slate-500">People who tap the ad open a WhatsApp chat with this number. Use the full number with country code.</p>
+                                <p class="mt-1 text-xs leading-relaxed text-slate-500">Meta texts or calls this number with a code. It can receive ads only after that code is confirmed. Use the full number with country code.</p>
                                 <div class="mt-3 grid gap-2 sm:grid-cols-[1fr_1.2fr_auto]">
-                                    <input type="text" x-model="waAddLabel" maxlength="80" placeholder="Business name (optional)"
+                                    <input type="text" x-model="waAddLabel" maxlength="80" placeholder="Display name on WhatsApp"
                                         class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
                                     <input type="tel" x-model="waAddPhone" inputmode="tel" autocomplete="tel" placeholder="+1 431 340 4830"
                                         @keydown.enter.prevent="addBusinessNumber()"
                                         class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
-                                    <button type="button" @click="addBusinessNumber()"
-                                        class="rounded-xl bg-[#075E54] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#064e46]">
-                                        Use this number
+                                    <button type="button" @click="addBusinessNumber()" :disabled="waVerifying"
+                                        class="rounded-xl bg-[#075E54] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#064e46] disabled:opacity-50">
+                                        <span x-text="waVerifying ? 'Contacting Meta…' : 'Verify with Meta'"></span>
                                     </button>
+                                </div>
+                                <div x-show="waPending.phone_number_id" x-cloak class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                    <p class="text-xs leading-relaxed text-amber-950">Meta sent a code to <span class="font-semibold" x-text="waPending.display"></span>. Enter it here. This number is not used for ads until Meta accepts the code.</p>
+                                    <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+                                        <input type="text" x-model="waVerifyCode" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="Verification code"
+                                            @keydown.enter.prevent="confirmMetaCode()"
+                                            class="w-full rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-sm">
+                                        <button type="button" @click="confirmMetaCode()" :disabled="waVerifying"
+                                            class="rounded-xl bg-[#075E54] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                                            Confirm code
+                                        </button>
+                                    </div>
+                                    <div class="mt-2 flex gap-4 text-xs font-semibold text-[#075E54]">
+                                        <button type="button" @click="resendMetaCode('SMS')" :disabled="waVerifying" class="underline disabled:opacity-50">Resend SMS</button>
+                                        <button type="button" @click="resendMetaCode('VOICE')" :disabled="waVerifying" class="underline disabled:opacity-50">Call instead</button>
+                                    </div>
                                 </div>
                                 <p x-show="waAddError" x-cloak class="mt-2 text-xs text-red-700" x-text="waAddError"></p>
                                 <p x-show="waAddNote" x-cloak class="mt-2 text-xs text-emerald-800" x-text="waAddNote"></p>
@@ -573,7 +589,7 @@
                         </div>
 
                         <div class="rounded-xl border border-slate-100 bg-slate-50 p-4 text-[11px] leading-relaxed text-slate-600">
-                            Meta only delivers Click-to-WhatsApp ads to a WhatsApp Business number on the Facebook Page you selected. Personal WhatsApp numbers are rejected. A number already on your WhatsApp Business account is used with Meta’s phone id. A number you add here is sent as that same destination — Meta accepts it when it is a business number connected to the Page.
+                            Meta only delivers Click-to-WhatsApp ads to a WhatsApp Business number it has verified on your WhatsApp Business Account. A number typed here is registered with Meta and confirmed with their SMS or voice code. Personal WhatsApp numbers are rejected.
                         </div>
 
                         <div class="rounded-xl bg-[#e5ddd5] p-4">
@@ -1084,6 +1100,9 @@ function adStudio(config) {
         waAddLabel: '',
         waAddError: '',
         waAddNote: '',
+        waVerifying: false,
+        waVerifyCode: '',
+        waPending: { phone_number_id: '', waba_id: '', phone: '', display: '', label: '' },
         geoSearchType: 'city',
         geoQuery: '',
         geoResults: [],
@@ -1165,6 +1184,7 @@ function adStudio(config) {
         init() {
             if (!this.form.placements.length) this.form.placements = config.placementKeys || [];
             this.mergeAddedIntoList(this.rememberedAddedNumbers());
+            this.mergeAddedIntoList(this.rememberedVerifiedNumbers());
             // Prefer synced WABA numbers over platform/defaultPhone (avoids wrong platform …0350)
             if (this.whatsappNumbers.length) {
                 const current = String(this.form.whatsapp_phone_number || '').replace(/\D/g, '');
@@ -1270,12 +1290,30 @@ function adStudio(config) {
             });
         },
 
+        rememberedVerifiedNumbers() {
+            let stored = [];
+            try {
+                stored = JSON.parse(sessionStorage.getItem('adstudio_verified_wa') || '[]');
+            } catch (e) {
+                stored = [];
+            }
+            return (Array.isArray(stored) ? stored : []).filter(n => /^\d+$/.test(String(n.phone_number_id || '')));
+        },
+
         mergeAddedIntoList(entries) {
             (entries || []).forEach(entry => {
                 const phone = String(entry.phone || '').replace(/\D/g, '');
+                const metaId = /^\d+$/.test(String(entry.phone_number_id || '')) ? String(entry.phone_number_id) : '';
                 if (phone.length < 10) return;
+                if (entry.source === 'added' && !metaId) return;
                 const existing = this.whatsappNumbers.find(n => this.samePhone(n.phone, phone));
-                if (existing) return;
+                if (existing) {
+                    if (metaId && !/^\d+$/.test(String(existing.phone_number_id || ''))) {
+                        existing.phone_number_id = metaId;
+                        existing.verified = true;
+                    }
+                    return;
+                }
                 this.whatsappNumbers.push({
                     id: entry.id || ('added:' + phone),
                     phone: phone,
@@ -1294,7 +1332,7 @@ function adStudio(config) {
             sessionStorage.setItem('adstudio_added_wa', JSON.stringify(added));
         },
 
-        addBusinessNumber() {
+        async addBusinessNumber() {
             this.waAddError = '';
             this.waAddNote = '';
             const digits = String(this.waAddPhone || '').replace(/\D/g, '');
@@ -1302,39 +1340,164 @@ function adStudio(config) {
                 this.waAddError = 'Enter the full business number with country code, for example +1 431 340 4830.';
                 return;
             }
-            const existing = this.whatsappNumbers.find(n => this.samePhone(n.phone, digits) && n.source !== 'added');
+            const existing = this.whatsappNumbers.find(n => this.samePhone(n.phone, digits) && /^\d+$/.test(String(n.phone_number_id || '')));
             if (existing) {
                 this.form.whatsapp_phone_number = existing.phone;
                 this.form.whatsapp_chat_url = '';
                 this.onWhatsAppSelect();
                 this.waAddPhone = '';
                 this.waAddLabel = '';
-                this.waAddNote = 'That number is already on your WhatsApp Business account. Ad chats will go to ' + (existing.display || this.formatWa(existing.phone)) + '.';
+                this.waPending = { phone_number_id: '', waba_id: '', phone: '', display: '', label: '' };
+                this.waAddNote = 'Meta already verified this number. Ad chats will go to ' + (existing.display || this.formatWa(existing.phone)) + '.';
                 return;
             }
-            const label = String(this.waAddLabel || '').trim() || 'Business number';
-            const already = this.whatsappNumbers.find(n => this.samePhone(n.phone, digits));
-            if (!already) {
-                this.whatsappNumbers.push({
-                    id: 'added:' + digits,
-                    phone: digits,
-                    display: this.formatWa(digits),
-                    label: label,
-                    phone_number_id: '',
-                    verified: false,
-                    waba_name: null,
-                    source: 'added',
+            this.waVerifying = true;
+            try {
+                const res = await fetch('{{ route('admin.marketing.create.whatsapp-verify') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        phone_number: digits,
+                        verified_name: String(this.waAddLabel || '').trim(),
+                    }),
                 });
-            } else if (label && label !== 'Business number') {
-                already.label = label;
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    this.waAddError = data.message || 'Meta could not start verification for this number.';
+                    return;
+                }
+                if (data.status === 'verified') {
+                    this.selectVerifiedNumber(data);
+                    this.waAddPhone = '';
+                    this.waAddLabel = '';
+                    this.waAddNote = data.message || 'Meta verified this number.';
+                    return;
+                }
+                this.waPending = {
+                    phone_number_id: String(data.phone_number_id || ''),
+                    waba_id: String(data.waba_id || ''),
+                    phone: String(data.phone || digits),
+                    display: data.display || this.formatWa(digits),
+                    label: data.label || String(this.waAddLabel || '').trim() || 'Business',
+                };
+                this.waVerifyCode = '';
+                this.waAddNote = data.message || 'Enter the code Meta sent to this number.';
+            } catch (e) {
+                this.waAddError = 'Could not reach Meta to verify this number.';
+            } finally {
+                this.waVerifying = false;
             }
-            this.form.whatsapp_phone_number = digits;
+        },
+
+        async confirmMetaCode() {
+            this.waAddError = '';
+            const code = String(this.waVerifyCode || '').replace(/\D/g, '');
+            if (!this.waPending.phone_number_id || code.length < 4) {
+                this.waAddError = 'Enter the verification code Meta sent.';
+                return;
+            }
+            this.waVerifying = true;
+            try {
+                const res = await fetch('{{ route('admin.marketing.create.whatsapp-verify-code') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        phone_number_id: this.waPending.phone_number_id,
+                        waba_id: this.waPending.waba_id,
+                        code: code,
+                        phone_number: this.waPending.phone,
+                        verified_name: this.waPending.label,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    this.waAddError = data.message || 'Meta did not accept that code.';
+                    return;
+                }
+                this.selectVerifiedNumber(data);
+                this.waAddPhone = '';
+                this.waAddLabel = '';
+                this.waAddNote = data.message || 'Meta verified this number. Ad chats will go here.';
+                this.refreshWhatsAppNumbers(false);
+            } catch (e) {
+                this.waAddError = 'Could not confirm the code with Meta.';
+            } finally {
+                this.waVerifying = false;
+            }
+        },
+
+        async resendMetaCode(method) {
+            if (!this.waPending.phone_number_id) return;
+            this.waAddError = '';
+            this.waVerifying = true;
+            try {
+                const res = await fetch('{{ route('admin.marketing.create.whatsapp-verify-resend') }}', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    },
+                    body: JSON.stringify({
+                        phone_number_id: this.waPending.phone_number_id,
+                        code_method: method,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    this.waAddError = data.message || 'Meta could not resend the code.';
+                    return;
+                }
+                this.waAddNote = data.message || 'Meta sent another code.';
+            } catch (e) {
+                this.waAddError = 'Could not ask Meta to resend the code.';
+            } finally {
+                this.waVerifying = false;
+            }
+        },
+
+        selectVerifiedNumber(data) {
+            const phone = String(data.phone || '').replace(/\D/g, '');
+            const id = String(data.phone_number_id || '');
+            if (!phone || !/^\d+$/.test(id)) return;
+            let row = this.whatsappNumbers.find(n => this.samePhone(n.phone, phone));
+            if (!row) {
+                row = {
+                    id: id,
+                    phone: phone,
+                    display: data.display || this.formatWa(phone),
+                    label: data.label || 'WhatsApp Business',
+                    phone_number_id: id,
+                    verified: true,
+                    waba_name: null,
+                    source: 'meta',
+                };
+                this.whatsappNumbers.push(row);
+            } else {
+                row.phone_number_id = id;
+                row.verified = true;
+                if (!/^\d+$/.test(String(row.id || ''))) row.id = id;
+            }
+            this.form.whatsapp_phone_number = row.phone;
             this.form.whatsapp_chat_url = '';
             this.onWhatsAppSelect();
-            this.persistAddedNumbers();
-            this.waAddPhone = '';
-            this.waAddLabel = '';
-            this.waAddNote = 'Ad chats will go to ' + this.formatWa(digits) + '. Meta accepts this when it is a WhatsApp Business number on the Facebook Page.';
+            this.form.whatsapp_phone_number_id = id;
+            this.waPending = { phone_number_id: '', waba_id: '', phone: '', display: '', label: '' };
+            this.waVerifyCode = '';
+            this.persistVerifiedNumbers();
+        },
+
+        persistVerifiedNumbers() {
+            const verified = this.whatsappNumbers.filter(n => /^\d+$/.test(String(n.phone_number_id || '')) && n.source === 'meta');
+            sessionStorage.setItem('adstudio_verified_wa', JSON.stringify(verified));
         },
 
         onPageChange() {
@@ -1698,7 +1861,7 @@ function adStudio(config) {
                     return;
                 }
                 const keep = this.deliveryPhoneDigits();
-                const remembered = this.rememberedAddedNumbers();
+                const remembered = this.rememberedAddedNumbers().concat(this.rememberedVerifiedNumbers());
                 this.whatsappNumbers = data.data || [];
                 this.mergeAddedIntoList(remembered);
                 const match = this.whatsappNumbers.find(n => this.samePhone(n.phone, keep));

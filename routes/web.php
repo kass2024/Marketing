@@ -365,6 +365,9 @@ Route::middleware(['auth','verified','role:admin,client'])
         Route::prefix('marketing')->name('marketing.')->group(function () {
             Route::get('create', [AdStudioController::class, 'create'])->name('create');
             Route::get('create/whatsapp-numbers', [AdStudioController::class, 'whatsappNumbers'])->name('create.whatsapp-numbers');
+            Route::post('create/whatsapp-numbers/verify', [AdStudioController::class, 'startWhatsAppVerification'])->name('create.whatsapp-verify');
+            Route::post('create/whatsapp-numbers/verify-resend', [AdStudioController::class, 'resendWhatsAppVerification'])->name('create.whatsapp-verify-resend');
+            Route::post('create/whatsapp-numbers/verify-code', [AdStudioController::class, 'confirmWhatsAppVerification'])->name('create.whatsapp-verify-code');
             Route::get('create/identities', [AdStudioController::class, 'identities'])->name('create.identities');
             Route::post('create/identities', [AdStudioController::class, 'saveIdentity'])->name('create.identities.save');
             Route::post('create/preflight', [AdStudioController::class, 'preflight'])->name('create.preflight');

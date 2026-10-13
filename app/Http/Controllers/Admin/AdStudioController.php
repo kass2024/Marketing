@@ -28,6 +28,7 @@ use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
@@ -210,6 +211,167 @@ class AdStudioController extends Controller
             'rate_limited' => (bool) Cache::get('meta_wa_rate_limited'),
             'synced_at' => now()->toIso8601String(),
         ]);
+    }
+
+    /**
+     * Add a business number on the WhatsApp Business Account and ask Meta to send the OTP.
+     * The number is not an ad destination until confirmWhatsAppVerification succeeds.
+     */
+    public function startWhatsAppVerification(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone_number' => 'required|string|max:32',
+            'verified_name' => 'nullable|string|max:128',
+        ]);
+
+        $digits = preg_replace('/\D+/', '', $data['phone_number']) ?: '';
+        if (strlen($digits) < 10 || strlen($digits) > 15) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Enter the full business number with country code, for example +1 431 340 4830.',
+            ], 422);
+        }
+
+        try {
+            $wabaId = $this->resolveAdStudioWabaId();
+            $name = trim((string) ($data['verified_name'] ?? ''));
+            if ($name === '') {
+                $name = 'Business';
+            }
+            $result = $this->whatsappAccounts->addPhoneNumber($wabaId, $digits, $name, true, false);
+
+            return response()->json([
+                'success' => true,
+                'status' => $result['status'],
+                'phone_number_id' => $result['phone_number_id'],
+                'waba_id' => $wabaId,
+                'phone' => $digits,
+                'display' => $this->formatDisplayPhone($digits),
+                'label' => $name,
+                'message' => $result['message'],
+            ]);
+        } catch (ValidationException $e) {
+            return $this->metaVerificationError($e);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $this->meta->humanizeMetaError($e),
+            ], 422);
+        }
+    }
+
+    public function resendWhatsAppVerification(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone_number_id' => 'required|string|max:64',
+            'code_method' => 'nullable|in:SMS,VOICE',
+        ]);
+
+        if (! ctype_digit($data['phone_number_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Meta has not issued a phone id for this number yet.',
+            ], 422);
+        }
+
+        try {
+            $result = $this->whatsappAccounts->requestVerificationCode(
+                $data['phone_number_id'],
+                $data['code_method'] ?? 'SMS'
+            );
+
+            return response()->json([
+                'success' => true,
+                'status' => $result['status'],
+                'phone_number_id' => $result['phone_number_id'],
+                'message' => ($data['code_method'] ?? 'SMS') === 'VOICE'
+                    ? 'Meta is calling this number with the verification code.'
+                    : 'Meta sent a new verification code by SMS.',
+            ]);
+        } catch (ValidationException $e) {
+            return $this->metaVerificationError($e);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $this->meta->humanizeMetaError($e),
+            ], 422);
+        }
+    }
+
+    public function confirmWhatsAppVerification(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone_number_id' => 'required|string|max:64',
+            'waba_id' => 'nullable|string|max:64',
+            'code' => 'required|string|min:4|max:12',
+            'phone_number' => 'nullable|string|max:32',
+            'verified_name' => 'nullable|string|max:128',
+        ]);
+
+        if (! ctype_digit($data['phone_number_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Meta has not issued a phone id for this number yet.',
+            ], 422);
+        }
+
+        try {
+            $result = $this->whatsappAccounts->verifyAndRegister(
+                $data['phone_number_id'],
+                $data['code'],
+                $data['waba_id'] ?? null,
+                false
+            );
+            $digits = preg_replace('/\D+/', '', (string) ($result['display_phone_number'] ?? $data['phone_number'] ?? '')) ?: '';
+            $label = trim((string) ($result['verified_name'] ?? $data['verified_name'] ?? ''));
+
+            return response()->json([
+                'success' => true,
+                'status' => 'verified',
+                'phone_number_id' => $result['phone_number_id'],
+                'waba_id' => $data['waba_id'] ?? '',
+                'phone' => $digits,
+                'display' => $digits !== '' ? $this->formatDisplayPhone($digits) : '',
+                'label' => $label !== '' ? $label : 'WhatsApp Business',
+                'message' => 'Meta verified this number. Ad chats will go here.',
+            ]);
+        } catch (ValidationException $e) {
+            return $this->metaVerificationError($e);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $this->meta->humanizeMetaError($e),
+            ], 422);
+        }
+    }
+
+    protected function metaVerificationError(ValidationException $e): JsonResponse
+    {
+        $message = collect($e->errors())->flatten()->first();
+
+        return response()->json([
+            'success' => false,
+            'message' => is_string($message) && $message !== ''
+                ? $message
+                : 'Meta could not verify this number.',
+        ], 422);
+    }
+
+    protected function resolveAdStudioWabaId(): string
+    {
+        $connection = app(TenantConnectionResolver::class)->forCurrentUser();
+        $id = preg_replace('/\D+/', '', (string) ($connection?->whatsapp_business_id ?? '')) ?: '';
+        if ($id !== '') {
+            return $id;
+        }
+
+        $accounts = $this->whatsappAccounts->listWabas();
+        $first = preg_replace('/\D+/', '', (string) ($accounts[0]['id'] ?? '')) ?: '';
+        if ($first === '') {
+            throw new Exception('No WhatsApp Business Account is connected. Open Manage numbers and connect one before adding a phone.');
+        }
+
+        return $first;
     }
 
     public function preflight(Request $request): JsonResponse

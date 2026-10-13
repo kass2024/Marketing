@@ -2262,7 +2262,7 @@ class WhatsAppBusinessAccountService
      *
      * @return array{status: string, phone_number_id: string, message: string}
      */
-    public function addPhoneNumber(string $wabaId, string $phoneE164, string $verifiedName, bool $requestCode = true): array
+    public function addPhoneNumber(string $wabaId, string $phoneE164, string $verifiedName, bool $requestCode = true, bool $makeDefault = true): array
     {
         $token = $this->requireToken();
         $digits = TenantMetaPageValidator::normalizeWhatsAppNumber($phoneE164);
@@ -2274,7 +2274,9 @@ class WhatsAppBusinessAccountService
             $status = strtoupper((string) ($existing['code_verification_status'] ?? ''));
 
             if ($status === 'VERIFIED') {
-                $this->maybeSetPlatformDefaultPhone($phoneNumberId, $existing['display_phone_number'] ?? $digits, $wabaId);
+                if ($makeDefault) {
+                    $this->maybeSetPlatformDefaultPhone($phoneNumberId, $existing['display_phone_number'] ?? $digits, $wabaId);
+                }
 
                 return [
                     'status' => 'verified',
@@ -2356,7 +2358,7 @@ class WhatsAppBusinessAccountService
      *
      * @return array{status: string, phone_number_id: string, message: string}
      */
-    public function verifyAndRegister(string $phoneNumberId, string $code, ?string $wabaId = null): array
+    public function verifyAndRegister(string $phoneNumberId, string $code, ?string $wabaId = null, bool $makeDefault = true): array
     {
         $token = $this->requireToken();
 
@@ -2393,12 +2395,17 @@ class WhatsAppBusinessAccountService
         }
 
         $details = $this->getPhoneDetails($phoneNumberId, $token);
-        $display = $details['display_phone_number'] ?? null;
-        $this->maybeSetPlatformDefaultPhone($phoneNumberId, $display, $wabaId);
+        $display = is_array($details) ? ($details['display_phone_number'] ?? null) : null;
+        $verifiedName = is_array($details) ? ($details['verified_name'] ?? null) : null;
+        if ($makeDefault) {
+            $this->maybeSetPlatformDefaultPhone($phoneNumberId, $display, $wabaId);
+        }
 
         return [
             'status' => 'verified',
             'phone_number_id' => $phoneNumberId,
+            'display_phone_number' => $display,
+            'verified_name' => $verifiedName,
             'message' => 'Phone number verified and registered for Cloud API messaging.',
         ];
     }

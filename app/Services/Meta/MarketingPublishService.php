@@ -862,6 +862,11 @@ class MarketingPublishService
                 $display = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?: '';
                 $phoneTail = strlen($display) >= 10 ? substr($display, -10) : $display;
                 if ($tail !== '' && $phoneTail === $tail) {
+                    // Unverified In Review rows are not Cloud API destinations.
+                    // Chats go to the existing WhatsApp Business app via the digits only.
+                    if (! app(WhatsAppBusinessAccountService::class)->isCloudReadyPhone($phone)) {
+                        return null;
+                    }
                     if ($found = $pick((string) ($phone['id'] ?? ''))) {
                         return $found;
                     }

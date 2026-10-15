@@ -2271,9 +2271,8 @@ class WhatsAppBusinessAccountService
         $existing = $this->findPhoneOnWaba($wabaId, $token, $digits);
         if ($existing) {
             $phoneNumberId = (string) $existing['id'];
-            $status = strtoupper((string) ($existing['code_verification_status'] ?? ''));
 
-            if ($status === 'VERIFIED') {
+            if ($this->isCloudReadyPhone($existing)) {
                 if ($makeDefault) {
                     $this->maybeSetPlatformDefaultPhone($phoneNumberId, $existing['display_phone_number'] ?? $digits, $wabaId);
                 }
@@ -2285,14 +2284,14 @@ class WhatsAppBusinessAccountService
                 ];
             }
 
-            if ($requestCode) {
-                $this->requestCode($phoneNumberId, $token);
-            }
+            // Unverified "In Review" rows are a half-finished Cloud API add.
+            // Deleting that row does not disconnect the WhatsApp Business app.
+            $this->releaseUnverifiedPhone($phoneNumberId, $token, $digits);
 
             return [
-                'status' => 'code_sent',
-                'phone_number_id' => $phoneNumberId,
-                'message' => 'Number already on WABA. Verification code sent via SMS.',
+                'status' => 'business_app',
+                'phone_number_id' => '',
+                'message' => 'This number stays on WhatsApp Business. Ad chats will open there, and it will not be disconnected.',
             ];
         }
 
@@ -2315,6 +2314,14 @@ class WhatsAppBusinessAccountService
                 'waba_id' => $wabaId,
                 'response' => $create->json(),
             ]);
+
+            if ($this->isAlreadyOnWhatsAppMessage($message)) {
+                return [
+                    'status' => 'business_app',
+                    'phone_number_id' => '',
+                    'message' => 'This number is already on WhatsApp Business. Ad chats will open there. It will not be migrated or disconnected.',
+                ];
+            }
 
             throw ValidationException::withMessages([
                 'phone_number' => $message,
@@ -2461,6 +2468,174 @@ class WhatsAppBusinessAccountService
     }
 
     /**
+     * A Cloud API number that is already live. These stay on the WABA.
+     * Unverified / In Review rows are incomplete adds and are safe to remove.
+     *
+     * @param  array<string, mixed>  $phone
+     */
+    public function isCloudReadyPhone(array $phone): bool
+    {
+        $code = strtoupper((string) ($phone['code_verification_status'] ?? ''));
+        if ($code === 'VERIFIED') {
+            return true;
+        }
+
+        $status = strtoupper((string) ($phone['status'] ?? ''));
+
+        return in_array($status, ['CONNECTED', 'ONLINE', 'AVAILABLE'], true);
+    }
+
+    public function isAlreadyOnWhatsAppMessage(string $message): bool
+    {
+        $lower = strtolower($message);
+
+        return str_contains($lower, 'already registered')
+            || str_contains($lower, 'already in use')
+            || str_contains($lower, 'phone number in use')
+            || str_contains($lower, 'already exists')
+            || (str_contains($lower, 'migrate') && str_contains($lower, 'disconnect'));
+    }
+
+    /**
+     * Remove an unverified Cloud API phone row. Does not call deregister,
+     * so the WhatsApp Business app on this number stays connected.
+     */
+    public function releaseUnverifiedPhone(string $phoneNumberId, ?string $token = null, ?string $digits = null): bool
+    {
+        if ($phoneNumberId === '' || ! ctype_digit($phoneNumberId)) {
+            return false;
+        }
+
+        $token ??= $this->requireToken();
+        $details = $this->getPhoneDetails($phoneNumberId, $token);
+        if (is_array($details) && $this->isCloudReadyPhone($details)) {
+            Log::info('WABA_RELEASE_SKIPPED_LIVE', ['phone_number_id' => $phoneNumberId]);
+
+            return false;
+        }
+
+        $response = Http::timeout(45)->delete(
+            "{$this->graphUrl}/{$this->graphVersion}/{$phoneNumberId}",
+            ['access_token' => $token]
+        );
+
+        if (! $response->ok() && $response->status() !== 200) {
+            Log::warning('WABA_RELEASE_UNVERIFIED_FAILED', [
+                'phone_number_id' => $phoneNumberId,
+                'response' => $response->json(),
+            ]);
+
+            return false;
+        }
+
+        $display = is_array($details) ? (string) ($details['display_phone_number'] ?? '') : '';
+        $this->forgetPhoneDigits($digits ?: $display);
+
+        return true;
+    }
+
+    /**
+     * Remove unverified Cloud API rows for a number that already lives on WhatsApp Business.
+     * Live connected numbers are left alone. Nothing here calls deregister.
+     *
+     * @return array{status: string, message: string}
+     */
+    public function releaseExistingDisplayNumber(string $phoneE164): array
+    {
+        $token = $this->requireToken();
+        $digits = TenantMetaPageValidator::normalizeWhatsAppNumber($phoneE164);
+        $wabaIds = [];
+        $connectionWaba = preg_replace('/\D+/', '', (string) ($this->connection()?->whatsapp_business_id ?? '')) ?: '';
+        if ($connectionWaba !== '') {
+            $wabaIds[] = $connectionWaba;
+        }
+
+        try {
+            foreach ($this->listWabas() as $waba) {
+                $id = preg_replace('/\D+/', '', (string) ($waba['id'] ?? '')) ?: '';
+                if ($id !== '') {
+                    $wabaIds[] = $id;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('WABA_RELEASE_LIST_FAILED', ['error' => $e->getMessage()]);
+        }
+
+        $removed = 0;
+        $kept = 0;
+        foreach (array_values(array_unique($wabaIds)) as $wabaId) {
+            $existing = $this->findPhoneOnWaba($wabaId, $token, $digits);
+            if (! $existing) {
+                continue;
+            }
+            if ($this->isCloudReadyPhone($existing)) {
+                $kept++;
+
+                continue;
+            }
+            if ($this->releaseUnverifiedPhone((string) $existing['id'], $token, $digits)) {
+                $removed++;
+            }
+        }
+
+        if ($removed > 0) {
+            return [
+                'status' => 'removed',
+                'message' => 'Removed the unverified registration. The WhatsApp Business app was not disconnected.',
+            ];
+        }
+        if ($kept > 0) {
+            return [
+                'status' => 'kept',
+                'message' => 'This number is already connected for messaging, so it was left in place.',
+            ];
+        }
+
+        return [
+            'status' => 'business_app',
+            'message' => 'Not on the Cloud API list. It stays on WhatsApp Business and can receive ad chats.',
+        ];
+    }
+
+    /**
+     * Drop a display number from the cached directory after its unverified row is removed.
+     */
+    public function forgetPhoneDigits(string $digits): void
+    {
+        $connection = $this->connection();
+        if (! $connection) {
+            return;
+        }
+
+        $needle = TenantMetaPageValidator::normalizeWhatsAppNumber($digits);
+        $tail = strlen($needle) >= 10 ? substr($needle, -10) : $needle;
+        if ($tail === '') {
+            return;
+        }
+
+        $directory = array_values(array_filter(
+            (array) ($connection->whatsapp_phone_directory ?? []),
+            function ($phone) use ($tail) {
+                if (! is_array($phone)) {
+                    return false;
+                }
+                $display = TenantMetaPageValidator::normalizeWhatsAppNumber((string) ($phone['display_phone_number'] ?? ''));
+                $phoneTail = strlen($display) >= 10 ? substr($display, -10) : $display;
+
+                return $phoneTail === '' || $phoneTail !== $tail;
+            }
+        ));
+
+        $cacheKey = 'meta_wa_phone_directory_'.($connection->id ?? 'platform');
+        if (\Illuminate\Support\Facades\Schema::hasColumn($connection->getTable(), 'whatsapp_phone_directory')) {
+            $connection->forceFill([
+                'whatsapp_phone_directory' => $directory,
+            ])->save();
+        }
+        Cache::put($cacheKey, $directory, now()->addMinutes(30));
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     protected function findPhoneOnWaba(string $wabaId, string $token, string $digits): ?array
@@ -2469,7 +2644,7 @@ class WhatsAppBusinessAccountService
             "{$this->graphUrl}/{$this->graphVersion}/{$wabaId}/phone_numbers",
             [
                 'access_token' => $token,
-                'fields' => 'id,display_phone_number,verified_name,code_verification_status,status',
+                'fields' => 'id,display_phone_number,verified_name,code_verification_status,status,name_status',
             ]
         );
 
@@ -2500,7 +2675,7 @@ class WhatsAppBusinessAccountService
             "{$this->graphUrl}/{$this->graphVersion}/{$phoneNumberId}",
             [
                 'access_token' => $token,
-                'fields' => 'id,display_phone_number,verified_name,code_verification_status,status',
+                'fields' => 'id,display_phone_number,verified_name,code_verification_status,status,name_status',
             ]
         );
 

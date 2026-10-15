@@ -972,10 +972,11 @@ class AdStudioController extends Controller
                 return;
             }
             $seen[$digits] = true;
-            $synthetic = str_starts_with($id, 'display:');
+            $synthetic = str_starts_with($id, 'display:') || str_starts_with($id, 'business:');
             $numbers[] = [
                 'id' => $id,
-                'label' => $synthetic ? ($label.' (synced from Meta BM)') : $label,
+                'label' => str_starts_with($id, 'display:') ? ($label.' (synced from Meta BM)') : $label,
+                'business_app' => str_starts_with($id, 'business:'),
                 'phone' => $digits,
                 'display' => $this->formatDisplayPhone($digits),
                 'phone_number_id' => $synthetic ? '' : $id,
@@ -1017,10 +1018,15 @@ class AdStudioController extends Controller
             if ($wabaName !== '' && $name !== '' && ! str_contains(strtolower($name), strtolower($wabaName))) {
                 $label = $name.' · '.$wabaName;
             }
-            $verified = array_key_exists('verified', $phone)
+            $cloudReady = $wabaService->isCloudReadyPhone($phone);
+            $verified = $cloudReady || (array_key_exists('verified', $phone)
                 ? (bool) $phone['verified']
-                : $wabaService->isPhoneVerified($phone);
-            $push((string) ($phone['id'] ?? ''), $label, $digits, $verified, $wabaName !== '' ? $wabaName : null);
+                : $wabaService->isPhoneVerified($phone));
+            $phoneId = (string) ($phone['id'] ?? '');
+            if (! $cloudReady && $phoneId !== '' && ctype_digit($phoneId)) {
+                $phoneId = 'business:'.$digits;
+            }
+            $push($phoneId, $label, $digits, $verified, $wabaName !== '' ? $wabaName : null);
         }
 
         if ($connection?->whatsapp_phone_number) {

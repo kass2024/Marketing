@@ -532,7 +532,7 @@
 
                             <div class="rounded-xl border border-slate-200 bg-white p-3">
                                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Add a business number</p>
-                                <p class="mt-1 text-xs leading-relaxed text-slate-500">Meta texts or calls this number with a code. It can receive ads only after that code is confirmed. Use the full number with country code.</p>
+                                <p class="mt-1 text-xs leading-relaxed text-slate-500">Use the full number with country code. A number already on WhatsApp Business receives the ad chats there. It is not disconnected or migrated.</p>
                                 <div class="mt-3 grid gap-2 sm:grid-cols-[1fr_1.2fr_auto]">
                                     <input type="text" x-model="waAddLabel" maxlength="80" placeholder="Display name on WhatsApp"
                                         class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
@@ -589,7 +589,7 @@
                         </div>
 
                         <div class="rounded-xl border border-slate-100 bg-slate-50 p-4 text-[11px] leading-relaxed text-slate-600">
-                            Meta only delivers Click-to-WhatsApp ads to a WhatsApp Business number it has verified on your WhatsApp Business Account. A number typed here is registered with Meta and confirmed with their SMS or voice code. Personal WhatsApp numbers are rejected.
+                            Ad chats open on the WhatsApp Business number you select. A number already on the WhatsApp Business app stays there — this page does not disconnect it. Personal WhatsApp numbers are rejected by Meta.
                         </div>
 
                         <div class="rounded-xl bg-[#e5ddd5] p-4">
@@ -1244,10 +1244,13 @@ function adStudio(config) {
             const phone = this.deliveryPhoneDigits();
             if (!phone) return '';
             const n = this.whatsappNumbers.find(w => this.samePhone(w.phone, phone));
+            if (n && n.business_app) {
+                return 'Stays on WhatsApp Business. People who tap the ad chat with ' + (n.display || this.formatWa(phone)) + '. This number is not disconnected.';
+            }
             if (n && n.phone_number_id && String(n.phone_number_id).match(/^\d+$/)) {
                 return 'Connected WhatsApp Business number. People who tap the ad chat with ' + (n.display || this.formatWa(phone)) + '.';
             }
-            return 'Ad chats go to ' + this.formatWa(phone) + '. Meta delivers them only if this is a WhatsApp Business number on the Facebook Page. Personal numbers are not accepted.';
+            return 'Ad chats go to ' + this.formatWa(phone) + ' on the existing WhatsApp Business app. Personal numbers are not accepted.';
         },
 
         deliveryPhoneDigits() {
@@ -1377,6 +1380,13 @@ function adStudio(config) {
                     this.waAddNote = data.message || 'Meta verified this number.';
                     return;
                 }
+                if (data.status === 'business_app') {
+                    this.selectBusinessAppNumber(data);
+                    this.waAddPhone = '';
+                    this.waAddLabel = '';
+                    this.waAddNote = data.message || 'This number stays on WhatsApp Business. Ad chats will open there.';
+                    return;
+                }
                 this.waPending = {
                     phone_number_id: String(data.phone_number_id || ''),
                     waba_id: String(data.waba_id || ''),
@@ -1462,6 +1472,56 @@ function adStudio(config) {
             } finally {
                 this.waVerifying = false;
             }
+        },
+
+        selectBusinessAppNumber(data) {
+            const phone = String(data.phone || '').replace(/\D/g, '');
+            if (!phone) return;
+            let row = this.whatsappNumbers.find(n => this.samePhone(n.phone, phone));
+            if (!row) {
+                row = {
+                    id: 'business:' + phone,
+                    phone: phone,
+                    display: data.display || this.formatWa(phone),
+                    label: data.label || 'WhatsApp Business',
+                    phone_number_id: '',
+                    verified: true,
+                    business_app: true,
+                    waba_name: null,
+                    source: 'business_app',
+                };
+                this.whatsappNumbers.push(row);
+            } else {
+                row.phone_number_id = '';
+                row.business_app = true;
+                row.verified = true;
+                row.id = 'business:' + phone;
+                row.source = 'business_app';
+            }
+            this.form.whatsapp_phone_number = row.phone;
+            this.form.whatsapp_chat_url = '';
+            this.form.whatsapp_phone_number_id = '';
+            if (!this.form.notification_whatsapp_number) {
+                this.form.notification_whatsapp_number = row.phone;
+            }
+            this.waPending = { phone_number_id: '', waba_id: '', phone: '', display: '', label: '' };
+            this.waVerifyCode = '';
+            this.persistBusinessAppNumbers();
+        },
+
+        persistBusinessAppNumbers() {
+            const rows = this.whatsappNumbers.filter(n => n.business_app);
+            sessionStorage.setItem('adstudio_business_app_wa', JSON.stringify(rows));
+        },
+
+        rememberedBusinessAppNumbers() {
+            let stored = [];
+            try {
+                stored = JSON.parse(sessionStorage.getItem('adstudio_business_app_wa') || '[]');
+            } catch (e) {
+                stored = [];
+            }
+            return (Array.isArray(stored) ? stored : []).filter(n => String(n.phone || '').replace(/\D/g, '').length >= 10);
         },
 
         selectVerifiedNumber(data) {
@@ -1864,6 +1924,7 @@ function adStudio(config) {
                 const remembered = this.rememberedAddedNumbers().concat(this.rememberedVerifiedNumbers());
                 this.whatsappNumbers = data.data || [];
                 this.mergeAddedIntoList(remembered);
+                this.rememberedBusinessAppNumbers().forEach(entry => this.selectBusinessAppNumber(entry));
                 const match = this.whatsappNumbers.find(n => this.samePhone(n.phone, keep));
                 if (match) {
                     this.form.whatsapp_phone_number = match.phone;
@@ -1956,7 +2017,7 @@ function adStudio(config) {
                 this.form.whatsapp_phone_number = match.phone;
             }
             let id = match?.phone_number_id || '';
-            if (!id || String(id).startsWith('display:') || String(id).startsWith('added:') || id === 'platform') {
+            if (match?.business_app || !id || String(id).startsWith('display:') || String(id).startsWith('business:') || String(id).startsWith('added:') || id === 'platform') {
                 id = '';
             }
             this.form.whatsapp_phone_number_id = id;

@@ -38,6 +38,7 @@
         window.open(links[1], '_blank');
         window.location.href = links[0];
     });
+    window.location.replace(links[0]);
 </script>
 </body>
 </html>

@@ -37,6 +37,7 @@
         window.open(canada, '_blank');
         window.location.href = dubai;
     });
+    window.location.replace(dubai);
 </script>
 </body>
 </html>

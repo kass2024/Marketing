@@ -2485,6 +2485,24 @@ class WhatsAppBusinessAccountService
         return in_array($status, ['CONNECTED', 'ONLINE', 'AVAILABLE'], true);
     }
 
+    /**
+     * Numbers already on the WhatsApp Business app. Ad clicks may open only these.
+     * Linked Cloud API numbers are never ad destinations.
+     *
+     * @return list<string>
+     */
+    public function existingBusinessAppNumbers(): array
+    {
+        return ['15812044214', '971566136690', '14503675329'];
+    }
+
+    public function isExistingBusinessAppNumber(string $digits): bool
+    {
+        $digits = preg_replace('/\D+/', '', $digits) ?: '';
+
+        return $digits !== '' && in_array($digits, $this->existingBusinessAppNumbers(), true);
+    }
+
     public function isAlreadyOnWhatsAppMessage(string $message): bool
     {
         $lower = strtolower($message);

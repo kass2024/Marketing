@@ -111,16 +111,10 @@ class MarketingPublishService
                 $phoneField = '';
             }
             $chatUrl = trim((string) ($wizardData['whatsapp_chat_url'] ?? ''));
-            $connectionPhone = trim((string) ($connection->whatsapp_phone_number ?? ''));
-
             if ($phoneField !== '') {
                 $waDestination = $phoneField;
             } elseif ($chatUrl !== '') {
                 $waDestination = $chatUrl;
-            } elseif (! empty($messagingApps['whatsapp'])) {
-                // Never prefer .env / platform default when WhatsApp accounts are selected in UI —
-                // only use connection as last resort if nothing else was posted.
-                $waDestination = $connectionPhone;
             } else {
                 $waDestination = '';
             }
@@ -130,13 +124,16 @@ class MarketingPublishService
                     ?? (preg_replace('/\D+/', '', $waDestination) ?: null)
                     ?? ''))
                 : '';
-            $whatsappPhoneId = $whatsappPhone !== ''
-                ? $this->resolveWhatsAppBusinessPhoneNumberId(
-                    (string) $whatsappPhone,
-                    $wizardData,
-                    $connection
-                )
-                : null;
+            if (! empty($messagingApps['whatsapp'])) {
+                $waGuard = app(WhatsAppBusinessAccountService::class);
+                if ($whatsappPhone === '' || ! $waGuard->isExistingBusinessAppNumber((string) $whatsappPhone)) {
+                    throw new Exception(
+                        'Ads can only open an existing WhatsApp number: +1 581-204-4214, +971 56 613 6690, or +1 450-367-5329. A linked Cloud API number cannot receive these chats.'
+                    );
+                }
+            }
+            // Never pass a Cloud API phone id. Meta would deliver to the linked number.
+            $whatsappPhoneId = null;
             $status = $activate ? 'ACTIVE' : 'PAUSED';
             $budgetCents = $this->resolveBudgetCents($wizardData);
 
@@ -146,7 +143,9 @@ class MarketingPublishService
                 'meta_page_id' => $pageId,
                 'platform_meta_connection_id' => $connection->id,
                 'name' => $wizardData['name'],
-                'objective' => $wizardData['objective'] ?? 'OUTCOME_ENGAGEMENT',
+                'objective' => ! empty($messagingApps['whatsapp'])
+                    ? 'OUTCOME_TRAFFIC'
+                    : ($wizardData['objective'] ?? 'OUTCOME_ENGAGEMENT'),
                 'marketing_channel' => 'click_to_whatsapp',
                 'daily_budget' => $budgetCents,
                 'status' => $activate ? Campaign::STATUS_ACTIVE : Campaign::STATUS_PAUSED,
@@ -177,9 +176,9 @@ class MarketingPublishService
                 $whatsappPhoneId
             );
 
-            if (! empty($messagingApps['whatsapp']) && empty($adSetDefaults['promoted_object']['whatsapp_phone_number'])) {
+            if (! empty($messagingApps['whatsapp']) && $whatsappPhone === '') {
                 throw new Exception(
-                    'Select a WhatsApp Business number from your WhatsApp accounts before publishing (do not rely on the platform default).'
+                    'Select an existing WhatsApp number before publishing. Linked Cloud API numbers are not allowed.'
                 );
             }
 
@@ -226,18 +225,29 @@ class MarketingPublishService
 
             $adSet = AdSet::create($adSetAttrs);
 
-            $metaAdSet = $this->meta->createWhatsAppAdSet($accountId, array_merge($adSetDefaults, [
-                'name' => $adSet->name,
-                'campaign_id' => $campaign->meta_id,
-                'daily_budget' => $budgetCents,
-                'targeting' => $targeting,
-                'status' => $status,
-                'whatsapp_phone_number' => (string) $whatsappPhone,
-                'whatsapp_phone_number_id' => $whatsappPhoneId,
-                'whats_app_business_phone_number_id' => $whatsappPhoneId,
-                'start_time' => $startTs,
-                'end_time' => $endTs,
-            ]));
+            if (! empty($messagingApps['whatsapp'])) {
+                $metaAdSet = $this->meta->createAdSet($accountId, [
+                    'name' => $adSet->name,
+                    'campaign_id' => $campaign->meta_id,
+                    'daily_budget' => $budgetCents,
+                    'billing_event' => 'IMPRESSIONS',
+                    'optimization_goal' => 'LINK_CLICKS',
+                    'status' => $status,
+                    'targeting' => $targeting,
+                    'start_time' => $startTs,
+                    'end_time' => $endTs,
+                ]);
+            } else {
+                $metaAdSet = $this->meta->createWhatsAppAdSet($accountId, array_merge($adSetDefaults, [
+                    'name' => $adSet->name,
+                    'campaign_id' => $campaign->meta_id,
+                    'daily_budget' => $budgetCents,
+                    'targeting' => $targeting,
+                    'status' => $status,
+                    'start_time' => $startTs,
+                    'end_time' => $endTs,
+                ]));
+            }
             $createdMeta['adset'] = (string) ($metaAdSet['id'] ?? '');
             $this->cachePublishOrphans($lockKey, $createdMeta);
 
@@ -826,63 +836,14 @@ class MarketingPublishService
     }
 
     /**
-     * Resolve Meta WhatsApp Business phone number ID for promoted_object.
-     * Prefer the selected dropdown id / directory match by digits — never a mismatched platform .env number.
+     * Cloud API phone ids are never attached. Clicks open an existing WhatsApp number by digits only.
      */
     protected function resolveWhatsAppBusinessPhoneNumberId(
         string $digits,
         array $wizardData,
         PlatformMetaConnection $connection
     ): ?string {
-        $pick = static function (string $id): ?string {
-            $id = trim($id);
-            if ($id === '' || str_starts_with($id, 'display:') || $id === 'platform' || ! ctype_digit($id)) {
-                return null;
-            }
-
-            return $id;
-        };
-
-        foreach ([
-            (string) ($wizardData['whatsapp_phone_number_id'] ?? ''),
-            (string) ($wizardData['phone_number_id'] ?? ''),
-        ] as $raw) {
-            if ($found = $pick($raw)) {
-                return $found;
-            }
-        }
-
-        $tail = strlen($digits) >= 10 ? substr($digits, -10) : $digits;
-        try {
-            $directory = app(WhatsAppBusinessAccountService::class)->loadPhoneDirectory($connection);
-            foreach ($directory as $phone) {
-                if (! is_array($phone)) {
-                    continue;
-                }
-                $display = preg_replace('/\D+/', '', (string) ($phone['display_phone_number'] ?? '')) ?: '';
-                $phoneTail = strlen($display) >= 10 ? substr($display, -10) : $display;
-                if ($tail !== '' && $phoneTail === $tail) {
-                    // Unverified In Review rows are not Cloud API destinations.
-                    // Chats go to the existing WhatsApp Business app via the digits only.
-                    if (! app(WhatsAppBusinessAccountService::class)->isCloudReadyPhone($phone)) {
-                        return null;
-                    }
-                    if ($found = $pick((string) ($phone['id'] ?? ''))) {
-                        return $found;
-                    }
-                }
-            }
-        } catch (\Throwable) {
-            // ignore
-        }
-
-        $connectionDigits = preg_replace('/\D+/', '', (string) ($connection->whatsapp_phone_number ?? '')) ?: '';
-        $connectionTail = strlen($connectionDigits) >= 10 ? substr($connectionDigits, -10) : $connectionDigits;
-        if ($tail !== '' && $connectionTail === $tail) {
-            if ($found = $pick((string) ($connection->whatsapp_phone_number_id ?? ''))) {
-                return $found;
-            }
-        }
+        unset($digits, $wizardData, $connection);
 
         return null;
     }

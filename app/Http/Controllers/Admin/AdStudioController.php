@@ -1018,29 +1018,11 @@ class AdStudioController extends Controller
             if ($wabaName !== '' && $name !== '' && ! str_contains(strtolower($name), strtolower($wabaName))) {
                 $label = $name.' · '.$wabaName;
             }
-            $cloudReady = $wabaService->isCloudReadyPhone($phone);
-            $verified = $cloudReady || (array_key_exists('verified', $phone)
-                ? (bool) $phone['verified']
-                : $wabaService->isPhoneVerified($phone));
-            $phoneId = (string) ($phone['id'] ?? '');
-            if (! $cloudReady && $phoneId !== '' && ctype_digit($phoneId)) {
-                $phoneId = 'business:'.$digits;
+            if (! $wabaService->isExistingBusinessAppNumber($digits)) {
+                continue;
             }
-            $push($phoneId, $label, $digits, $verified, $wabaName !== '' ? $wabaName : null);
-        }
-
-        if ($connection?->whatsapp_phone_number) {
-            $digits = preg_replace('/\D+/', '', $connection->whatsapp_phone_number) ?? '';
-            $platformId = (string) ($connection->whatsapp_phone_number_id ?: 'platform');
-            // Do not inject platform default when WABA directory already has numbers
-            if ($numbers === [] && ! str_starts_with($platformId, 'display:')) {
-                $push(
-                    $platformId,
-                    $connection->page_name ?? $connection->business_name ?? 'Platform default',
-                    $digits,
-                    true
-                );
-            }
+            $phoneId = 'business:'.$digits;
+            $push($phoneId, $label, $digits, false, $wabaName !== '' ? $wabaName : null);
         }
 
         return $numbers;

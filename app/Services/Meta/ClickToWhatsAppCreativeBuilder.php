@@ -57,6 +57,21 @@ class ClickToWhatsAppCreativeBuilder
         return $spec;
     }
 
+    public function directChatLink(string $phoneE164, string $prefillMessage = ''): string
+    {
+        $digits = preg_replace('/\D+/', '', $phoneE164) ?? '';
+        if ($digits === '') {
+            throw new \InvalidArgumentException('WhatsApp phone number is required (E.164, digits only).');
+        }
+
+        $url = 'https://api.whatsapp.com/send?phone='.$digits;
+        if ($prefillMessage !== '') {
+            $url .= '&text='.rawurlencode($prefillMessage);
+        }
+
+        return $url;
+    }
+
     public function buildWhatsAppLink(string $phoneE164, string $prefillMessage = ''): string
     {
         $digits = preg_replace('/\D+/', '', $phoneE164) ?? '';
@@ -361,7 +376,7 @@ class ClickToWhatsAppCreativeBuilder
         }
         if (! empty($apps['whatsapp'])) {
             return [
-                'type' => self::CTA_WHATSAPP_MESSAGE,
+                'type' => 'LEARN_MORE',
                 'link' => 'https://api.whatsapp.com/send',
                 'app_destination' => 'WHATSAPP',
             ];
@@ -389,22 +404,33 @@ class ClickToWhatsAppCreativeBuilder
         }
 
         $primary = $this->primaryCtaForApps($apps);
+        $digits = preg_replace('/\D+/', '', (string) ($input['whatsapp_phone_number'] ?? '')) ?: '';
+        $directChat = (! empty($apps['whatsapp']) && $digits !== '')
+            ? $this->directChatLink($digits, $prefill)
+            : '';
+        $link = $directChat !== '' ? $directChat : $primary['link'];
+        $cta = $directChat !== ''
+            ? [
+                'type' => 'LEARN_MORE',
+                'value' => ['link' => $directChat],
+            ]
+            : [
+                'type' => $primary['type'],
+                'value' => [
+                    'app_destination' => $primary['app_destination'],
+                ],
+            ];
         $linkData = array_filter([
             'message' => $input['primary_text'] ?? $input['body'] ?? '',
             'name' => $input['headline'] ?? $input['name'] ?? '',
             'description' => $input['description'] ?? '',
             'image_hash' => $input['image_hash'] ?? null,
             'video_id' => $input['video_id'] ?? null,
-            'link' => $primary['link'],
-            'call_to_action' => [
-                'type' => $primary['type'],
-                'value' => [
-                    'app_destination' => $primary['app_destination'],
-                ],
-            ],
-            'page_welcome_message' => $this->buildPageWelcomeMessage(
-                $prefill !== '' ? $prefill : "Hi! I'd like more details."
-            ),
+            'link' => $link,
+            'call_to_action' => $cta,
+            'page_welcome_message' => $directChat === ''
+                ? $this->buildPageWelcomeMessage($prefill !== '' ? $prefill : "Hi! I'd like more details.")
+                : null,
         ], fn ($v) => $v !== null && $v !== '');
 
         $spec = [
@@ -413,7 +439,7 @@ class ClickToWhatsAppCreativeBuilder
         ];
 
         if (! empty($input['instagram_user_id']) && (
-            ! empty($apps['instagram']) || $this->isMultiDestination($destinationType)
+            $directChat !== '' || ! empty($apps['instagram']) || $this->isMultiDestination($destinationType)
         )) {
             $spec['instagram_user_id'] = (string) $input['instagram_user_id'];
         }
@@ -423,7 +449,7 @@ class ClickToWhatsAppCreativeBuilder
             'object_story_spec' => $spec,
         ];
 
-        if ($this->isMultiDestination($destinationType)) {
+        if ($directChat === '' && $this->isMultiDestination($destinationType)) {
             $payload['asset_feed_spec'] = [
                 'optimization_type' => 'DOF_MESSAGING_DESTINATION',
                 'call_to_actions' => $this->buildMultiDestinationCallToActions($apps),
@@ -443,17 +469,19 @@ class ClickToWhatsAppCreativeBuilder
         ?string $whatsappPhoneDigits = null,
         ?string $whatsappBusinessPhoneNumberId = null
     ): array {
+        unset($whatsappBusinessPhoneNumberId);
+        if (! empty($apps['whatsapp'])) {
+            return [
+                'optimization_goal' => 'LINK_CLICKS',
+                'billing_event' => 'IMPRESSIONS',
+                'destination_type' => null,
+                'page_id' => $pageId,
+                'promoted_object' => ['page_id' => $pageId],
+            ];
+        }
+
         $destinationType = $this->destinationTypeForApps($apps);
         $promoted = ['page_id' => $pageId];
-
-        if (! empty($apps['whatsapp'])) {
-            if ($whatsappPhoneDigits !== null && $whatsappPhoneDigits !== '') {
-                $promoted['whatsapp_phone_number'] = preg_replace('/\D+/', '', $whatsappPhoneDigits);
-            }
-            if ($whatsappBusinessPhoneNumberId && ctype_digit($whatsappBusinessPhoneNumberId)) {
-                $promoted['whats_app_business_phone_number_id'] = $whatsappBusinessPhoneNumberId;
-            }
-        }
 
         return [
             'optimization_goal' => 'CONVERSATIONS',
